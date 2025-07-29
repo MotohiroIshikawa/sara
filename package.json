@@ -1,0 +1,30 @@
+{
+  "name": "sara",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "stg": "next dev --experimental-https --experimental-https-key ./certificates/lineai-dev-mi10490jp-com-key.pem --experimental-https-cert ./certificates/lineai-dev-mi10490jp-com-fullchain.pem",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^10.0.0",
+    "@line/liff": "^2.27.1",
+    "next": "15.4.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.4.4",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
