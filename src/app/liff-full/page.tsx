@@ -19,7 +19,7 @@ export default function Page() {
       return;
     }
     setAuthenticated(true);
-    window.location.href = '/liff-top>';
+    window.location.href = '/liff-top';
   }, [liffState, setAuthenticated]);
 
   useEffect(() => {
