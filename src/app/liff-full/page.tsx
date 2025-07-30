@@ -15,7 +15,7 @@ export default function Page() {
       body: JSON.stringify({ token }),
     });
     if (!res.ok) {
-      console.error('failed to login');
+      console.log('failed to login');
       return;
     }
     setAuthenticated(true);

@@ -6,12 +6,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html>
-      <body>
-        <LiffProvider>
-          {children}
-        </LiffProvider>
-      </body>
-    </html>
+    <LiffProvider>
+      {children}
+    </LiffProvider>
   );
 }
