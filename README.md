@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
 ## Getting Started
+1. LINE Developersにアカウントを作成し、プロバイダーとチャネルを作成する
+- MessagingAPIのチャネルよりチャネルアクセストークンとチャネルシークレットを取得
+- LINEログインのチャネルにてLIFFアプリを作成し、LIFF IDを取得
 
-First, run the development server:
-
+2. プロジェクトフォルダ(sara)直下に.envファイルを作成する
+```
+LINE_CHANNEL_ACCESS_TOKEN='xxxxxxxx'
+# チャネルアクセストークンを記載
+LINE_CHANNEL_SECRET='xxxxxxxx'
+# チャネルシークレットを記載
+NEXT_PUBLIC_LIFF_ID_FULL='xxxxxxxx'
+# LIFF IDを記載
+```
+3. プロジェクトフォルダ(sara)直下にcertificateフォルダを作成し、証明書を導入する
+- messagingAPIのエンドポイントにはhttpsで接続できることが必須なため
+- 証明書は中間証明書とサーバ証明書を連結する
+- packages.jsonを編集する
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "stg": "next dev --experimental-https --experimental-https-key ./certificates/<秘密鍵ファイル名> --experimental-https-cert ./certificates/<中間証明書とサーバ証明書を連結したファイル名>",
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. サーバを起動する
+```bash
+npm install
+npm run dev
+# HTTPSでのアクセス用途 (オレオレ認証)
+# https://localhost:3000
+npm run stg
+# HTTPSでのアクセス用途
+# https://your.domain:3000
+```
+- LINE messagingApiのエンドポイント
+[https://localhost:3000/linebot](http://localhost:3000/linebot)
+- Endpoint of LIFF (FULL)
+[https://localhost:3000/liff](http://localhost:3000/liff)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+5. LINE Developersにエンドポイントを設定する
+- LINE DevelopersのMessagingAPIチャネル->MessagingAPI設定->Webhook設定
+- 「検証」で成功すること
+- 失敗する場合はブラウザ等で https://your.domain:3000/linebot にアクセスする

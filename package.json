@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --experimental-https",
     "stg": "next dev --experimental-https --experimental-https-key ./certificates/lineai-dev-mi10490jp-com-key.pem --experimental-https-cert ./certificates/lineai-dev-mi10490jp-com-fullchain.pem",
     "build": "next build",
     "start": "next start",
