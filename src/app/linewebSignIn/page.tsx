@@ -1,4 +1,4 @@
-import { LoginButton } from '../components/buttons'
+import { LoginButton } from '../lineweb/components/buttons'
 
 export default async function Home() {
   return (
