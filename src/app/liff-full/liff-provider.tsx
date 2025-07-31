@@ -31,7 +31,7 @@ export const LiffProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   useEffect(() => {
     liff.init(
-      { liffId: process.env.NEXT_PUBLIC_LIFF_ID_FULL || '' },
+      { liffId: process.env.NEXT_PUBLIC_LIFF_ID_LOGIN || '' },
       () => { setliffState(liff); }, // 成功時に liff をセット
       (error) => {
         console.error('LIFF initialization failed', error);
