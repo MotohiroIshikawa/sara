@@ -32,7 +32,7 @@ export const LiffProvider: FC<{ children: ReactNode }> = ({ children }) => {
   useEffect(() => {
     // liff.init()
     liff.init(
-      { liffId: process.env.NEXT_PUBLIC_LIFF_ID_FULL || '' },
+      { liffId: process.env.NEXT_PUBLIC_LIFF_ID || '' },
       () => { setliffState(liff); },
       (error) => {
         console.error('LIFF initialization failed', error);
