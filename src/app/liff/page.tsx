@@ -21,12 +21,14 @@ export default function Page() {
     <div>
       {lineProfile && (
         <>
-          <p>LIFF - No need to login after init to get user profile.</p>
-          <p classname="font-bold">UserProfile</p>
+          <p>LIFF: ログインなしでユーザプロファイルが取得可能</p>
+          <p></p>
+          <p className="font-bold">UserProfile</p>
           <p>userId: {lineProfile.userId}</p>
           <p>displayName: {lineProfile.displayName}</p>
+          <p>statusMessage: {lineProfile.statusMessage || ""}</p>
           <p>
-            {/* eslint-disable-next-line @next/next/no-img-element */},
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={lineProfile.pictureUrl}
               alt='profile'
