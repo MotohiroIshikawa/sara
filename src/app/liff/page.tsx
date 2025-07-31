@@ -1,27 +1,26 @@
 'use client';
 
-import { useLiff } from './LiffProvider';
-import type { Profile } from '@liff/get-profile';
+import { useLiff } from './liff-provider';
+import { Profile } from '@liff/get-profile';
 import { useEffect, useState } from 'react';
 
-export function Profile() {
+export default function Page() {
   const [profile, setProfile] = useState<Profile | null>(null);
-  const { liff } = useLiff();
+  const { liffState } = useLiff();
 
   useEffect(() => {
-    if (liff?.isLoggedIn()) {
+    if (liffState?.isLoggedIn()) {
       (async () => {
-        const profile = await liff.getProfile();
+        const profile = await liffState.getProfile();
         setProfile(profile);
       })();
     }
-  }, [liff]);
+  }, [liffState]);
 
   return (
     <div>
       {profile && (
         <>
-          <p className='text-center font-bold text-xl'>LIFF: LINEログインなしでユーザプロファイルを取得できる</p>
           {/* eslint-disable-next-line @next/next/no-img-element */},
           <img
             src={profile.pictureUrl}
@@ -35,3 +34,4 @@ export function Profile() {
     </div>
   );
 }
+
