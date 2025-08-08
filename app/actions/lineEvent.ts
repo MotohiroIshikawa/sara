@@ -28,7 +28,7 @@ export async function lineEvent(event: WebhookEvent) {
         })
         console.log("Success regist Talk request");
 
-        const aiResponse = await fetch('../api/getOpenAi', {
+        const aiResponse = await fetch('https://localhost:3000/api/getOpenAi', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', },
           body: text,
