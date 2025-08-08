@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const Schema = mongoose.Schema;
 const TalkSchema = new Schema({
-  user: {
+  userId: {
     type: String,
     required: true,
   },
