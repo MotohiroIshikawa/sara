@@ -15,7 +15,7 @@ export async function lineEvent(event: WebhookEvent) {
     if (event.type == "message"){
       if (event.message.type == "text") {
         const { userId } = event.source;
-        const { text } = event.message.text;
+        const { text } = event.message;
         const timestampStart = new Date();
 
         await connectDB()
