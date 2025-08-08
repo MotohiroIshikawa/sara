@@ -14,6 +14,7 @@ export const connectOpenAI = async (message: string) => {
       #・返信する内容のタイトル(title)は、30文字以内としてください。
       #・返信する内容の詳細(detail)は、120文字以内としてください。
       `;
+    console.log(content);
     const messages = [
       { role: "system", content: "You are a brilliant japanese linguist." },
       { role: "user", content },

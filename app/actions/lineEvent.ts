@@ -30,7 +30,7 @@ export async function lineEvent(event: WebhookEvent) {
 
         const baseURL = process.env.BASE_URL;
         try{
-          const aiResponse = await fetch(baseURL + 'api/getOpenAi', {
+          const aiResponse = await fetch(baseURL + 'api/getOpenAI', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', },
             body: text,
