@@ -1,5 +1,3 @@
-'use client';
-
 import { NextRequest, NextResponse } from "next/server";
 import { validateSignature, WebhookEvent} from "@line/bot-sdk";
 import { lineEvent } from "../actions/lineEvent";
@@ -8,7 +6,6 @@ const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
   channelSecret: process.env.LINE_CHANNEL_SECRET || "",
 };
-
 
 export async function GET() {
         return NextResponse.json(
