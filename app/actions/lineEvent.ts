@@ -14,20 +14,27 @@ const client = new messagingApi.MessagingApiClient({
 export async function lineEvent(event: WebhookEvent) {
     if (event.type == "message"){
       if (event.message.type == "text") {
-        const userId = event.source.userId;
-        const contents = event.message.text;
+        const { userId } = event.source;
+        const { text } = event.message.text;
         const timestampStart = new Date();
+
         await connectDB()
+
         await TalkModel.create({
           userId : userId,
-          contents : contents,
+          contents : text,
           dist : "req",
           timestamp : timestampStart
         })
         console.log("Success regist Talk request");
 
-        const aiResponce = await getOpenAi(contents);
-        const { title, detail } = JSON.parse(aiResponce.data[0].message.content);
+        const aiResponse = await fetch('../api/getOpenAi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', },
+          body: text,
+        });
+        const { title, detail } = JSON.parse(aiResponse.data[0].message.content);
+
         const { replyToken } = event;
         await client.replyMessage({
             replyToken,
@@ -54,11 +61,3 @@ export async function lineEvent(event: WebhookEvent) {
     }
     return;
 }
-
-function azopenaichat(contents: any) {
-  throw new Error("Function not implemented.");
-}
-function getOpenAi(contents: any) {
-  throw new Error("Function not implemented.");
-}
-
