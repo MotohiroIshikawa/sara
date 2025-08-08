@@ -3,18 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --experimental-https",
-    "stg": "next dev --experimental-https --experimental-https-key ./certificates/lineai-dev-mi10490jp-com-key.pem --experimental-https-cert ./certificates/lineai-dev-mi10490jp-com-fullchain.pem",
+    "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
-    "@line/bot-sdk": "^10.0.0",
-    "@line/liff": "^2.27.1",
+    "@line/bot-sdk": "^10.1.0",
     "mongoose": "^8.17.1",
-    "next": "15.4.4",
-    "next-auth": "^4.24.11",
+    "next": "15.4.6",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
@@ -25,7 +22,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.4.4",
+    "eslint-config-next": "15.4.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
