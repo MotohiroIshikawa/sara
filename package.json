@@ -12,6 +12,7 @@
   "dependencies": {
     "@line/bot-sdk": "^10.0.0",
     "@line/liff": "^2.27.1",
+    "mongoose": "^8.17.1",
     "next": "15.4.4",
     "next-auth": "^4.24.11",
     "react": "19.1.0",
