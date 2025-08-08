@@ -27,14 +27,20 @@ export async function lineEvent(event: WebhookEvent) {
           timestamp : timestampStart
         })
         console.log("Success regist Talk request");
-        const baseURL = process.env.BASE_URL;
-        const aiResponse = await fetch(baseURL + 'api/getOpenAi', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', },
-          body: text,
-        });
-        const { title, detail } = JSON.parse(aiResponse.data[0].message.content);
 
+        const baseURL = process.env.BASE_URL;
+        try{
+          const aiResponse = await fetch(baseURL + 'api/getOpenAi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', },
+            body: text,
+          });
+          console.log(aiResponse);
+          const { title, detail } = JSON.parse(aiResponse.data[0].message.content);
+        } catch {
+          console.log("AI取得エラー");
+        }
+          /*
         const { replyToken } = event;
         await client.replyMessage({
             replyToken,
@@ -57,6 +63,7 @@ export async function lineEvent(event: WebhookEvent) {
           timestamp : timestampEnd
         })
         console.log("Success regist OpenAI response");
+*/
       }
     }
     return;
