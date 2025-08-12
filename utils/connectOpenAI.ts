@@ -9,7 +9,7 @@ export const connectOpenAI = async (message: string) => {
   const client = new AzureOpenAI({ endpoint, apiKey, apiVersion, deployment });
 
   const words = `
-    以下のキーワードを含む情報をWeb検索をしてください。
+    以下のキーワードを含む情報を返信してください。
     キーワード:
     ${message}
     注意
