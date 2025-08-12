@@ -12,6 +12,8 @@ const client = new messagingApi.MessagingApiClient({
 });
 
 export async function lineEvent(event: WebhookEvent) {
+    let title = "";
+    let detail = "";
     if (event.type == "message"){
       if (event.message.type == "text") {
         const { userId } = event.source;
@@ -19,7 +21,7 @@ export async function lineEvent(event: WebhookEvent) {
         const timestampStart = new Date();
 
         await connectDB()
-        // メッセージをMongoDB記録
+        // メッセージをDBに記録
         await TalkModel.create({
           userId : userId,
           contents : text,
@@ -27,7 +29,7 @@ export async function lineEvent(event: WebhookEvent) {
           timestamp : timestampStart
         })
         console.log("Success regist Talk request");
-        // 
+        // Azure OpenAIへの問い合わせ
         const baseURL = process.env.BASE_URL;
         try{
           const aiResponse = await fetch(baseURL + 'api/getOpenAI', {
@@ -37,13 +39,12 @@ export async function lineEvent(event: WebhookEvent) {
           });
           const response = await aiResponse.json();
           console.log(response);
-          const { title, detail } = response.content;
-          console.log("title:"+title);
-          console.log("detail:"+detail);
+          title = response.content.title
+          detail = response.content.detail;
         } catch {
           console.log("AI取得エラー");
         }
-          /*
+        // LINEへの応答
         const { replyToken } = event;
         await client.replyMessage({
             replyToken,
@@ -58,6 +59,8 @@ export async function lineEvent(event: WebhookEvent) {
                 }
             ],
         })
+
+        // 応答をDBに記録
         const timestampEnd = new Date();
         await TalkModel.create({
           userId : userId,
