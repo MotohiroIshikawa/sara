@@ -6,5 +6,5 @@ export async function POST(request: Request) {
   const data = await connectOpenAI(text);
   console.log("getOpenAPI結果");
   console.log(data);
-  return NextResponse.json(data); // choices[0].message.content
+  return NextResponse.json({content: data}); // choices[0].message.content
 }
