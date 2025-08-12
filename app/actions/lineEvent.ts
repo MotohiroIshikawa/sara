@@ -19,7 +19,7 @@ export async function lineEvent(event: WebhookEvent) {
         const timestampStart = new Date();
 
         await connectDB()
-
+        // メッセージをMongoDB記録
         await TalkModel.create({
           userId : userId,
           contents : text,
@@ -27,15 +27,15 @@ export async function lineEvent(event: WebhookEvent) {
           timestamp : timestampStart
         })
         console.log("Success regist Talk request");
-
+        // 
         const baseURL = process.env.BASE_URL;
         try{
           const aiResponse = await fetch(baseURL + 'api/getOpenAI', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', },
-            body: text,
+            body: JSON.stringify({text}),
           });
-          console.log(aiResponse);
+          console.log(JSON.stringify(aiResponse));
           const { title, detail } = JSON.parse(aiResponse.data[0].message.content);
         } catch {
           console.log("AI取得エラー");
