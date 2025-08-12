@@ -35,8 +35,7 @@ export const connectOpenAI = async (message: string) => {
       stop: null
     });
     console.log("テキスト生成：", message);
-    console.log(JSON.stringify(result.choices[0]));
-    return result.choices[0];
+    return result.choices[0].message.content;
   } catch (error) {
     console.log("テキスト生成エラー：", error);
   }
