@@ -2,13 +2,13 @@ import { AzureOpenAI } from "openai";
 
 export const connectOpenAI = async (message: string) => {
   const endpoint = "https://lineai-dev.openai.azure.com/";
+  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+  const apiVersion = "2025-01-01-preview";
+  const deployment = "lineai-dev";
+  const client = new AzureOpenAI({ endpoint, apiKey, apiVersion, deployment });
   const modelName = "gpt-35-turbo";
-  const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "";
-  const apiKey = process.env.AZURE_OPENAI_API_KEY || "";
-  const apiVersion = "2024-04-01-preview";
-  const options = { endpoint, apiKey, deploymentName, apiVersion }
-  const client = new AzureOpenAI(options);
 
+/*
   const content = `
     #以下のキーワードを含む情報をWeb検索をしてください。
     #キーワード:
@@ -23,15 +23,21 @@ export const connectOpenAI = async (message: string) => {
     { role: "system", content: "You are a brilliant japanese linguist." },
     { role: "user", content },
   ];
-
+*/
   try{
     const result = await client.chat.completions.create({
-      messages: messages,
+      messages: [
+        { role:"system", content: "You are a helpful assistant." },
+        { role:"user", content: "I am going to Paris, what should I see?" }
+      ],
       max_tokens: 4096,
-      temperature: 1,
-      top_p: 1,
-      model: modelName
-      });
+      temperature: 0.7,
+      top_p: 0.95,
+      model: modelName,
+      frequency_penalty: 0,
+      presence_penalty: 0,
+      stop: null
+    });
     console.log("テキスト生成：", message);
     return result.choices;
   } catch (error) {
