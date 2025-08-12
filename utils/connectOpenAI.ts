@@ -9,13 +9,10 @@ export const connectOpenAI = async (message: string) => {
   const client = new AzureOpenAI({ endpoint, apiKey, apiVersion, deployment });
 
   const words = `
-    以下のキーワードを含む情報を返信してください。
+    #以下のキーワードを含む情報を返信してください。
     キーワード:
     ${message}
-    注意
-    ・返信する内容は、"{"title": "xxx", "detail": "xxx"}"のようにjson形式で返してください。jsonのキーとバリューは、必ず{"key1": "value1", "key2": "value2", "key3": "value3"}のように、各キーとバリューをダブルクオーテーション("")で囲んでください。
-    ・返信する内容のタイトル(title)は、50文字以内としてください。
-    ・返信する内容の詳細(detail)は、200文字以内としてください。
+    #返信する内容は、300文字以内としてください。
     `;
   const messages = [
     { role: "system", content: "あなたは丁寧な日本語が得意です。" },
@@ -31,9 +28,7 @@ export const connectOpenAI = async (message: string) => {
       model: modelName,
     });
     console.log("text generated: ", message);
-    const resContent = result.choices[0].message.content;
-    console.log(resContent);
-    return JSON.parse(resContent);
+    return result.choices[0].message.content;
   } catch (error) {
     console.log("ERROR text generating: ", error);
   }

@@ -12,8 +12,7 @@ const client = new messagingApi.MessagingApiClient({
 });
 
 export async function lineEvent(event: WebhookEvent) {
-    let title = "";
-    let detail = "";
+  let detail = "";
     if (event.type == "message"){
       if (event.message.type == "text") {
         const { userId } = event.source;
@@ -37,10 +36,7 @@ export async function lineEvent(event: WebhookEvent) {
             headers: { 'Content-Type': 'application/json', },
             body: JSON.stringify({text}),
           });
-          const response = await aiResponse.json();
-          console.log(response);
-          title = response.content.title
-          detail = response.content.detail;
+          detail = await aiResponse.json();
         } catch {
           console.log("AI取得エラー");
         }
@@ -49,10 +45,6 @@ export async function lineEvent(event: WebhookEvent) {
         await client.replyMessage({
             replyToken,
             messages: [
-                {
-                    "type" : "text",
-                    "text" : title,
-                },
                 {
                     "type" : "text",
                     "text" : detail,
