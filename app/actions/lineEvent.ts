@@ -36,7 +36,8 @@ export async function lineEvent(event: WebhookEvent) {
             body: JSON.stringify({text}),
           });
           console.log(JSON.stringify(aiResponse));
-          const { title, detail } = JSON.parse(aiResponse.data[0].message.content);
+          const detail = JSON.parse(aiResponse.message.content);
+          console.log(detail);
         } catch {
           console.log("AI取得エラー");
         }

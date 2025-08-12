@@ -1,14 +1,13 @@
 import { AzureOpenAI } from "openai";
 
 export const connectOpenAI = async (message: string) => {
-  const endpoint = "https://lineai-dev.openai.azure.com/";
-  const apiKey = process.env.AZURE_OPENAI_API_KEY;
-  const apiVersion = "2025-01-01-preview";
-  const deployment = "lineai-dev";
+  const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "";
+  const apiKey = process.env.AZURE_OPENAI_API_KEY || "";
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || "";
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "";
+  const modelName = process.env.AZURE_OPENAI_MODEL_NAME || "";
   const client = new AzureOpenAI({ endpoint, apiKey, apiVersion, deployment });
-  const modelName = "gpt-35-turbo";
 
-/*
   const content = `
     #以下のキーワードを含む情報をWeb検索をしてください。
     #キーワード:
@@ -23,13 +22,10 @@ export const connectOpenAI = async (message: string) => {
     { role: "system", content: "You are a brilliant japanese linguist." },
     { role: "user", content },
   ];
-*/
+
   try{
     const result = await client.chat.completions.create({
-      messages: [
-        { role:"system", content: "You are a helpful assistant." },
-        { role:"user", content: "I am going to Paris, what should I see?" }
-      ],
+      messages: messages,
       max_tokens: 4096,
       temperature: 0.7,
       top_p: 0.95,
@@ -39,8 +35,7 @@ export const connectOpenAI = async (message: string) => {
       stop: null
     });
     console.log("テキスト生成：", message);
-    console.log(JSON.stringify(result, null, 2));
-    return result.choices;
+    return result.choices[0];
   } catch (error) {
     console.log("テキスト生成エラー：", error);
   }
