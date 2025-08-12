@@ -34,10 +34,10 @@ export const connectOpenAI = async (message: string) => {
       presence_penalty: 0,
       stop: null
     });
-    console.log("テキスト生成：", message);
+    console.log("text generated: ", message);
     const content = result.choices[0].message.content;
     return JSON.parse(content);
   } catch (error) {
-    console.log("テキスト生成エラー：", error);
+    console.log("ERROR text generating: ", error);
   }
 }
