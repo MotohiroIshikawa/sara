@@ -19,7 +19,7 @@ export const connectOpenAI = async (message: string) => {
     `;
   const messages = [
     { role: "system", content: "あなたは丁寧な日本語が得意です。" },
-    { role: "user", words },
+    { role: "user", content: words },
   ];
 
   try{
