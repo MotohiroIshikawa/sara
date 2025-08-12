@@ -69,7 +69,6 @@ export async function lineEvent(event: WebhookEvent) {
           timestamp : timestampEnd
         })
         console.log("Success regist OpenAI response");
-*/
       }
     }
     return;
