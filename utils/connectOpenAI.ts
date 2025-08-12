@@ -14,8 +14,8 @@ export const connectOpenAI = async (message: string) => {
     ${message}
     #注意
     #・返信する内容は、"{"title": "xxx", "detail": "xxx"}"のようにjson形式で返してください。jsonのキーとバリューは、必ず{"key1": "value1", "key2": "value2", "key3": "value3"}のように、各キーとバリューをダブルクオーテーション("")で囲んでください。
-    #・返信する内容のタイトル(title)は、30文字以内としてください。
-    #・返信する内容の詳細(detail)は、120文字以内としてください。
+    #・返信する内容のタイトル(title)は、50文字以内としてください。
+    #・返信する内容の詳細(detail)は、200文字以内としてください。
     `;
   console.log(content);
   const messages = [
@@ -35,7 +35,8 @@ export const connectOpenAI = async (message: string) => {
       stop: null
     });
     console.log("テキスト生成：", message);
-    return result.choices[0].message.content;
+    const content = result.choices[0].message.content;
+    return JSON.parse(content);
   } catch (error) {
     console.log("テキスト生成エラー：", error);
   }
