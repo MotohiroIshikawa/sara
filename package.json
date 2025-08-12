@@ -10,10 +10,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@azure/identity": "^4.11.1",
     "@azure/openai": "^2.0.0",
     "@line/bot-sdk": "^10.1.0",
     "mongoose": "^8.17.1",
     "next": "15.4.6",
+    "openai": "^5.12.2",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
