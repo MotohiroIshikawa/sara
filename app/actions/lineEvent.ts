@@ -38,7 +38,8 @@ export async function lineEvent(event: WebhookEvent) {
           console.log("lioneEvents->aiResponse");
           console.log(aiResponse);
           const response = await aiResponse.json();
-          const {title, detail} = await response.content
+          const title = response.content.title;
+          const detail = response.content.detail;
           console.log("content");
           console.log(JSON.stringify(response));
           console.log("title:"+title);
