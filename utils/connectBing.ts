@@ -12,8 +12,8 @@ const connectBing = async (query: string) => {
   console.log("connectionId:"+connectionId);
   const bingTool = ToolUtility.createBingGroundingTool([{ connectionId: connectionId }]);
 
-  const agent = await client.createAgent("gpt-4o", {
-    name: "my-agent",
+  const agent = await client.createAgent("lineai-dev-gpt-4o", {
+    name: "lineai-dev-agent",
     instructions: "You are a helpful javapnese agent",
     tools: [bingTool.definition],
   });
