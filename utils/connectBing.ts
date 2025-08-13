@@ -17,12 +17,6 @@ const connectBing = async (query: string) => {
     instructions: "You are a helpful javapnese agent",
     tools: [bingTool.definition],
   });
-
-  const agent = await client.createAgent("gpt-4o", {
-    name: "my-agent",
-    instructions: "You are a helpful agent",
-    tools: [bingTool.definition],
-  });
   console.log(`Created agent, agent ID : ${agent.id}`);
 
   // Create thread for communication
