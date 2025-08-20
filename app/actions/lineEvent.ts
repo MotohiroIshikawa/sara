@@ -33,7 +33,7 @@ export async function lineEvent(event: WebhookEvent) {
       console.log("Success regist Talk request");
 
       // Azure OpenAIへの問い合わせ
-      const res = await connectBing2(text);
+      const res = await connectBing(text);
       console.log(res);
 /*
       const baseURL = process.env.BASE_URL;
