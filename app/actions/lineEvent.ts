@@ -3,6 +3,7 @@ import { TalkModel } from "@/models/talk";
 import connectDB from "@/utils/connectDB";
 import { connectOpenAI } from "@/utils/connectOpenAI";
 import connectBing from "@/utils/connectBing";
+import connectBing2 from "@/utils/connectBing2";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
@@ -32,7 +33,7 @@ export async function lineEvent(event: WebhookEvent) {
       console.log("Success regist Talk request");
 
       // Azure OpenAIへの問い合わせ
-      const res = await connectBing(text);
+      const res = await connectBing2(text);
       console.log(res);
 /*
       const baseURL = process.env.BASE_URL;
