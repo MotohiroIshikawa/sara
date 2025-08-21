@@ -1,5 +1,5 @@
 import { AgentsClient, ToolUtility } from "@azure/ai-agents";
-import { AzureKeyCredential } from "@azure/core-auth";
+import { DefaultAzureCredential } from "@azure/identity";
 
 export async function connectBing3(req: Request) {
   const endpoint = process.env.AZURE_AI_ENDPOINT || ""; // 例: https://japaneast.api.azureml.ms
@@ -7,11 +7,7 @@ export async function connectBing3(req: Request) {
   console.log("endpoint: " + endpoint);
   console.log("key: " + key);
   
-  const client = new AgentsClient(
-    endpoint, 
-    new AzureKeyCredential(key),
-    { apiKeyHeaderName: "x-api-key"}
-  );
+  const client = new AgentsClient(endpoint, new DefaultAzureCredential());
 
   try {
     const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
