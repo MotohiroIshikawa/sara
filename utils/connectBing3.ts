@@ -1,50 +1,63 @@
-import { AgentsClient, ToolUtility } from "@azure/ai-agents";
+import type { MessageContent, MessageTextContent } from "@azure/ai-agents";
+import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
 import { ClientSecretCredential } from "@azure/identity";
 
-export async function connectBing3(req: Request) {
-  const endpoint = process.env.AZURE_AI_ENDPOINT || "";
-  const key = process.env.AZURE_AI_APIKEY || "";
-  console.log("endpoint: " + endpoint);
-  console.log("key: " + key);
 
+export async function connectBing3(): Promise<void> {
+const projectEndpoint = process.env.AZURE_AI_ENDPOINT || "";
+const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
   const cred = new ClientSecretCredential(
     process.env.AZURE_TENANT_ID!,
     process.env.AZURE_CLIENT_ID!,
     process.env.AZURE_CLIENT_SECRET!
   );
-  try {
-    const client = new AgentsClient(endpoint, cred);
-  }catch (e){
-      console.error("client error (raw):", e);
-    console.error("keys:", {
-      name: e?.name, code: e?.code, statusCode: e?.statusCode,
-      message: e?.message, details: e?.details, inner: e?.innererror
-    });
-  }
+  const client = new AgentsClient(projectEndpoint, cred);
 
-  try {
-    const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
-    console.log("connectionId: " + connectionId);
-    const bing = ToolUtility.createBingGroundingTool([{connectionId}]);
+  const connectionId = process.env.AZURE_BING_CONNECTION_ID || "<connection-name>";
+  const bingTool = ToolUtility.createBingGroundingTool([{ connectionId: connectionId }]);
+ 
+  const agent = await client.createAgent(modelDeploymentName, {
+    name: "lineai-dev-agent",
+    instructions: "You are a helpful agent",
+    tools: [bingTool.definition],
+  });
+  console.log(`Created agent, agent ID : ${agent.id}`);
 
-    // ★ createAgent を try/catch で厳密にログ
-    const agent = await client.createAgent("gpt-4o", {
-      name: "nextjs-bing-agent",
-      instructions: "Use Bing grounding for fresh facts.",
-      tools: [bing.definition],
-    });
-    return new Response(JSON.stringify({ agentId: agent.id }), { status: 200 });
+  const thread = await client.threads.create();
+  console.log(`Created thread, thread ID: ${thread.id}`);
 
-  } catch (e: any) {
-    // ここで“絶対に”中身を観察する
-    console.error("createAgent error (raw):", e);
-    console.error("keys:", {
-      name: e?.name, code: e?.code, statusCode: e?.statusCode,
-      message: e?.message, details: e?.details, inner: e?.innererror
-    });
-    return new Response(
-      JSON.stringify({ error: e?.message ?? String(e) }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+  const message = await client.messages.create(
+    thread.id,
+    "user",
+    "How does wikipedia explain Euler's Identity?",
+  );
+  console.log(`Created message, message ID : ${message.id}`);
+
+  console.log("Creating run...");
+ const run = await client.runs.createAndPoll(thread.id, agent.id, {
+    pollingOptions: {
+      intervalInMs: 2000,
+    },
+    onResponse: (response): void => {
+      console.log(`Received response with status: ${response.parsedBody.status}`);
+    },
+  });
+  console.log(`Run finished with status: ${run.status}`);
+
+  await client.deleteAgent(agent.id);
+  console.log(`Deleted agent, agent ID: ${agent.id}`);
+
+  const messagesIterator = client.messages.list(thread.id);
+
+  const firstMessage = await messagesIterator.next();
+  if (!firstMessage.done && firstMessage.value) {
+    const agentMessage: MessageContent = firstMessage.value.content[0];
+    if (isOutputOfType<MessageTextContent>(agentMessage, "text")) {
+      console.log(`Text Message Content - ${agentMessage.text.value}`);
+    }
   }
 }
+
+connectBing3().catch((err) => {
+  console.error("The sample encountered an error:", err);
+});
