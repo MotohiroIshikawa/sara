@@ -12,9 +12,13 @@ const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
     process.env.AZURE_CLIENT_SECRET!
   );
   const client = new AgentsClient(projectEndpoint, cred);
+  console.log("client:");
+  console.log(JSON.stringify(client));
 
   const connectionId = process.env.AZURE_BING_CONNECTION_ID || "<connection-name>";
   const bingTool = ToolUtility.createBingGroundingTool([{ connectionId: connectionId }]);
+  console.log("bingTool:");
+  console.log(JSON.stringify(bingTool));
  
   const agent = await client.createAgent(modelDeploymentName, {
     name: "lineai-dev-agent",
