@@ -1,13 +1,18 @@
 import { AgentsClient, ToolUtility } from "@azure/ai-agents";
-import { DefaultAzureCredential } from "@azure/identity";
+import { ClientSecretCredential } from "@azure/identity";
 
 export async function connectBing3(req: Request) {
-  const endpoint = process.env.AZURE_AI_ENDPOINT || ""; // 例: https://japaneast.api.azureml.ms
-  const key = process.env.AZURE_AI_APIKEY || "";         // ProjectのAPIキー
+  const endpoint = process.env.AZURE_AI_ENDPOINT || "";
+  const key = process.env.AZURE_AI_APIKEY || "";
   console.log("endpoint: " + endpoint);
   console.log("key: " + key);
-  
-  const client = new AgentsClient(endpoint, new DefaultAzureCredential());
+
+  const cred = new ClientSecretCredential(
+    process.env.AZURE_TENANT_ID!,
+    process.env.AZURE_CLIENT_ID!,
+    process.env.AZURE_CLIENT_SECRET!
+  );
+  const client = new AgentsClient(endpoint, cred);
 
   try {
     const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
