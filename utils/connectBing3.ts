@@ -24,7 +24,6 @@ export async function connectBing3(req: Request) {
       name: "nextjs-bing-agent",
       instructions: "Use Bing grounding for fresh facts.",
       tools: [bing.definition],
-      toolResources: bing.resources, // ← 忘れると 400
     });
     return new Response(JSON.stringify({ agentId: agent.id }), { status: 200 });
 
