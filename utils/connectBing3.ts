@@ -3,7 +3,7 @@ import { AzureKeyCredential } from "@azure/core-auth";
 
 export async function connectBing3(req: Request) {
   const endpoint = process.env.AZURE_AI_ENDPOINT || ""; // 例: https://japaneast.api.azureml.ms
-  const key = process.env.AZURE_AI_APIKEY || ";         // ProjectのAPIキー
+  const key = process.env.AZURE_AI_APIKEY || "";         // ProjectのAPIキー
   console.log("endpoint: " + endpoint);
   console.log("key: " + key);
   
