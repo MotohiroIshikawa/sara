@@ -12,7 +12,15 @@ export async function connectBing3(req: Request) {
     process.env.AZURE_CLIENT_ID!,
     process.env.AZURE_CLIENT_SECRET!
   );
-  const client = new AgentsClient(endpoint, cred);
+  try {
+    const client = new AgentsClient(endpoint, cred);
+  }catch (e){
+      console.error("client error (raw):", e);
+    console.error("keys:", {
+      name: e?.name, code: e?.code, statusCode: e?.statusCode,
+      message: e?.message, details: e?.details, inner: e?.innererror
+    });
+  }
 
   try {
     const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
