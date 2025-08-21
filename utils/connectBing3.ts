@@ -7,7 +7,11 @@ export async function connectBing3(req: Request) {
   console.log("endpoint: " + endpoint);
   console.log("key: " + key);
   
-  const client = new AgentsClient(endpoint, new AzureKeyCredential(key));
+  const client = new AgentsClient(
+    endpoint, 
+    new AzureKeyCredential(key),
+    { apiKeyHeaderName: "x-api-key"}
+  );
 
   try {
     const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
