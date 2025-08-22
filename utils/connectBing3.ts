@@ -19,13 +19,17 @@ export async function connectBing3(): Promise<void> {
   }
 
   try{
+    const iterator = client.listAgents();
+    console.log("listAgents から得た iterator:", iterator);
+    console.log("iterator[Symbol.asyncIterator]:", typeof iterator[Symbol.asyncIterator]);
+
     const agents = [];
-    for await (const agent of client.listAgents()) {
+    for await (const agent of iterator) {
       agents.push(agent);
     }
     console.log("client が正常に動作しています。登録済みエージェント数:", agents.length ?? 0);
   } catch (err){
-    console.error("client の疎通テストに失敗しました:", err);
+    console.error("listAgents の実行中にエラー:", err);
     process.exit(1);
   }
 
