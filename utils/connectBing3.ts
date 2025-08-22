@@ -34,18 +34,13 @@ export async function connectBing3(): Promise<void> {
   const client = new AgentsClient(projectEndpoint, cred);
   // clientが作成できているかどうか確認
   try {
-    const firstPage = await client.listAgents().byPage().next();
-    if (!firstPage.done) {
-      const page = firstPage.value ?? [];
-      console.log("✅ 疎通成功: listAgents 1ページ取得 / count =", page.length);
-      if (page.length > 0) {
-        console.log("  例: 先頭エージェントID =", page[0].id);
-      }
-    } else {
-      console.log("⚠️ listAgents: ページが空/取得できず");
-    }
+    const thread = await client.threads.create();
+    console.log("✅ 疎通成功: createThread OK, id =", thread.id);
+    await client.threads.delete(thread.id);
+    console.log("🧹 deleted thread:", thread.id);
   } catch (e) {
-    console.error("❌ 疎通失敗(listAgents.byPage):", e);
+    // ここで落ちるならエンドポイント/権限/プロジェクトの問題を疑う
+    console.error("❌ 疎通失敗(create/delete Thread):", e);
   }
 
 
