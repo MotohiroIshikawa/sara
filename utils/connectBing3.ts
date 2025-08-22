@@ -38,10 +38,17 @@ export async function connectBing3(): Promise<void> {
     });
     console.log("Created agent:", agent.id, agent.name);
   } catch (err: unknown) {
-    console.error("Failed to create agent:", err);
+    console.error("createAgent failed. raw:", err);
+    if (err instanceof Error) {
+      console.error("name:", err.name);
+      console.error("message:", err.message);
+    }
+    if (typeof (err as any)?.response?.bodyAsText === "string") {
+      console.error("body:", (err as any).response.bodyAsText);
+    }
     process.exit(1);
   }
-
+}
   const thread = await client.threads.create();
   console.log(`Created thread, thread ID: ${thread.id}`);
 
