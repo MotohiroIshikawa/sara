@@ -10,10 +10,6 @@ import {
 //import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 
-
-
-
-
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
@@ -46,13 +42,10 @@ function logHttpError(err: unknown) {
   }
 }
 
-
-
-
 export async function connectBing3(): Promise<void> {
-  const projectEndpoint = process.env.AZURE_AI_ENDPOINT || "";
+  const projectEndpoint = process.env.AZURE_AI_PRJ_ENDPOINT || "";
   const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
-  const connectionId = process.env.AZURE_BING_CONNECTION_ID || "<connection-name>";
+  const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
 
   // 認証
   const cred = new DefaultAzureCredential();
