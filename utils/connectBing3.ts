@@ -10,6 +10,45 @@ import {
 //import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 
+
+
+
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
+}
+
+function logHttpError(err: unknown) {
+  console.error("❌ threads.create failed");
+  if (err instanceof Error) {
+    console.error("  name:", err.name);
+    console.error("  message:", err.message);
+  } else {
+    console.error("  raw:", String(err));
+  }
+  if (isRecord(err)) {
+    const code = typeof err.code === "string" ? err.code : undefined;
+    const status = typeof (err as { statusCode?: unknown }).statusCode === "number"
+      ? (err as { statusCode: number }).statusCode
+      : undefined;
+    const resp = isRecord((err as { response?: unknown }).response)
+      ? (err as { response: Record<string, unknown> }).response
+      : undefined;
+
+    if (code) console.error("  code:", code);
+    if (status !== undefined) console.error("  statusCode:", status);
+    if (resp) {
+      const keys = Object.keys(resp);
+      console.error("  response keys:", keys);
+      const bodyAsText = typeof resp.bodyAsText === "string" ? resp.bodyAsText : undefined;
+      if (bodyAsText) console.error("  bodyAsText:", bodyAsText);
+    }
+  }
+}
+
+
+
+
 export async function connectBing3(): Promise<void> {
   const projectEndpoint = process.env.AZURE_AI_ENDPOINT || "";
   const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
@@ -42,10 +81,10 @@ export async function connectBing3(): Promise<void> {
       console.log("🧹 deleted thread:", thread.id);
     } catch(delErr) {
       console.warn("⚠️ threads.delete でエラー（続行）:", delErr);
+      logHttpError(delErr);
     }
-  } catch (e) {
-    // ここで落ちるならエンドポイント/権限/プロジェクトの問題を疑う
-    console.error("❌ 疎通失敗(create/delete Thread):", e);
+  } catch (e: unknown) {
+    logHttpError(e);
   }
 
 
