@@ -8,37 +8,22 @@ export async function connectBing3(): Promise<void> {
   const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
   const connectionId = process.env.AZURE_BING_CONNECTION_ID || "<connection-name>";
 
-  //  const client = new AgentsClient(projectEndpoint, cred);
-  let client;
+  // client作成
+  let client: AgentsClient;
   try {
     client = new AgentsClient(projectEndpoint, new DefaultAzureCredential());
-    console.log("AgentsClient インスタンスを生成しました");
   } catch (err) {
-    console.log("AgentsClient の生成に失敗しました:",err);
+    console.log("clientの生成に失敗しました:",err);
     process.exit(1);
   }
+  console.log("clientインスタンスを生成しました");
 
-  try{
-    const iterator = client.listAgents();
-    console.log("listAgents から得た iterator:", iterator);
-    console.log("iterator[Symbol.asyncIterator]:", typeof iterator[Symbol.asyncIterator]);
-
-    const agents = [];
-    for await (const agent of iterator) {
-      agents.push(agent);
-    }
-    console.log("client が正常に動作しています。登録済みエージェント数:", agents.length ?? 0);
-  } catch (err){
-    console.error("listAgents の実行中にエラー:", err);
-    process.exit(1);
-  }
-
+  // Grounding with Bing Tool作成
   const bingTool = ToolUtility.createBingGroundingTool([{ connectionId }]);
-  console.log("bingTool:");
-  console.log(JSON.stringify(bingTool));
+  console.log("bingTool:" + JSON.stringify(bingTool));
  
   const agent = await client.createAgent(modelDeploymentName, {
-    name: "lineai-dev-agent",
+    name: `lineai-dev-agent-${Date.now()}`,
     instructions: "You are a helpful agent",
     tools: [bingTool.definition],
   });
