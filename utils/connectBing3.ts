@@ -36,8 +36,13 @@ export async function connectBing3(): Promise<void> {
   try {
     const thread = await client.threads.create();
     console.log("✅ 疎通成功: createThread OK, id =", thread.id);
-    await client.threads.delete(thread.id);
-    console.log("🧹 deleted thread:", thread.id);
+    // 後片付け（任意）
+    try {
+      await client.threads.delete(thread.id);
+      console.log("🧹 deleted thread:", thread.id);
+    } catch(delErr) {
+      console.warn("⚠️ threads.delete でエラー（続行）:", delErr);
+    }
   } catch (e) {
     // ここで落ちるならエンドポイント/権限/プロジェクトの問題を疑う
     console.error("❌ 疎通失敗(create/delete Thread):", e);
