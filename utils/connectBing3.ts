@@ -1,17 +1,21 @@
 import type { MessageContent, MessageTextContent } from "@azure/ai-agents";
 import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
-import { ClientSecretCredential } from "@azure/identity";
+//import { ClientSecretCredential } from "@azure/identity";
+import { DefaultAzureCredential } from "@azure/identity";
 
 
 export async function connectBing3(): Promise<void> {
 const projectEndpoint = process.env.AZURE_AI_ENDPOINT || "";
 const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
+/*
   const cred = new ClientSecretCredential(
     process.env.AZURE_TENANT_ID!,
     process.env.AZURE_CLIENT_ID!,
     process.env.AZURE_CLIENT_SECRET!
   );
-  const client = new AgentsClient(projectEndpoint, cred);
+*/
+  //  const client = new AgentsClient(projectEndpoint, cred);
+  const client = new AgentsClient(projectEndpoint, new DefaultAzureCredential());
   console.log("client:");
   console.log(JSON.stringify(client));
 
