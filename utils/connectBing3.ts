@@ -48,7 +48,7 @@ export async function connectBing3(): Promise<void> {
     }
     process.exit(1);
   }
-}
+
   const thread = await client.threads.create();
   console.log(`Created thread, thread ID: ${thread.id}`);
 
