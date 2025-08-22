@@ -25,6 +25,17 @@ export async function connectBing3(): Promise<void> {
   }
   console.log("clientインスタンスを生成しました");
 
+  try {
+    for await (const agent of client.listAgents()) {
+      console.log("✅ API 呼び出し成功。Agent:", agent.id);
+      break; // 1件だけ確認すれば十分
+    }
+    console.log("認証成功: API にアクセスできました");
+  } catch (err) {
+    console.error("❌ 認証失敗または API 呼び出し失敗:", err);
+  }
+
+
   // Grounding with Bing Tool作成
   const bingTool = ToolUtility.createBingGroundingTool([{ connectionId }]);
   console.log("bingTool:" + JSON.stringify(bingTool));
