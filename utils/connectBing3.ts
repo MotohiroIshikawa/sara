@@ -15,24 +15,37 @@ export async function connectBing3(): Promise<void> {
   const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
   const connectionId = process.env.AZURE_BING_CONNECTION_ID || "<connection-name>";
 
-  // client作成
-  let client: AgentsClient;
+  // 認証
+  const cred = new DefaultAzureCredential();
+  // 認証に成功しているかどうか確認
   try {
-    client = new AgentsClient(projectEndpoint, new DefaultAzureCredential());
-  } catch (err) {
-    console.log("clientの生成に失敗しました:",err);
-    process.exit(1);
-  }
-  console.log("clientインスタンスを生成しました");
-
-  try {
-    for await (const agent of client.listAgents()) {
-      console.log("✅ API 呼び出し成功。Agent:", agent.id);
-      break; // 1件だけ確認すれば十分
+    const token = await cred.getToken("https://cognitiveservices.azure.com/.default");
+    if (!token) {
+      console.error("❌ 認証失敗(getToken): token is null");
+      return;
     }
-    console.log("認証成功: API にアクセスできました");
-  } catch (err) {
-    console.error("❌ 認証失敗または API 呼び出し失敗:", err);
+    console.log("✅ 認証成功: token acquired, expiresOnTimestamp =", token?.expiresOnTimestamp);
+  } catch (e) {
+    console.error("❌ 認証失敗(getToken):", e);
+    return;
+  }
+
+  // client作成
+  const client = new AgentsClient(projectEndpoint, cred);
+  // clientが作成できているかどうか確認
+  try {
+    const firstPage = await client.listAgents().byPage().next();
+    if (!firstPage.done) {
+      const page = firstPage.value ?? [];
+      console.log("✅ 疎通成功: listAgents 1ページ取得 / count =", page.length);
+      if (page.length > 0) {
+        console.log("  例: 先頭エージェントID =", page[0].id);
+      }
+    } else {
+      console.log("⚠️ listAgents: ページが空/取得できず");
+    }
+  } catch (e) {
+    console.error("❌ 疎通失敗(listAgents.byPage):", e);
   }
 
 
