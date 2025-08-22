@@ -1,7 +1,14 @@
 import type { MessageContent, MessageTextContent } from "@azure/ai-agents";
-import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
+import {
+  AgentsClient,
+  ToolUtility,
+  isOutputOfType,
+  type Agent,
+  type Message,
+  type Run
+} from "@azure/ai-agents";
+//import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
-
 
 export async function connectBing3(): Promise<void> {
   const projectEndpoint = process.env.AZURE_AI_ENDPOINT || "";
@@ -21,13 +28,19 @@ export async function connectBing3(): Promise<void> {
   // Grounding with Bing Tool作成
   const bingTool = ToolUtility.createBingGroundingTool([{ connectionId }]);
   console.log("bingTool:" + JSON.stringify(bingTool));
- 
-  const agent = await client.createAgent(modelDeploymentName, {
-    name: `lineai-dev-agent-${Date.now()}`,
-    instructions: "You are a helpful agent",
-    tools: [bingTool.definition],
-  });
-  console.log(`Created agent, agent ID : ${agent.id}`);
+
+  let agent;
+  try {
+    agent = await client.createAgent(modelDeploymentName, {
+      name: `lineai-dev-agent-${Date.now()}`,
+      instructions: "You are a helpful agent",
+      tools: [bingTool.definition],
+    });
+    console.log("Created agent:", agent.id, agent.name);
+  } catch (err: unknown) {
+    console.error("Failed to create agent:", err);
+    process.exit(1);
+  }
 
   const thread = await client.threads.create();
   console.log(`Created thread, thread ID: ${thread.id}`);
@@ -40,7 +53,7 @@ export async function connectBing3(): Promise<void> {
   console.log(`Created message, message ID : ${message.id}`);
 
   console.log("Creating run...");
- const run = await client.runs.createAndPoll(thread.id, agent.id, {
+  const run = await client.runs.createAndPoll(thread.id, agent.id, {
     pollingOptions: {
       intervalInMs: 2000,
     },
