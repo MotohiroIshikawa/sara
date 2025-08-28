@@ -1,7 +1,6 @@
 import {
   AgentsClient,
   ToolUtility,
-  connectionToolType,
   isOutputOfType,
   type MessageTextContent,
   type ThreadMessage,
@@ -59,7 +58,7 @@ export async function connectBing3(question: string): Promise<string> {
   console.log("bingTool.definition =", JSON.stringify(bingTool.definition, null, 2));
   let agent: { id: string };
   try {
-    agent = await client.createAgent(modelDeploymentName, {
+    agent = await client.createAgent("gpt-4o", {
       name: `bing-agent-${Date.now()}`,
       instructions: "You are a helpful agent that can answer with help from Bing search.",
       tools: [bingTool.definition],
