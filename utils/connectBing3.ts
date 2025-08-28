@@ -60,6 +60,7 @@ export async function connectBing3(question: string): Promise<string> {
 
   // Agent作成
   console.log("📌 modelDeploymentName =", modelDeploymentName);
+  console.log("bingTool.definition =", JSON.stringify(bingTool.definition, null, 2));
   let agent: { id: string };
   try {
     agent = await client.createAgent(modelDeploymentName, {
