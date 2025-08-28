@@ -52,10 +52,7 @@ export async function connectBing3(question: string): Promise<string> {
   const client = new AgentsClient(projectEndpoint, cred);
 
   // Grounding with Bing Tool作成
-  const bingTool = ToolUtility.createConnectionTool(
-    connectionToolType.BingGrounding, 
-    [bingConnectionId],
-  );
+  const bingTool = ToolUtility.createBingGroundingTool([{ connectionId: bingConnectionId }]);
   console.log("🔧 bingTool.definition =", JSON.stringify(bingTool.definition));
 
   // Agent作成
