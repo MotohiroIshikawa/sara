@@ -56,7 +56,6 @@ export async function connectBing3(question: string): Promise<string> {
   console.log("🔧 bingTool.definition =", JSON.stringify(bingTool.definition));
 
   // Agent作成
-  console.log("📌 modelDeploymentName =", modelDeploymentName);
   console.log("bingTool.definition =", JSON.stringify(bingTool.definition, null, 2));
   let agent: { id: string };
   try {
@@ -77,7 +76,9 @@ export async function connectBing3(question: string): Promise<string> {
     console.log("✅ Thread created:", thread.id);
 
     // ユーザの質問を送信
-    await client.messages.create(thread.id, "user", question);
+    await client.messages.create(thread.id, "user", [
+      { type: "text", text: question }
+    ]);
 
     // 実行
     await client.runs.createAndPoll(thread.id, agent.id);
