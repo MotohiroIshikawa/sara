@@ -31,7 +31,7 @@ function logHttpError(e: unknown, label: string) {
 
 export async function connectBing3(question: string): Promise<string> {
   const projectEndpoint = process.env.AZURE_AI_PRJ_ENDPOINT || "";
-  const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
+  const modelDeploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "";
   const bingConnectionId = process.env.AZURE_BING_CONNECTION_ID || "";
 
   // 認証
