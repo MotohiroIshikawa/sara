@@ -1,145 +1,117 @@
-import type { MessageContent, MessageTextContent } from "@azure/ai-agents";
 import {
   AgentsClient,
   ToolUtility,
+  connectionToolType,
   isOutputOfType,
-  type Agent,
-  type Message,
-  type Run
+  type MessageTextContent,
+  type ThreadMessage,
 } from "@azure/ai-agents";
-//import { AgentsClient, ToolUtility, isOutputOfType } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null;
-}
-
-function logHttpError(err: unknown) {
-  console.error("❌ threads.create failed");
-  if (err instanceof Error) {
-    console.error("  name:", err.name);
-    console.error("  message:", err.message);
+// エラー出力用
+function logHttpError(e: unknown, label: string) {
+  console.error(`❌ ${label}`);
+  if (e instanceof Error) {
+    console.error("  name:", e.name);
+    console.error("  message:", e.message);
   } else {
-    console.error("  raw:", String(err));
+    console.error("  raw:", String(e));
   }
-  if (isRecord(err)) {
-    const code = typeof err.code === "string" ? err.code : undefined;
-    const status = typeof (err as { statusCode?: unknown }).statusCode === "number"
-      ? (err as { statusCode: number }).statusCode
+  const resp = (e as { response?: Record<string, unknown> }).response;
+  if (resp) {
+    const body = typeof resp.bodyAsText === "string" ? resp.bodyAsText : undefined;
+    if (body) console.error("  bodyAsText:", body);
+    const status = 
+      typeof (resp as { status?: number }).status === "number"
+      ? (resp as { status: number }).status
       : undefined;
-    const resp = isRecord((err as { response?: unknown }).response)
-      ? (err as { response: Record<string, unknown> }).response
-      : undefined;
-
-    if (code) console.error("  code:", code);
-    if (status !== undefined) console.error("  statusCode:", status);
-    if (resp) {
-      const keys = Object.keys(resp);
-      console.error("  response keys:", keys);
-      const bodyAsText = typeof resp.bodyAsText === "string" ? resp.bodyAsText : undefined;
-      if (bodyAsText) console.error("  bodyAsText:", bodyAsText);
-    }
+    if (status) console.error("  status:", status);
   }
 }
 
-export async function connectBing3(): Promise<void> {
+export async function connectBing3(question: string): Promise<string> {
   const projectEndpoint = process.env.AZURE_AI_PRJ_ENDPOINT || "";
   const modelDeploymentName = process.env.AZURE_AI_PRJ_AGENT_NAME || "";
-  const connectionId = process.env.AZURE_BING_CONNECTION_ID || "";
+  const bingConnectionId = process.env.AZURE_BING_CONNECTION_ID || "";
 
   // 認証
   const cred = new DefaultAzureCredential();
-  // 認証に成功しているかどうか確認
   try {
     const token = await cred.getToken("https://cognitiveservices.azure.com/.default");
     if (!token) {
-      console.error("❌ 認証失敗(getToken): token is null");
-      return;
+      console.error("❌ getToken failed: token is null");
+      return("エラーが発生しました(CRED:token is null)");
     }
-    console.log("✅ 認証成功: token acquired, expiresOnTimestamp =", token?.expiresOnTimestamp);
+    console.log("✅ token acquired, expiresOnTimestamp =", token?.expiresOnTimestamp);
   } catch (e) {
-    console.error("❌ 認証失敗(getToken):", e);
-    return;
+    logHttpError(e, "getToken failed");
+    return("エラーが発生しました(CRED)");
   }
 
   // client作成
   const client = new AgentsClient(projectEndpoint, cred);
-  // clientが作成できているかどうか確認
-  try {
-    const thread = await client.threads.create();
-    console.log("✅ 疎通成功: createThread OK, id =", thread.id);
-    // 後片付け（任意）
-    try {
-      await client.threads.delete(thread.id);
-      console.log("🧹 deleted thread:", thread.id);
-    } catch(delErr) {
-      console.warn("⚠️ threads.delete でエラー（続行）:", delErr);
-      logHttpError(delErr);
-    }
-  } catch (e: unknown) {
-    logHttpError(e);
-  }
-
 
   // Grounding with Bing Tool作成
-  const bingTool = ToolUtility.createBingGroundingTool([{ connectionId }]);
-  console.log("bingTool:" + JSON.stringify(bingTool));
+  const bingTool = ToolUtility.createConnectionTool(
+    connectionToolType.BingGrounding, 
+    [bingConnectionId],
+  );
+  console.log("🔧 bingTool.definition =", JSON.stringify(bingTool.definition));
 
-  let agent;
+  // Agent作成
+  let agent: { id: string };
   try {
     agent = await client.createAgent(modelDeploymentName, {
-      name: `lineai-dev-agent-${Date.now()}`,
-      instructions: "You are a helpful agent",
+      name: `bing-agent-${Date.now()}`,
+      instructions: "You are a helpful agent that can answer with help from Bing search.",
       tools: [bingTool.definition],
     });
-    console.log("Created agent:", agent.id, agent.name);
-  } catch (err: unknown) {
-    console.error("createAgent failed. raw:", err);
-    if (err instanceof Error) {
-      console.error("name:", err.name);
-      console.error("message:", err.message);
-    }
-    if (typeof (err as any)?.response?.bodyAsText === "string") {
-      console.error("body:", (err as any).response.bodyAsText);
-    }
-    process.exit(1);
+    console.log("✅ Agent created:", agent.id);
+  } catch (e) {
+    logHttpError(e, "createAgent failed");
+    return "エージェント作成に失敗しました。";
   }
 
-  const thread = await client.threads.create();
-  console.log(`Created thread, thread ID: ${thread.id}`);
+  try {
+    // Thread作成
+    const thread = await client.threads.create();
+    console.log("✅ Thread created:", thread.id);
 
-  const message = await client.messages.create(
-    thread.id,
-    "user",
-    "How does wikipedia explain Euler's Identity?",
-  );
-  console.log(`Created message, message ID : ${message.id}`);
+    // ユーザの質問を送信
+    await client.messages.create(thread.id, "user", question);
 
-  console.log("Creating run...");
-  const run = await client.runs.createAndPoll(thread.id, agent.id, {
-    pollingOptions: {
-      intervalInMs: 2000,
-    },
-    onResponse: (response): void => {
-      console.log(`Received response with status: ${response.parsedBody.status}`);
-    },
-  });
-  console.log(`Run finished with status: ${run.status}`);
+    // 実行
+    await client.runs.createAndPoll(thread.id, agent.id);
 
-  await client.deleteAgent(agent.id);
-  console.log(`Deleted agent, agent ID: ${agent.id}`);
+    // すべてのメッセージを取得する
+    const all: ThreadMessage[] = [];
+    for await (const m of client.messages.list(thread.id)) {
+      all.push(m);
+    }
+    // createdAt がある前提で昇順ソート（古い→新しい）
+    all.sort((a, b) => (new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime()));
 
-  const messagesIterator = client.messages.list(thread.id);
+    const assistantTexts: string[] = [];
+    for (const m of all) {
+      if (m.role !== "assistant") continue;
+      for (const c of m.content) {
+        if (isOutputOfType<MessageTextContent>(c, "text")) {
+          assistantTexts.push(c.text.value);
+        }
+      }
+    }
 
-  const firstMessage = await messagesIterator.next();
-  if (!firstMessage.done && firstMessage.value) {
-    const agentMessage: MessageContent = firstMessage.value.content[0];
-    if (isOutputOfType<MessageTextContent>(agentMessage, "text")) {
-      console.log(`Text Message Content - ${agentMessage.text.value}`);
+    return assistantTexts.length
+    ? assistantTexts.join("\n---\n")
+    : "⚠️ 応答の text コンテンツが見つかりませんでした。";
+
+  } finally {
+    // 後片付け
+    try {
+      await client.deleteAgent(agent.id);
+      console.log(`🧹Deleted agent, agent ID: ${agent.id}`);
+    } catch(e) {
+      logHttpError(e, "deleteAgent failed (続行)");
     }
   }
 }
-
-connectBing3().catch((err) => {
-  console.error("The sample encountered an error:", err);
-});
