@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateSignature, WebhookEvent} from "@line/bot-sdk";
-import { lineEvent } from "../actions/lineEvent";
+import { lineEvent } from "../handlers/lineEvent";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
@@ -17,11 +17,13 @@ export async function POST(req: NextRequest) {
     try {
         const body = await req.text();
         const signature = req.headers.get("x-line-signature") || "";
+        // シグネチャ検証
         if (!validateSignature(body, config.channelSecret, signature)) {
             return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
         }
         const events: WebhookEvent[] = JSON.parse(body).events;
         for (const event of events) {
+            // LINEイベントハンドラ
             await lineEvent(event);
         }
         return NextResponse.json({ status: "ok" });
