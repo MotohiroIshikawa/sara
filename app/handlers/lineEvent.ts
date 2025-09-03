@@ -1,7 +1,7 @@
 import { messagingApi, WebhookEvent } from "@line/bot-sdk";
 import { TalkModel } from "@/models/talk";
 import connectDB from "@/utils/connectDB";
-import connectBing from "@/utils/connectBing";
+import { connectBing } from "@/utils/connectBing";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
