@@ -15,11 +15,14 @@
     "@azure/identity": "^4.11.1",
     "@azure/openai": "^2.0.0",
     "@line/bot-sdk": "^10.1.0",
+    "ioredis": "^5.7.0",
     "mongoose": "^8.17.1",
-    "next": "15.4.6",
+    "next": "^15.5.2",
     "openai": "^5.12.2",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "redis": "^5.8.2",
+    "redlock": "^5.0.0-beta.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
