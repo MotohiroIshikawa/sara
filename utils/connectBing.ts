@@ -11,6 +11,9 @@ import Redis from "ioredis";
 import Redlock from "redlock";
 import { createHash } from "crypto";
 
+// 先頭あたりに追加
+const DEBUG_BING = process.env.DEBUG_BING === "1";
+
 const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
 const bingConnectionId = process.env.AZURE_BING_CONNECTION_ID!;
 const modelDeployment = process.env.AZURE_AI_MODEL_DEPLOYMENT!;
@@ -176,6 +179,7 @@ function renderTextThenUrls(
 // main
 export async function connectBing(userId: string, question: string): Promise<string> {
   const q = question.trim();
+  console.log("question:" + q);
   if (!q) return "メッセージが空です。";
   // 認証チェック
   await preflightAuth();
@@ -194,6 +198,12 @@ export async function connectBing(userId: string, question: string): Promise<str
     const run = await client.runs.createAndPoll(threadId, agentId, {
       pollingOptions: { intervalInMs: 1500 },
     });
+
+    // For Debug
+    if (DEBUG_BING) {
+      await dumpRunAndMessages(client, threadId, run, { maxMsgs: 5 });
+    }
+
     if (run.status !== "completed") {
       const code = run.lastError?.code ?? "";
       const msg  = run.lastError?.message ?? "";
@@ -218,4 +228,47 @@ export async function connectBing(userId: string, question: string): Promise<str
     if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
     return lastAssistantText;
   });
+}
+
+
+// ↓ファイル下部のどこかに追加（ユーティリティ）
+async function dumpRunAndMessages(
+  client: AgentsClient,
+  threadId: string,
+  run: unknown,           // SDKの型に縛らず raw をそのまま出す
+  opts: { maxMsgs?: number } = {}
+) {
+  const { maxMsgs = 10 } = opts;
+
+  // run 全体（unknown は object にキャストして表示）
+  console.log("\n===== [DEBUG] run (raw) =====");
+  console.dir(run as object, { depth: null, colors: true });
+
+  // run.id を安全に取り出す
+  const runId = (run as { id?: string })?.id;
+  console.log("[DEBUG] runId =", runId);
+
+  // steps（runId が取れたときだけ）
+  console.log("\n===== [DEBUG] steps (raw) =====");
+  try {
+    if (runId) {
+      for await (const step of client.runs.listSteps(threadId, runId)) {
+        console.dir(step, { depth: null, colors: true });
+      }
+    } else {
+      console.warn("[DEBUG] run.id not found; skip steps");
+    }
+  } catch (e) {
+    console.warn("[DEBUG] steps unavailable or error:", e);
+  }
+
+  // messages はそのまま
+  console.log("\n===== [DEBUG] messages (raw, newest first) =====");
+  let cnt = 0;
+  for await (const m of client.messages.list(threadId, { order: "desc" })) {
+    console.dir(m, { depth: null, colors: true });
+    // …（略：あなたのサマリ出力部分はそのままでOK）
+    cnt++;
+    if (cnt >= maxMsgs) break;
+  }
 }
