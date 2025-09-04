@@ -2,6 +2,7 @@ import {
   AgentsClient,
   ToolUtility,
   isOutputOfType,
+  type MessageContentUnion,
   type MessageTextContent,
   type MessageTextUrlCitationAnnotation,
 } from "@azure/ai-agents";
@@ -53,6 +54,7 @@ const redlock = new Redlock([redis], {
   retryJitter: 150,
 });
 
+// Agentのkey作成
 function agentIdKey() {
   const ns = Buffer.from(endpoint).toString("base64url");
   const h = createHash("sha256")
@@ -84,7 +86,7 @@ async function getOrCreateAgentId(): Promise<string> {
   return agent.id;
 }
 
-// ユーザ毎のthead
+// ユーザ毎のTheadのkey作成
 function threadKey(userId: string) {
   // ENDPOINT毎
   const ns = Buffer.from(endpoint).toString("base64url");
@@ -124,73 +126,51 @@ function hostnameOf(u: string) {
   try { return new URL(u).hostname; } catch { return u; }
 }
 
-function formatPerPartWithReferences(textParts: MessageTextContent[], maxSourcesPerPart = 8) {
+// text パートから URL を抽出（出現順・重複URLは除外）
+function extractUrlsFromTextPart(part: MessageTextContent, max = 8 ): Array<{ url: string; title?: string }> {
+  const anns = (part.text.annotations ?? [])
+    .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
+    .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
+  const seen = new Set<string>();
+  const out: Array<{ url: string; title?: string }> = [];
+
+  for (const a of anns) {
+    const url = a.urlCitation?.url;
+    // 重複除外
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, title: a.urlCitation?.title });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+// text の直後に、その text に付いている参考URLを並べる
+function renderTextThenUrls(
+  parts: MessageContentUnion[] | MessageTextContent[],
+  opts?: { maxPerText?: number; showLabel?: boolean }
+): string {
+  const { maxPerText = 8, showLabel = true } = opts ?? {};
+  const textParts = (parts as MessageContentUnion[]).filter(
+    (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
+  );
+
   const blocks: string[] = [];
   for (const part of textParts) {
-    const t = part.text.value;
-    // anns: type === "url_citation" を startIndex 昇順に並べた配列
-    const anns = (part.text.annotations ?? [])
-      .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
-      .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
-    // 引用から url と title、テキスト上の範囲 [s, e) を取り出し、妥当性チェック（URLが無い/範囲が不正ならスキップ）
-    const urlToIndex = new Map<string, number>();
-    const refs: Array<{ url: string; title?: string }> = [];
-    let cursor = 0;
-    let out = "";
-    for (const a of anns) {
-      const url = a.urlCitation?.url;
-      const title = a.urlCitation?.title;
-      let s = a.startIndex ?? -1;
-      let e = a.endIndex ?? -1;
-      if (!url || s < 0 || e < 0 || s > e) continue;
-      // モデルから稀に来る「はみ出し」対策で範囲を文字列長にクランプ（安全側に寄せる）
-      if (e <= cursor) continue;
-      if (s > t.length) continue;
-      if (e > t.length) e = t.length;
-      // 直前の位置 cursor から、この注釈の 終端 e まで本文を出力
-      // これにより、注釈の該当テキストを出力し終えた“直後” に脚注記号を打てる
-      out += t.slice(cursor, e);
-      cursor = e;
-      // 同一URLの重複を避けるため、urlToIndex（Map）で番号を管理
-      let n = urlToIndex.get(url);
-      // 初出URLなら 次の番号 を払い出し、refs（表示用リスト）にも登録
-      // 既出URLなら前に付けた番号を再利用（本文内で同じURLが複数箇所出ても [同じ番号]）
-      if (n === undefined && urlToIndex.size < maxSourcesPerPart) {
-        n = urlToIndex.size + 1;
-        urlToIndex.set(url, n);
-        refs[n - 1] = { url, title };
-      }
-      if (n !== undefined) out += `[${n}]`;
+    // 【 】で囲まれている部分は削除
+    const cleaned = part.text.value.replace(/【\d+:\d+†source】/g, "");
+    blocks.push(cleaned);
+    // url部分を取ってくる
+    const urls = extractUrlsFromTextPart(part, maxPerText);
+    if (urls.length) {
+      const header = showLabel ? "\n参考URL:\n" : "\n";
+      const lines = urls
+        .map((u, i) => `  ${i + 1}. ${(u.title ?? hostnameOf(u.url))} - ${u.url}`)
+        .join("\n");
+      blocks.push(header + lines);
     }
-    out += t.slice(cursor);
-    // 【】のような残骸があれば掃除
-    const body = out.replace(/【\d+:\d+†source】/g, "");
-    // 本文内に実際に出現した [n] の順序で参考URLを並べる
-    const usedNums = Array.from(body.matchAll(/\[(\d+)\]/g)).map((m) => Number(m[1]));
-    const orderedUnique: number[] = [];
-    const seen = new Set<number>();
-    for (const n of usedNums) {
-      if (!Number.isFinite(n)) continue;
-      if (n < 1 || n > refs.length) continue; // 未対応 or 外れ値は無視
-      if (!seen.has(n)) {
-        seen.add(n);
-        orderedUnique.push(n);
-      }
-    }
-    // パート直後に、本文に実際に出現した [n] の順で並べる
-    const tail = orderedUnique.length
-      ? "\n参考URL:\n" +
-        orderedUnique
-          .map((n) => {
-            const r = refs[n - 1]!;
-            const title = r.title ?? hostnameOf(r.url);
-            return `  ${n}. ${title} - ${r.url}`;
-          })
-          .join("\n")
-      : "";
-    blocks.push(body + tail);
   }
-  return { blocks }; 
+  return blocks.join("\n\n");
 }
 
 // main
@@ -229,9 +209,9 @@ export async function connectBing(userId: string, question: string): Promise<str
       const textParts = m.content.filter(
         (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
       );
+
       if (textParts.length) {
-        const { blocks } = formatPerPartWithReferences(textParts);
-        lastAssistantText = blocks.join("\n\n"); 
+        lastAssistantText = renderTextThenUrls(textParts, { maxPerText: 8, showLabel: true });
       }
       break; // 最新のassistantのみ
     }
