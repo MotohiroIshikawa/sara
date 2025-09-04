@@ -120,46 +120,61 @@ export async function resetThread(userId: string) {
   }
 }
 
-// 本文の整形、URL一覧を返す
-function formatWithFootnotes(textParts: MessageTextContent[]) {
-  const urlToIndex = new Map<string, number>(); // url->nのMAP
-  const indexToMeta: Array<{ url: string; title?: string }> = [];
-  const blocks: string[] = [];
+function hostnameOf(u: string) {
+  try { return new URL(u).hostname; } catch { return u; }
+}
 
+function formatPerPartWithReferences(textParts: MessageTextContent[], maxSourcesPerPart = 8) {
+  const blocks: string[] = [];
   for (const part of textParts) {
     const t = part.text.value;
-    const annotation = (part.text.annotations ?? [])
+    // anns: type === "url_citation" を startIndex 昇順に並べた配列
+    const anns = (part.text.annotations ?? [])
       .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
       .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
-
+    // 引用から url と title、テキスト上の範囲 [s, e) を取り出し、妥当性チェック（URLが無い/範囲が不正ならスキップ）
+    const urlToIndex = new Map<string, number>();
+    const refs: Array<{ url: string; title?: string }> = [];
     let cursor = 0;
     let out = "";
-    for (const a of annotation) {
-      const startIndex = a.startIndex ?? -1;
-      const endIndex = a.endIndex ?? -1;
+    for (const a of anns) {
       const url = a.urlCitation?.url;
       const title = a.urlCitation?.title;
-      if (!url || startIndex < 0 || endIndex < 0 || startIndex > endIndex || startIndex > t.length) continue;
-
-      // 注釈範囲の末尾に脚注番号 [n] を付与
-      out += t.slice(cursor, endIndex);
-      cursor = endIndex;
+      let s = a.startIndex ?? -1;
+      let e = a.endIndex ?? -1;
+      if (!url || s < 0 || e < 0 || s > e) continue;
+      // モデルから稀に来る「はみ出し」対策で範囲を文字列長にクランプ（安全側に寄せる）
+      if (e <= cursor) continue;
+      if (s > t.length) continue;
+      if (e > t.length) e = t.length;
+      // 直前の位置 cursor から、この注釈の 終端 e まで本文を出力
+      // これにより、注釈の該当テキストを出力し終えた“直後” に脚注記号を打てる
+      out += t.slice(cursor, e);
+      cursor = e;
+      // 同一URLの重複を避けるため、urlToIndex（Map）で番号を管理
       let n = urlToIndex.get(url);
-      if (n === undefined) {
+      // 初出URLなら 次の番号 を払い出し、refs（表示用リスト）にも登録
+      // 既出URLなら前に付けた番号を再利用（本文内で同じURLが複数箇所出ても [同じ番号]）
+      if (n === undefined && urlToIndex.size < maxSourcesPerPart) {
         n = urlToIndex.size + 1;
         urlToIndex.set(url, n);
-        indexToMeta[n - 1] = { url, title };
+        refs[n - 1] = { url, title };
       }
-      out += `[${n}]`;
+      if (n !== undefined) out += `[${n}]`;
     }
     out += t.slice(cursor);
-    blocks.push(out);
+    // 【】のような残骸があれば掃除
+    const body = out.replace(/【\d+:\d+†source】/g, "");
+    // パート直後に、そのパートで使ったURLだけを並べる
+    const tail = refs.length
+      ? "\n参考URL:\n" +
+        refs
+          .map((r, i) => `  ${i + 1}. ${(r.title ?? hostnameOf(r.url))} - ${r.url}`)
+          .join("\n")
+      : "";
+    blocks.push(body + tail);
   }
-  // 【】形式の残骸を消す
-  const text = blocks.join("\n\n").replace(/【\d+:\d+†source】/g, "");
-  // 1..N の順で並んだ citations を返す
-  const citations = indexToMeta.filter(Boolean);
-  return { text, citations };
+  return { blocks }; 
 }
 
 // main
@@ -192,27 +207,19 @@ export async function connectBing(userId: string, question: string): Promise<str
 
     // すべてのメッセージを取得する->assistant, textのみ抽出
     let lastAssistantText = "";
-    let lastAssistantCitations: Array<{ url: string; title?: string }> = [];
-    for await (const m of client.messages.list(threadId, { order: "desc" })) {
+    for await (const m of client.messages.list(threadId, { order: "desc", limit: 1 } as any)) {
       if (m.role !== "assistant") continue;
       // URL抜き出し
       const textParts = m.content.filter(
         (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
       );
       if (textParts.length) {
-        const { text, citations } = formatWithFootnotes(textParts);
-        lastAssistantText = text;
-        lastAssistantCitations = citations;
+        const { blocks } = formatPerPartWithReferences(textParts);
+        lastAssistantText = blocks.join("\n\n"); 
       }
       break; // 最新のassistantのみ
     }
     if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
-    const sources = lastAssistantCitations.length
-      ? "\n\n参考URL:\n" +
-        lastAssistantCitations
-          .map((s, i) => `${i + 1}. ${(s.title ?? hostnameOf(s.url))} - ${s.url}`)
-          .join("\n")
-      : "";
-    return lastAssistantText + sources;
+    return lastAssistantText;
   });
 }
