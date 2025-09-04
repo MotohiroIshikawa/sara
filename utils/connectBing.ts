@@ -252,7 +252,8 @@ async function dumpRunAndMessages(
   console.log("\n===== [DEBUG] steps (raw) =====");
   try {
     if (runId) {
-      for await (const step of client.runs.listSteps(threadId, runId)) {
+      const steps = client.runSteps.list(threadId, runId, { order: "desc", limit: 20 });
+      for await (const step of steps) {
         console.dir(step, { depth: null, colors: true });
       }
     } else {
