@@ -3,6 +3,7 @@ import {
   ToolUtility,
   isOutputOfType,
   type MessageTextContent,
+  type MessageTextUrlCitationAnnotation,
 } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 import Redis from "ioredis";
@@ -119,6 +120,24 @@ export async function resetThread(userId: string) {
   }
 }
 
+// 引用URLを収集する
+function collectCitations(contents: MessageTextContent[]) {
+  const urlMap = new Map<string, string | undefined>(); // url->titleのMapになってる
+  for (const c of contents) {
+    if (!isOutputOfType<MessageTextContent>(c, "text")) continue;
+    for (const annotation of c.text.annotations ?? []) {
+      if (annotation.type === "url_citation") {
+        const a = annotation as MessageTextUrlCitationAnnotation;
+        const url = a.urlCitation?.url;
+        if (url) urlMap.set(url, a.urlCitation?.title);
+      }
+      // 将来 Azure AI Search 等のファイル引用も出したい時:
+      // else if (ann.type === "file_citation") { ... }
+    }
+  }
+  return [...urlMap.entries()].map(([url, title]) => ({ url, title }));
+}
+
 // main
 export async function connectBing(userId: string, question: string): Promise<string> {
   const q = question.trim();
@@ -126,7 +145,7 @@ export async function connectBing(userId: string, question: string): Promise<str
   // 認証チェック
   await preflightAuth();
 
-  return await redlock.using([`lock:user:${userId}`], 90_000, async (_signal) => {
+  return await redlock.using([`lock:user:${userId}`], 90_000, async () => {
     // Agent/Thread作成
     const [agentId, threadId] = await Promise.all([
       getOrCreateAgentId(),
@@ -148,18 +167,30 @@ export async function connectBing(userId: string, question: string): Promise<str
     }
 
     // すべてのメッセージを取得する->assistant, textのみ抽出
-    const assistantTexts: string[] = [];
-    for await (const m of client.messages.list(threadId, { order: "asc" })) {
+    let lastAssistantText = "";
+    let lastAssistantCitations: Array<{ url: string; title?: string }> = [];
+    for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
+      // 本文
       for (const c of m.content) {
-        if (isOutputOfType<MessageTextContent>(c, "text")) {
-          assistantTexts.push(c.text.value);
+        if (isOutputOfType<MessageTextContent>(c, "text") && !lastAssistantText) {
+          lastAssistantText = c.text.value;
         }
       }
+      // URL抜き出し
+      const textParts = m.content.filter(
+        (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
+      );
+      lastAssistantCitations = collectCitations(textParts);
+      break; // 最新のassistantのみ
     }
-
-    return assistantTexts.length
-    ? assistantTexts.join("\n---\n")
-    : "⚠️ Bing応答にtextが見つかりませんでした。";
+    if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
+    const sources = lastAssistantCitations.length
+      ? "\n\n参考URL:\n" +
+        lastAssistantCitations
+          .map((s, i) => `${i + 1}. ${s.title ? `${s.title} - ` : ""}${s.url}`)
+          .join("\n")
+      : "";
+    return lastAssistantText + sources;
   });
 }
