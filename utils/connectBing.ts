@@ -120,22 +120,46 @@ export async function resetThread(userId: string) {
   }
 }
 
-// 引用URLを収集する
-function collectCitations(contents: MessageTextContent[]) {
-  const urlMap = new Map<string, string | undefined>(); // url->titleのMapになってる
-  for (const c of contents) {
-    if (!isOutputOfType<MessageTextContent>(c, "text")) continue;
-    for (const annotation of c.text.annotations ?? []) {
-      if (annotation.type === "url_citation") {
-        const a = annotation as MessageTextUrlCitationAnnotation;
-        const url = a.urlCitation?.url;
-        if (url) urlMap.set(url, a.urlCitation?.title);
+// 本文の整形、URL一覧を返す
+function formatWithFootnotes(textParts: MessageTextContent[]) {
+  const urlToIndex = new Map<string, number>(); // url->nのMAP
+  const indexToMeta: Array<{ url: string; title?: string }> = [];
+  const blocks: string[] = [];
+
+  for (const part of textParts) {
+    const t = part.text.value;
+    const annotation = (part.text.annotations ?? [])
+      .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
+      .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
+
+    let cursor = 0;
+    let out = "";
+    for (const a of annotation) {
+      const startIndex = a.startIndex ?? -1;
+      const endIndex = a.endIndex ?? -1;
+      const url = a.urlCitation?.url;
+      const title = a.urlCitation?.title;
+      if (!url || startIndex < 0 || endIndex < 0 || startIndex > endIndex || startIndex > t.length) continue;
+
+      // 注釈範囲の末尾に脚注番号 [n] を付与
+      out += t.slice(cursor, endIndex);
+      cursor = endIndex;
+      let n = urlToIndex.get(url);
+      if (n === undefined) {
+        n = urlToIndex.size + 1;
+        urlToIndex.set(url, n);
+        indexToMeta[n - 1] = { url, title };
       }
-      // 将来 Azure AI Search 等のファイル引用も出したい時:
-      // else if (ann.type === "file_citation") { ... }
+      out += `[${n}]`;
     }
+    out += t.slice(cursor);
+    blocks.push(out);
   }
-  return [...urlMap.entries()].map(([url, title]) => ({ url, title }));
+  // 【】形式の残骸を消す
+  const text = blocks.join("\n\n").replace(/【\d+:\d+†source】/g, "");
+  // 1..N の順で並んだ citations を返す
+  const citations = indexToMeta.filter(Boolean);
+  return { text, citations };
 }
 
 // main
@@ -171,24 +195,22 @@ export async function connectBing(userId: string, question: string): Promise<str
     let lastAssistantCitations: Array<{ url: string; title?: string }> = [];
     for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
-      // 本文
-      for (const c of m.content) {
-        if (isOutputOfType<MessageTextContent>(c, "text") && !lastAssistantText) {
-          lastAssistantText = c.text.value;
-        }
-      }
       // URL抜き出し
       const textParts = m.content.filter(
         (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
       );
-      lastAssistantCitations = collectCitations(textParts);
+      if (textParts.length) {
+        const { text, citations } = formatWithFootnotes(textParts);
+        lastAssistantText = text;
+        lastAssistantCitations = citations;
+      }
       break; // 最新のassistantのみ
     }
     if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
     const sources = lastAssistantCitations.length
       ? "\n\n参考URL:\n" +
         lastAssistantCitations
-          .map((s, i) => `${i + 1}. ${s.title ? `${s.title} - ` : ""}${s.url}`)
+          .map((s, i) => `${i + 1}. ${(s.title ?? hostnameOf(s.url))} - ${s.url}`)
           .join("\n")
       : "";
     return lastAssistantText + sources;
