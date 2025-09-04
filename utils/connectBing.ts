@@ -165,11 +165,27 @@ function formatPerPartWithReferences(textParts: MessageTextContent[], maxSources
     out += t.slice(cursor);
     // 【】のような残骸があれば掃除
     const body = out.replace(/【\d+:\d+†source】/g, "");
-    // パート直後に、そのパートで使ったURLだけを並べる
-    const tail = refs.length
+    // 本文内に実際に出現した [n] の順序で参考URLを並べる
+    const usedNums = Array.from(body.matchAll(/\[(\d+)\]/g)).map((m) => Number(m[1]));
+    const orderedUnique: number[] = [];
+    const seen = new Set<number>();
+    for (const n of usedNums) {
+      if (!Number.isFinite(n)) continue;
+      if (n < 1 || n > refs.length) continue; // 未対応 or 外れ値は無視
+      if (!seen.has(n)) {
+        seen.add(n);
+        orderedUnique.push(n);
+      }
+    }
+    // パート直後に、本文に実際に出現した [n] の順で並べる
+    const tail = orderedUnique.length
       ? "\n参考URL:\n" +
-        refs
-          .map((r, i) => `  ${i + 1}. ${(r.title ?? hostnameOf(r.url))} - ${r.url}`)
+        orderedUnique
+          .map((n) => {
+            const r = refs[n - 1]!;
+            const title = r.title ?? hostnameOf(r.url);
+            return `  ${n}. ${title} - ${r.url}`;
+          })
           .join("\n")
       : "";
     blocks.push(body + tail);
@@ -207,7 +223,7 @@ export async function connectBing(userId: string, question: string): Promise<str
 
     // すべてのメッセージを取得する->assistant, textのみ抽出
     let lastAssistantText = "";
-    for await (const m of client.messages.list(threadId, { order: "desc", limit: 1 } as any)) {
+    for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
       // URL抜き出し
       const textParts = m.content.filter(
