@@ -10,7 +10,14 @@ import { DefaultAzureCredential } from "@azure/identity";
 import Redis from "ioredis";
 import Redlock from "redlock";
 import { createHash } from "crypto";
-import { formatSectionsForLine, normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
+import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
+
+function envInt(name: string, def: number, min = 0, max = 10) {
+  const raw = process.env[name];
+  const n = raw === undefined ? def : Number(raw);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
 
 // Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const DEBUG_BING = process.env.DEBUG_BING === "1";
@@ -26,7 +33,8 @@ const redisPort = Number(process.env.REDIS_PORT ?? 6380);
 const redisUser = process.env.REDIS_USERNAME ?? "default";
 const redisKey = process.env.REDIS_KEY!;
 
-const lineTextLimit = Number(process.env.LINE_TEXT_LIMIT ?? 1000); // 1000
+const lineTextLimit = envInt("LINE_TEXT_LIMIT", 1000, 200, 4800);
+const maxUrlsPerBlock = envInt("LINE_MAX_URLS_PER_BLOCK", 3, 0, 10);
 
 // credential
 const credential = new DefaultAzureCredential();
@@ -128,7 +136,6 @@ export async function resetThread(userId: string) {
   }
 }
 
-
 /**
  * Bingからのレスポンス処理
  * 
@@ -146,7 +153,7 @@ export async function resetThread(userId: string) {
  *  }, ...]
  * }}]
  * 
- * toSectionedJsonFromMessageで返されるオブジェクト->@/types/Section型のオブジェクト配列
+ * toSectionedJsonFromMessageで返されるオブジェクト->下記Section型のオブジェクト配列->LINE用text配列へ
  * 
  */
 type Section = {
@@ -156,7 +163,7 @@ type Section = {
 };
 
 const stripMarkers = (s: string) => s.replace(/【\d+:\d+†source】/g, "");
-const delimiter = /\n\s*---\s*\n/g;
+const delimiter = /\r?\n\s*---\s*\r?\n/g;
 
 function splitByHrWithRanges(text: string): Section[] {
   const out: Section[] = [];
@@ -177,11 +184,28 @@ function splitByHrWithRanges(text: string): Section[] {
   return out;
 }
 
+// LINE向けの文字数制限によるtext分割格納
+function chunkForLine(text: string, limit: number): string[] {
+  if (text.length <= limit) return [text];
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > limit) {
+    // 直近の改行（できれば段落区切り）を探す
+    let cut = rest.lastIndexOf("\n\n", limit);
+    if (cut < 0) cut = rest.lastIndexOf("\n", limit);
+    if (cut < 0) cut = limit; // 改行が無ければ機械的に分割
+    out.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, "");
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
 function toLineTextsFromTextPart(
   part: MessageTextContent,
-  opts: { maxUrlsPerBlock?: number; showTitles?: boolean } = {}
+  opts: { maxUrls?: number; showTitles?: boolean } = {}
 ): string[] {
-  const { maxUrlsPerBlock = 6, showTitles = true } = opts;
+  const { maxUrls = maxUrlsPerBlock, showTitles = true } = opts;
   const text = part.text.value;
   const sections = splitByHrWithRanges(text);
 
@@ -190,10 +214,10 @@ function toLineTextsFromTextPart(
 
   // 注釈をセクションの末尾へ追記するための行バッファ
   const urlLinesPerSection: string[][] = sections.map(() => []);
-  const annotation = (part.text.annotations ?? [])
+  const anns = (part.text.annotations ?? [])
     .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
     .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
-  for (const a of annotation) {
+  for (const a of anns) {
     const s = a.startIndex ?? -1;
     if (s < 0) continue;
     const url = a.urlCitation?.url;
@@ -208,64 +232,49 @@ function toLineTextsFromTextPart(
     const seen = seenPerSection[idx];
     if (seen.has(url)) continue;
 
-    if (urlLinesPerSection[idx].length >= maxUrlsPerBlock) continue;
+    if (urlLinesPerSection[idx].length >= maxUrls) continue;
     seen.add(url);
     urlLinesPerSection[idx].push(
       showTitles && title ? `・${title}\n${url}` : `・${url}`
     );
   }
 
-  // 各セクションを LINE 向けテキストに整形（Markdown簡素化＋URL追記）
+  // 各セクションを LINE 向けテキストに整形
   const out: string[] = [];
   sections.forEach((sec, i) => {
+    // Markdownの整形
     const body = normalizeMarkdownForLine(sec.context.trim());
     const refs = urlLinesPerSection[i];
+    // URLを末尾に追加
     const text = refs.length ? `${body}\n${refs.join("\n")}` : body;
     out.push(text);
   });
-  
-  // 1つの text パートを JSON 化：各ブロック直下にそのブロックの URL を付ける
-function toSectionedJsonFromTextPart(part: MessageTextContent): Section[] {
-  const text = part.text.value;
-  const sections = splitByHrWithRanges(text);
-  const annotation = (part.text.annotations ?? [])
-    .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
-    .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
-  
-  for (const a of annotation) {
-    const start = a.startIndex ?? -1;
-    if (start < 0) continue;
 
-    const url = a.urlCitation?.url;
-    if (!url) continue;
-    const title = a.urlCitation?.title;
-
-    // 所属ブロックを探索（startIndex ∈ [section.startIndex, section.endIndex)）
-    const section = sections.find(s => start >= s.startIndex && start < s.endIndex);
-    if (!section) continue;
-    // ブロック内で重複URLは除外しつつ、出現順で追加
-    if (!section.annotations) section.annotations = [];
-    if (!section.annotations.some(r => r.url === url)) {
-      section.annotations.push({ url, title });
-    }
-  }
-  return sections;
+  // LINE向けの文字数制限によるtext分割格納
+  const sized: string[] = [];
+  for (const t of out) sized.push(...chunkForLine(t, lineTextLimit));
+  return sized;
 }
-// メッセージ（複数 text パートの可能性あり）→ セクション配列を連結
-function toSectionedJsonFromMessage(contents: MessageContentUnion[]): Section[] {
+
+function toLineTextsFromMessage(
+  contents: MessageContentUnion[],
+  opts?: { maxUrls?: number; showTitles?: boolean }
+): string[] {
   const textParts = contents.filter(
     (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
   );
-  const all: Section[] = [];
-  for (const p of textParts) all.push(...toSectionedJsonFromTextPart(p));
+  const all: string[] = [];
+  for (const p of textParts) {
+    all.push(...toLineTextsFromTextPart(p, opts));
+  }
   return all;
 }
 
 // main
-export async function connectBing(userId: string, question: string): Promise<string> {
+export async function connectBing(userId: string, question: string): Promise<string[]> {
   const q = question.trim();
   console.log("question:" + q);
-  if (!q) return "メッセージが空です。";
+  if (!q) return ["⚠️メッセージが空です。"];
   // 認証チェック
   await preflightAuth();
 
@@ -292,22 +301,26 @@ export async function connectBing(userId: string, question: string): Promise<str
     if (run.status !== "completed") {
       const code = run.lastError?.code ?? "";
       const msg  = run.lastError?.message ?? "";
-      console.warn(`⚠️ Run ended: ${run.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
-      return "エラーが発生しました。(run createAndPoll)";
+      console.warn(`⚠️Run ended: ${run.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
+      return ["⚠️エラーが発生しました。(run createAndPoll)"];
     }
 
     // すべてのメッセージを取得する->assistant, textのみ抽出
-    let lastAssistantText = "";
     for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
-      const sections = toSectionedJsonFromMessage(m.content);
-      const payload = formatSectionsForLine(sections);
-      lastAssistantText = JSON.stringify(payload, null, 2);
-      if (DEBUG_BING) console.log(lastAssistantText);
+      const texts = toLineTextsFromMessage(m.content, { maxUrls: maxUrlsPerBlock, showTitles: true });
+      if (DEBUG_BING) {
+        console.log("\n===== [DEBUG] line texts =====");
+        texts.forEach((t, i) => {
+          console.log(`[${i}] len=${t.length}`);
+          console.log(t);
+          console.log("---");
+        });
+      }
+      if (texts.length) return texts;
       break; // 最新のassistantのみ
     }
-    if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
-    return lastAssistantText;
+    return ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"];
   });
 }
 
@@ -348,7 +361,6 @@ async function dumpRunAndMessages(
   let cnt = 0;
   for await (const m of client.messages.list(threadId, { order: "desc" })) {
     console.dir(m, { depth: null, colors: true });
-    // …（略：あなたのサマリ出力部分はそのままでOK）
     cnt++;
     if (cnt >= maxMsgs) break;
   }

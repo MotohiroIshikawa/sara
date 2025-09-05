@@ -2,6 +2,7 @@
   "name": "sara",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --experimental-https",
     "stg": "next dev --experimental-https --experimental-https-key ./certificates/lineai-dev-mi10490jp-com-key.pem --experimental-https-cert ./certificates/lineai-dev-mi10490jp-com-fullchain.pem",
