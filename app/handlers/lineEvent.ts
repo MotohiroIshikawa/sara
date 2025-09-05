@@ -1,7 +1,8 @@
 import { messagingApi, WebhookEvent } from "@line/bot-sdk";
 import { TalkModel } from "@/models/talk";
-import connectDB from "@/utils/connectDB";
+//import connectDB from "@/utils/connectDB";
 import { connectBing } from "@/utils/connectBing";
+import type { Section } from "@/types/section";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
@@ -13,13 +14,13 @@ const client = new messagingApi.MessagingApiClient({
 });
 
 export async function lineEvent(event: WebhookEvent) {
-  let aiResponse = "";
   if (event.type == "message"){
     if (event.message.type == "text") {
       const { userId } = event.source;
       const { text } = event.message;
-      const timestampStart = new Date();
+      // const timestampStart = new Date();
 
+      /*
       await connectDB()
       // メッセージをDBに記録
       await TalkModel.create({
@@ -29,25 +30,14 @@ export async function lineEvent(event: WebhookEvent) {
         timestamp : timestampStart
       })
       console.log("Success regist Talk request");
+      */
 
-      // Azure OpenAIへの問い合わせ
+      // Azure OpenAI (Grounding with Bing Search) への問い合わせ
       const res = await connectBing(userId, text);
+      console.log("#### CONNECT BING RESPONSE####");
       console.log(res);
-/*
-      const baseURL = process.env.BASE_URL;
-      try{
-        const res = await fetch(baseURL + 'api/getOpenAI', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', },
-          body: JSON.stringify({text}),
-        });
-        aiResponse = await res.json();
-        console.log("aiResponse: " + aiResponse);
-      } catch {
-        console.log("AI取得エラー");
-        }
-*/
-/*
+
+      /*
       // LINEへの応答
       const { replyToken } = event;
       await client.replyMessage({
