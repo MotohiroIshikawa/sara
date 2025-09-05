@@ -10,7 +10,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 import Redis from "ioredis";
 import Redlock from "redlock";
 import { createHash } from "crypto";
-import { formatSectionsForLine } from "@/utils/normalizeMarkdownForLine";
+import { formatSectionsForLine, normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 
 // Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const DEBUG_BING = process.env.DEBUG_BING === "1";
@@ -25,6 +25,8 @@ const redisHost = process.env.REDIS_HOSTNAME!;
 const redisPort = Number(process.env.REDIS_PORT ?? 6380);
 const redisUser = process.env.REDIS_USERNAME ?? "default";
 const redisKey = process.env.REDIS_KEY!;
+
+const lineTextLimit = Number(process.env.LINE_TEXT_LIMIT ?? 1000); // 1000
 
 // credential
 const credential = new DefaultAzureCredential();
@@ -144,16 +146,15 @@ export async function resetThread(userId: string) {
  *  }, ...]
  * }}]
  * 
- * toSectionedJsonFromMessageで返されるオブジェクト->下記Section型のオブジェクト配列
+ * toSectionedJsonFromMessageで返されるオブジェクト->@/types/Section型のオブジェクト配列
  * 
  */
-type UrlRef = { url: string; title?: string };
 type Section = {
-  context: string;             // マーカー除去後の本文
-  startIndex: number;          // 元テキスト内の開始位置
-  endIndex: number;            // 元テキスト内の終了位置（end-exclusive）
-  annotations?: UrlRef[];      // そのブロックに属するURL（出現順・重複除外）
+  context: string;     // マーカー除去後の本文
+  startIndex: number;  // 元テキスト内の開始位置
+  endIndex: number;    // 元テキスト内の終了位置（end-exclusive）
 };
+
 const stripMarkers = (s: string) => s.replace(/【\d+:\d+†source】/g, "");
 const delimiter = /\n\s*---\s*\n/g;
 
@@ -175,7 +176,55 @@ function splitByHrWithRanges(text: string): Section[] {
   }
   return out;
 }
-// 1つの text パートを JSON 化：各ブロック直下にそのブロックの URL を付ける
+
+function toLineTextsFromTextPart(
+  part: MessageTextContent,
+  opts: { maxUrlsPerBlock?: number; showTitles?: boolean } = {}
+): string[] {
+  const { maxUrlsPerBlock = 6, showTitles = true } = opts;
+  const text = part.text.value;
+  const sections = splitByHrWithRanges(text);
+
+  // セクションごとのURL重複を避けるための集合
+  const seenPerSection: Array<Set<string>> = sections.map(() => new Set<string>());
+
+  // 注釈をセクションの末尾へ追記するための行バッファ
+  const urlLinesPerSection: string[][] = sections.map(() => []);
+  const annotation = (part.text.annotations ?? [])
+    .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
+    .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
+  for (const a of annotation) {
+    const s = a.startIndex ?? -1;
+    if (s < 0) continue;
+    const url = a.urlCitation?.url;
+    const title = a.urlCitation?.title;
+    if (!url) continue;
+
+    // 所属セクションを見つける
+    const idx = sections.findIndex(sec => s >= sec.startIndex && s < sec.endIndex);
+    if (idx === -1) continue;
+
+    // 重複URLはスキップ
+    const seen = seenPerSection[idx];
+    if (seen.has(url)) continue;
+
+    if (urlLinesPerSection[idx].length >= maxUrlsPerBlock) continue;
+    seen.add(url);
+    urlLinesPerSection[idx].push(
+      showTitles && title ? `・${title}\n${url}` : `・${url}`
+    );
+  }
+
+  // 各セクションを LINE 向けテキストに整形（Markdown簡素化＋URL追記）
+  const out: string[] = [];
+  sections.forEach((sec, i) => {
+    const body = normalizeMarkdownForLine(sec.context.trim());
+    const refs = urlLinesPerSection[i];
+    const text = refs.length ? `${body}\n${refs.join("\n")}` : body;
+    out.push(text);
+  });
+  
+  // 1つの text パートを JSON 化：各ブロック直下にそのブロックの URL を付ける
 function toSectionedJsonFromTextPart(part: MessageTextContent): Section[] {
   const text = part.text.value;
   const sections = splitByHrWithRanges(text);

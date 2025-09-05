@@ -55,16 +55,3 @@ export function normalizeMarkdownForLine(md: string): string {
 
   return s;
 }
-
-/**
- * Section 風の配列（context/annotations を含む任意の型）について、
- * context だけ normalize して構造はそのまま返す。
- */
-export function formatSectionsForLine<T extends { context: string; annotations?: unknown }>(
-  sections: T[]
-): T[] {
-  return sections.map(s => ({
-    ...s,
-    context: normalizeMarkdownForLine(s.context),
-  }));
-}
