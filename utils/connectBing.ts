@@ -252,7 +252,7 @@ export async function connectBing(userId: string, question: string): Promise<str
       if (m.role !== "assistant") continue;
       const json = toSectionedJsonFromMessage(m.content);
       lastAssistantText = JSON.stringify(json, null, 2);
-      console.log(lastAssistantText);
+      if (DEBUG_BING) console.log(lastAssistantText);
       break; // 最新のassistantのみ
     }
     if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
