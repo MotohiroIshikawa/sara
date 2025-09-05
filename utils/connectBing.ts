@@ -35,6 +35,7 @@ const redisKey = process.env.REDIS_KEY!;
 
 const lineTextLimit = envInt("LINE_TEXT_LIMIT", 1000, 200, 4800);
 const maxUrlsPerBlock = envInt("LINE_MAX_URLS_PER_BLOCK", 3, 0, 10);
+const minSectionLength = envInt("MIN_SECTION_LENGTH", 8, 0, 10);
 
 // credential
 const credential = new DefaultAzureCredential();
@@ -163,7 +164,13 @@ type Section = {
 };
 
 const stripMarkers = (s: string) => s.replace(/【\d+:\d+†source】/g, "");
-const delimiter = /\r?\n\s*---\s*\r?\n/g;
+const delimiter = /\r?\n\r?\n/g;
+const isAscii = (s: string) => /^[\x00-\x7F]+$/.test(s);
+const isFiller = (s: string) => {
+  const t = s.trim();
+  if (!t) return true; // 空はフィラー
+  return isAscii(t) && t.length <= minSectionLength;
+};
 
 function splitByHrWithRanges(text: string): Section[] {
   const out: Section[] = [];
@@ -172,14 +179,18 @@ function splitByHrWithRanges(text: string): Section[] {
     const idx = m.index ?? -1;
     if (idx < 0) continue;
     const chunk = text.slice(last, idx);
-    if (chunk.trim()){
-      out.push({ context: stripMarkers(chunk), startIndex: last, endIndex: idx });
+    const trimmed = chunk.trim();
+    if (!trimmed || isFiller(trimmed)) {
+      last = idx + m[0].length;
+      continue;
     }
+    out.push({ context: stripMarkers(trimmed), startIndex: last, endIndex: idx });
     last = idx + m[0].length;
   }
   const tail = text.slice(last);
-  if (tail.trim()){
-    out.push({ context: stripMarkers(tail), startIndex: last, endIndex: text.length });
+  const tailTrimmed = tail.trim();
+  if (tailTrimmed && !isFiller(tailTrimmed)) {
+    out.push({ context: stripMarkers(tailTrimmed), startIndex: last, endIndex: text.length });
   }
   return out;
 }
