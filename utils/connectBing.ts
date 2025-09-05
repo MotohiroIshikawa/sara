@@ -10,6 +10,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 import Redis from "ioredis";
 import Redlock from "redlock";
 import { createHash } from "crypto";
+import { formatSectionsForLine } from "@/utils/normalizeMarkdownForLine";
 
 // Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const DEBUG_BING = process.env.DEBUG_BING === "1";
@@ -250,8 +251,9 @@ export async function connectBing(userId: string, question: string): Promise<str
     let lastAssistantText = "";
     for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
-      const json = toSectionedJsonFromMessage(m.content);
-      lastAssistantText = JSON.stringify(json, null, 2);
+      const sections = toSectionedJsonFromMessage(m.content);
+      const payload = formatSectionsForLine(sections);
+      lastAssistantText = JSON.stringify(payload, null, 2);
       if (DEBUG_BING) console.log(lastAssistantText);
       break; // 最新のassistantのみ
     }
