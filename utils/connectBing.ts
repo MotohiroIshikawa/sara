@@ -11,7 +11,7 @@ import Redis from "ioredis";
 import Redlock from "redlock";
 import { createHash } from "crypto";
 
-// 先頭あたりに追加
+// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const DEBUG_BING = process.env.DEBUG_BING === "1";
 
 const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
@@ -125,55 +125,90 @@ export async function resetThread(userId: string) {
   }
 }
 
-function hostnameOf(u: string) {
-  try { return new URL(u).hostname; } catch { return u; }
-}
 
-// text パートから URL を抽出（出現順・重複URLは除外）
-function extractUrlsFromTextPart(part: MessageTextContent, max = 8 ): Array<{ url: string; title?: string }> {
-  const anns = (part.text.annotations ?? [])
-    .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
-    .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
-  const seen = new Set<string>();
-  const out: Array<{ url: string; title?: string }> = [];
+/**
+ * Bingからのレスポンス処理
+ * 
+ * content:[{type:'text',text:{
+ *  value:'(接頭の説明文)\n'+'\n'+'---\n'+'\n'+'###最初の段落'....
+ *      // 段落ごとに参照URLがある場合は段落末尾に【\d+:\d+†source】の形で「注釈」が入る
+ * ,annotations:[{
+ *    type:'url_citation',
+ *    urlCitation:{
+ *      url:URL,
+ *      title:'TITLE'
+ *    },
+ *    startIndex: SSS,  // 本文全体での「注釈」の開始位置
+ *    endIndex: EEE     // 本文全体での「注釈」の終了位置
+ *  }, ...]
+ * }}]
+ * 
+ * toSectionedJsonFromMessageで返されるオブジェクト->下記Section型のオブジェクト配列
+ * 
+ */
+type UrlRef = { url: string; title?: string };
+type Section = {
+  context: string;             // マーカー除去後の本文
+  startIndex: number;          // 元テキスト内の開始位置
+  endIndex: number;            // 元テキスト内の終了位置（end-exclusive）
+  annotations?: UrlRef[];      // そのブロックに属するURL（出現順・重複除外）
+};
+const stripMarkers = (s: string) => s.replace(/【\d+:\d+†source】/g, "");
+const delimiter = /\n\s*---\s*\n/g;
 
-  for (const a of anns) {
-    const url = a.urlCitation?.url;
-    // 重複除外
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    out.push({ url, title: a.urlCitation?.title });
-    if (out.length >= max) break;
+function splitByHrWithRanges(text: string): Section[] {
+  const out: Section[] = [];
+  let last = 0;
+  for (const m of text.matchAll(delimiter)) {
+    const idx = m.index ?? -1;
+    if (idx < 0) continue;
+    const chunk = text.slice(last, idx);
+    if (chunk.trim()){
+      out.push({ context: stripMarkers(chunk), startIndex: last, endIndex: idx });
+    }
+    last = idx + m[0].length;
+  }
+  const tail = text.slice(last);
+  if (tail.trim()){
+    out.push({ context: stripMarkers(tail), startIndex: last, endIndex: text.length });
   }
   return out;
 }
+// 1つの text パートを JSON 化：各ブロック直下にそのブロックの URL を付ける
+function toSectionedJsonFromTextPart(part: MessageTextContent): Section[] {
+  const text = part.text.value;
+  const sections = splitByHrWithRanges(text);
+  const annotation = (part.text.annotations ?? [])
+    .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
+    .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
+  
+  for (const a of annotation) {
+    const start = a.startIndex ?? -1;
+    if (start < 0) continue;
 
-// text の直後に、その text に付いている参考URLを並べる
-function renderTextThenUrls(
-  parts: MessageContentUnion[] | MessageTextContent[],
-  opts?: { maxPerText?: number; showLabel?: boolean }
-): string {
-  const { maxPerText = 8, showLabel = true } = opts ?? {};
-  const textParts = (parts as MessageContentUnion[]).filter(
-    (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
-  );
+    const url = a.urlCitation?.url;
+    if (!url) continue;
+    const title = a.urlCitation?.title;
 
-  const blocks: string[] = [];
-  for (const part of textParts) {
-    // 【 】で囲まれている部分は削除
-    const cleaned = part.text.value.replace(/【\d+:\d+†source】/g, "");
-    blocks.push(cleaned);
-    // url部分を取ってくる
-    const urls = extractUrlsFromTextPart(part, maxPerText);
-    if (urls.length) {
-      const header = showLabel ? "\n参考URL:\n" : "\n";
-      const lines = urls
-        .map((u, i) => `  ${i + 1}. ${(u.title ?? hostnameOf(u.url))} - ${u.url}`)
-        .join("\n");
-      blocks.push(header + lines);
+    // 所属ブロックを探索（startIndex ∈ [section.startIndex, section.endIndex)）
+    const section = sections.find(s => start >= s.startIndex && start < s.endIndex);
+    if (!section) continue;
+    // ブロック内で重複URLは除外しつつ、出現順で追加
+    if (!section.annotations) section.annotations = [];
+    if (!section.annotations.some(r => r.url === url)) {
+      section.annotations.push({ url, title });
     }
   }
-  return blocks.join("\n\n");
+  return sections;
+}
+// メッセージ（複数 text パートの可能性あり）→ セクション配列を連結
+function toSectionedJsonFromMessage(contents: MessageContentUnion[]): Section[] {
+  const textParts = contents.filter(
+    (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
+  );
+  const all: Section[] = [];
+  for (const p of textParts) all.push(...toSectionedJsonFromTextPart(p));
+  return all;
 }
 
 // main
@@ -215,14 +250,9 @@ export async function connectBing(userId: string, question: string): Promise<str
     let lastAssistantText = "";
     for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
-      // URL抜き出し
-      const textParts = m.content.filter(
-        (c): c is MessageTextContent => isOutputOfType<MessageTextContent>(c, "text")
-      );
-
-      if (textParts.length) {
-        lastAssistantText = renderTextThenUrls(textParts, { maxPerText: 8, showLabel: true });
-      }
+      const json = toSectionedJsonFromMessage(m.content);
+      lastAssistantText = JSON.stringify(json, null, 2);
+      console.log(lastAssistantText);
       break; // 最新のassistantのみ
     }
     if (!lastAssistantText) return "⚠️ Bing応答にtextが見つかりませんでした。";
@@ -230,8 +260,7 @@ export async function connectBing(userId: string, question: string): Promise<str
   });
 }
 
-
-// ↓ファイル下部のどこかに追加（ユーティリティ）
+// Bing Searchの生jsonを見るためのデバグ
 async function dumpRunAndMessages(
   client: AgentsClient,
   threadId: string,
