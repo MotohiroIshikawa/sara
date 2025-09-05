@@ -4,7 +4,7 @@
  * Markdown を LINE の通常テキスト向けに読みやすく整形する。
  * - LINE は Markdown を解釈しないため、記号で代替表現に置換
  * - 強調: **text** → 【text】, *text* / _text_ → 〈text〉
- * - 見出し: #/##/###... → 記号（■ / ・）
+ * - 見出し: #/##/###... → 削除
  * - 箇条書き: -, * → ・ / 数字. → n)
  * - 引用: > → ＞
  * - インラインコード: `code` → 「code」
@@ -24,18 +24,18 @@ export function normalizeMarkdownForLine(md: string): string {
 
   // 見出し → 記号
   s = s
-    .replace(/^\s*######\s*(.+)$/gm, "・$1")
-    .replace(/^\s*#####\s*(.+)$/gm, "・$1")
-    .replace(/^\s*####\s*(.+)$/gm, "・$1")
-    .replace(/^\s*###\s*(.+)$/gm, "■ $1")
-    .replace(/^\s*##\s*(.+)$/gm, "■ $1")
-    .replace(/^\s*#\s*(.+)$/gm, "■ $1");
+    .replace(/^\s*######\s*(.+)$/gm, "$1")
+    .replace(/^\s*#####\s*(.+)$/gm, "$1")
+    .replace(/^\s*####\s*(.+)$/gm, "$1")
+    .replace(/^\s*###\s*(.+)$/gm, "$1")
+    .replace(/^\s*##\s*(.+)$/gm, "$1")
+    .replace(/^\s*#\s*(.+)$/gm, "$1");
 
   // 引用
-  s = s.replace(/^\s*>\s?/gm, "＞ ");
+  s = s.replace(/^\s*>\s?/gm, "> ");
 
   // 箇条書き
-  s = s.replace(/^\s*[-*]\s+/gm, "・ ");
+  s = s.replace(/^\s*[-*]\s+/gm, "・");
   s = s.replace(/^\s*(\d+)\.\s+/gm, "$1) ");
 
   // 強調
