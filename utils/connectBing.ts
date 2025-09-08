@@ -302,6 +302,8 @@ export async function connectBing(userId: string, question: string): Promise<str
     // 実行
     const run = await client.runs.createAndPoll(threadId, agentId, {
       pollingOptions: { intervalInMs: 1500 },
+      temperature: 0.2,
+      topP: 1,
     });
 
     // For Debug
