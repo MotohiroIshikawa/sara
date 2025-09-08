@@ -11,6 +11,7 @@ import Redis from "ioredis";
 import Redlock from "redlock";
 import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
+import { agentInstructions } from '@/utils/agentInstructions';
 
 function envInt(name: string, def: number, min = 0, max = 10) {
   const raw = process.env[name];
@@ -76,7 +77,7 @@ function agentIdKey() {
     .update(JSON.stringify({
       modelDeployment,
       bingConnectionId,
-      instructions: "You are a helpful agent. Use Bing grounding when it helps and include sources if available." 
+      instructions: agentInstructions 
     }))
     .digest("base64url")
     .slice(0, 12);
@@ -93,8 +94,7 @@ async function getOrCreateAgentId(): Promise<string> {
   // redisのchacheがなければ AGENT作成
   const agent = await client.createAgent(modelDeployment, {
     name: `${agentNamePrefix}-${Date.now()}`,
-    instructions:
-      "You are a helpful agent. Use Bing grounding when it helps and include sources if available.",
+    instructions: agentInstructions,
     tools: [bingTool.definition],
   });
   await redis.set(key, agent.id);
@@ -216,7 +216,7 @@ function toLineTextsFromTextPart(
   part: MessageTextContent,
   opts: { maxUrls?: number; showTitles?: boolean } = {}
 ): string[] {
-  const { maxUrls = maxUrlsPerBlock, showTitles = true } = opts;
+  const { maxUrls = maxUrlsPerBlock, showTitles = false } = opts;
   const text = part.text.value;
   const sections = splitByHrWithRanges(text);
 
@@ -246,9 +246,7 @@ function toLineTextsFromTextPart(
     if (urlLinesPerSection[idx].length >= maxUrls) continue;
     seen.add(url);
     urlLinesPerSection[idx].push(
-    // showTitles && title ? `・${title}\n${url}` : `・${url}`
-    // URLのみに変更
-    `${url}`
+      showTitles && title ? `・${title}\n${url}` : `・${url}`
     );
   }
 

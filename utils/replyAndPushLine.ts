@@ -6,12 +6,14 @@ const client = new messagingApi.MessagingApiClient({
 
 const replyMax = 5;
 const pushMax = 5;
+const textLimit = 2000;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function toTextMessages(blocks: string[]): TextMessage[] {
   return blocks
     .filter((t) => t && t.trim().length > 0)
-    .map((t) => ({ type: "text", text: t.slice(0, 4800) }));
+    .map((t) => ({ type: "text", text: t.slice(0, textLimit) }));
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
