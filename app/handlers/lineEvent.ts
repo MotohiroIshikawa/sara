@@ -28,8 +28,8 @@ export async function lineEvent(event: WebhookEvent) {
   const threadOwnerId = getThreadOwnerId(event);
   if (!recipientId || !threadOwnerId) return;
 
-  if (event.type == "message"){
-    if (event.message.type == "text") {
+  if (event.type === "message"){
+    if (event.message.type === "text") {
       try {
         const question = event.message.text?.trim() ?? "";
         if (!question) {
@@ -56,9 +56,11 @@ export async function lineEvent(event: WebhookEvent) {
         */
 
         // Azure OpenAI (Grounding with Bing Search) への問い合わせ
-        const texts  = await connectBing(threadOwnerId, question);
+        const raw  = await connectBing(threadOwnerId, question);
+        const hasContent = Array.isArray(raw) && raw.some(s => s && s.trim().length > 0);
+        const texts = hasContent ? raw : ["（結果が見つかりませんでした）"];
         console.log("#### CONNECT BING RESPONSE ####");
-        console.log(texts);
+        console.log(raw);
 
         // LINEへの応答
         await replyAndPushLine({
