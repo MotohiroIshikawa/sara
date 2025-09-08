@@ -39,7 +39,8 @@ export function normalizeMarkdownForLine(md: string): string {
   s = s.replace(/^\s*(\d+)\.\s+/gm, "$1) ");
 
   // 強調
-  s = s.replace(/\*\*(.+?)\*\*/g, "【$1】");                            // 太字
+//  s = s.replace(/\*\*(.+?)\*\*/g, "【$1】");                            // 太字
+  s = s.replace(/\*\*(.+?)\*\*/g, "$1");                            // 太字
   s = s.replace(/(^|[^*])\*(?!\*)([^*]+)\*(?!\*)(?=[^*]|$)/g, "$1〈$2〉"); // 斜体 *
   s = s.replace(/_([^_]+)_/g, "〈$1〉");                                  // 斜体 _
 
