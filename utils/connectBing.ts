@@ -314,11 +314,21 @@ function stripMetaFromContent(contents: MessageContentUnion[]): { cleaned: Messa
 // スロットが不足している場合に問い合わせる
 function buildFollowup(meta?: Meta): string {
   const slots = meta?.slots ?? {};
+  const intent = meta?.intent;
   const missing: string[] = [];
+
+  // topic が無ければ必ず聞く
   if (!slots.topic) missing.push("対象（作品名など）");
-  if (!slots.date_range) missing.push("期間");
-  if (slots.topic && !slots.place) missing.push("場所");
+  // event では期間は質問しない（ongoing を採用する前提）
+  if (intent !== "event" && !slots.date_range) missing.push("期間");
+  // 場所は任意。必要に応じて軽く聞く
+  if (slots.topic && !slots.place) missing.push("場所（任意）");
+
   const lead = missing.length ? `不足: ${missing.join(" / ")}。` : "";
+  // モデルが followups を返してきても、event の場合は自前文面を優先
+  if (intent === "event") {
+    return `${lead}ひとつだけ教えてください。`;
+  }
   return meta?.followups?.[0] ?? `${lead}ひとつだけ教えてください。`;
 }
 
@@ -409,10 +419,13 @@ export async function connectBing(userId: string, question: string): Promise<str
       console.log("===== [DEBUG] meta =====");
       console.dir(meta, { depth: null });
     }
-    // 不足がある場合はフォローアップ1行のみ返す
-    if (meta?.complete === false) return [buildFollowup(meta)];
-    // 正常
-    return texts.length ? texts : ["（結果が見つかりませんでした）"];
+    // 暫定回答は出す。その上で不足があれば最後に1行だけ確認を付与
+    const out = texts.length ? [...texts] : ["（結果が見つかりませんでした）"];
+    if (meta?.complete === false) {
+      const ask = buildFollowup(meta);
+      out.push(`${ask}`);
+    }
+    return out;
   });
 }
 
