@@ -13,6 +13,7 @@ import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 import { agentInstructions } from '@/utils/agentInstructions';
 
+// Int型環境変数
 function envInt(name: string, def: number, min = 0, max = 10) {
   const raw = process.env[name];
   const n = raw === undefined ? def : Number(raw);
@@ -20,23 +21,35 @@ function envInt(name: string, def: number, min = 0, max = 10) {
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
-// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
-const DEBUG_BING = process.env.DEBUG_BING === "1";
-
+// 環境変数
+//// Bing接続用
 const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
 const bingConnectionId = process.env.AZURE_BING_CONNECTION_ID!;
 const modelDeployment = process.env.AZURE_AI_MODEL_DEPLOYMENT!;
 const agentNamePrefix = process.env.AZURE_AI_PRJ_AGENT_NAME ?? "lineai-bing-agent";
 const threadTTL = Number(process.env.THREAD_TTL ?? 168);
-
+//// Redis接続用
 const redisHost = process.env.REDIS_HOSTNAME!;
 const redisPort = Number(process.env.REDIS_PORT ?? 6380);
 const redisUser = process.env.REDIS_USERNAME ?? "default";
 const redisKey = process.env.REDIS_KEY!;
-
+//// LINE出力
 const lineTextLimit = envInt("LINE_TEXT_LIMIT", 1000, 200, 4800);
 const maxUrlsPerBlock = envInt("LINE_MAX_URLS_PER_BLOCK", 3, 0, 10);
 const minSectionLength = envInt("MIN_SECTION_LENGTH", 8, 0, 10);
+//// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
+const DEBUG_BING = process.env.DEBUG_BING === "1";
+
+// 型宣言
+type Section = {
+  context: string;     // マーカー除去後の本文
+  startIndex: number;  // 元テキスト内の開始位置
+  endIndex: number;    // 元テキスト内の終了位置（end-exclusive）
+};
+type Intent = "event" | "news" | "buy" | "generic";
+type Slots = { topic?: string; place?: string | null; date_range?: string; official_only?: boolean };
+type Meta = { intent?: Intent; slots?: Slots; complete?: boolean; followups?: string[] };
+const META_BLOCK = /```meta\s*([\s\S]*?)```/i
 
 // credential
 const credential = new DefaultAzureCredential();
@@ -154,15 +167,11 @@ export async function resetThread(userId: string) {
  *  }, ...]
  * }}]
  * 
- * toSectionedJsonFromMessageで返されるオブジェクト->下記Section型のオブジェクト配列->LINE用text配列へ
+ * toSectionedJsonFromMessageで返されるオブジェクト->Section型のオブジェクト配列->LINE用text配列へ
  * 
  */
-type Section = {
-  context: string;     // マーカー除去後の本文
-  startIndex: number;  // 元テキスト内の開始位置
-  endIndex: number;    // 元テキスト内の終了位置（end-exclusive）
-};
 
+// 整形用
 const stripMarkers = (s: string) => s.replace(/【\d+:\d+†source】/g, "");
 const delimiter = /\r?\n\r?\n/g;
 const isAscii = (s: string) => /^[\x00-\x7F]+$/.test(s);
@@ -172,6 +181,7 @@ const isFiller = (s: string) => {
   return isAscii(t) && t.length <= minSectionLength;
 };
 
+// textをdelimiterで分割、全text中での開始/終了文字数を取得する
 function splitByHrWithRanges(text: string): Section[] {
   const out: Section[] = [];
   let last = 0;
@@ -195,7 +205,7 @@ function splitByHrWithRanges(text: string): Section[] {
   return out;
 }
 
-// LINE向けの文字数制限によるtext分割格納
+// LINEの文字数制限によるtext分割格納
 function chunkForLine(text: string, limit: number): string[] {
   if (text.length <= limit) return [text];
   const out: string[] = [];
@@ -212,6 +222,7 @@ function chunkForLine(text: string, limit: number): string[] {
   return out;
 }
 
+// annotationの各urlがどのtextに属するかの判断、urlをtextの末尾に付ける
 function toLineTextsFromTextPart(
   part: MessageTextContent,
   opts: { maxUrls?: number; showTitles?: boolean } = {}
@@ -242,14 +253,12 @@ function toLineTextsFromTextPart(
     // 重複URLはスキップ
     const seen = seenPerSection[idx];
     if (seen.has(url)) continue;
-
     if (urlLinesPerSection[idx].length >= maxUrls) continue;
     seen.add(url);
     urlLinesPerSection[idx].push(
-      showTitles && title ? `・${title}\n${url}` : `・${url}`
+      showTitles && title ? `${title}\n${url}` : `${url}`
     );
   }
-
   // 各セクションを LINE 向けテキストに整形
   const out: string[] = [];
   sections.forEach((sec, i) => {
@@ -260,13 +269,13 @@ function toLineTextsFromTextPart(
     const text = refs.length ? `${body}\n${refs.join("\n")}` : body;
     out.push(text);
   });
-
   // LINE向けの文字数制限によるtext分割格納
   const sized: string[] = [];
   for (const t of out) sized.push(...chunkForLine(t, lineTextLimit));
   return sized;
 }
 
+// LINE向けにtextを作成
 function toLineTextsFromMessage(
   contents: MessageContentUnion[],
   opts?: { maxUrls?: number; showTitles?: boolean }
@@ -279,6 +288,38 @@ function toLineTextsFromMessage(
     all.push(...toLineTextsFromTextPart(p, opts));
   }
   return all;
+}
+
+// assistantメッセージからmetaを除去
+function stripMetaFromContent(contents: MessageContentUnion[]): { cleaned: MessageContentUnion[]; meta?: Meta } {
+  const cloned = JSON.parse(JSON.stringify(contents)) as MessageContentUnion[];
+  let meta: Meta | undefined;
+  for (const c of cloned) {
+    if (isOutputOfType<MessageTextContent>(c, "text")) {
+      const v = c.text.value;
+      const m = v.match(META_BLOCK);
+      if (m) {
+        try {
+          meta = JSON.parse(m[1].trim()) as Meta;
+        } catch {
+          // 解析失敗は無視
+        }
+        c.text.value = v.replace(META_BLOCK, "").trim();
+      }
+    }
+  }
+  return { cleaned: cloned, meta };
+}
+
+// スロットが不足している場合に問い合わせる
+function buildFollowup(meta?: Meta): string {
+  const slots = meta?.slots ?? {};
+  const missing: string[] = [];
+  if (!slots.topic) missing.push("対象（作品名など）");
+  if (!slots.date_range) missing.push("期間");
+  if (slots.topic && !slots.place) missing.push("場所");
+  const lead = missing.length ? `不足: ${missing.join(" / ")}。` : "";
+  return meta?.followups?.[0] ?? `${lead}ひとつだけ教えてください。`;
 }
 
 // main
@@ -321,7 +362,13 @@ export async function connectBing(userId: string, question: string): Promise<str
     // すべてのメッセージを取得する->assistant, textのみ抽出
     for await (const m of client.messages.list(threadId, { order: "desc" })) {
       if (m.role !== "assistant") continue;
-      const texts = toLineTextsFromMessage(m.content, { maxUrls: maxUrlsPerBlock, showTitles: true });
+
+      const { cleaned: contentNoMeta, meta } = stripMetaFromContent(m.content);
+      const texts = toLineTextsFromMessage(contentNoMeta, {
+        maxUrls: maxUrlsPerBlock,
+        showTitles: false
+      });
+
       if (DEBUG_BING) {
         console.log("\n===== [DEBUG] line texts =====");
         texts.forEach((t, i) => {
@@ -329,9 +376,13 @@ export async function connectBing(userId: string, question: string): Promise<str
           console.log(t);
           console.log("---");
         });
+        console.log("===== [DEBUG] meta =====");
+        console.dir(meta, { depth: null });
       }
-      if (texts.length) return texts;
-      break; // 最新のassistantのみ
+      // 不足がある場合はフォローアップ1行のみ返す
+      if (meta && meta.complete === false) return [buildFollowup(meta)];
+      // 正常
+      return texts.length ? texts : ["（結果が見つかりませんでした）"];
     }
     return ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"];
   });

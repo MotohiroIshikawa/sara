@@ -3,7 +3,6 @@ import { type WebhookEvent } from "@line/bot-sdk";
 //import connectDB from "@/utils/connectDB";
 import { connectBing } from "@/utils/connectBing";
 import { replyAndPushLine } from "@/utils/replyAndPushLine";
-import { extractMetaAndStrip } from "@/utils/extractMetaAndStrip";
 
 function getRecipientId(event: WebhookEvent): string | undefined {
   switch (event.source.type){
@@ -36,7 +35,7 @@ export async function lineEvent(event: WebhookEvent) {
         if (!question) {
           await replyAndPushLine({
             replyToken: event.replyToken,
-            userId: recipientId,
+            to: recipientId,
             texts: ["⚠️メッセージが空です。"],
             delayMs: 250,
           });
@@ -57,18 +56,13 @@ export async function lineEvent(event: WebhookEvent) {
         */
 
         // Azure OpenAI (Grounding with Bing Search) への問い合わせ
-        const raw  = await connectBing(threadOwnerId, question);
-        const { cleaned, meta } = extractMetaAndStrip(raw);
-        const texts = cleaned.length ? cleaned : ["（結果が見つかりませんでした）"];
-        console.log("#### CONNECT BING RESPONSE ####");
-        console.log(raw);
-        console.log("#### META ####");
-        console.log(meta);
+        const texts = await connectBing(threadOwnerId, question);
+        console.log("#### BING REPLY (TEXTS) ####", texts);
 
         // LINEへの応答
         await replyAndPushLine({
           replyToken: event.replyToken,
-          userId: recipientId,
+          to: recipientId,
           texts,
           delayMs: 250,
         });
@@ -89,7 +83,7 @@ export async function lineEvent(event: WebhookEvent) {
         try {
             await replyAndPushLine({
               replyToken: event.replyToken,
-              userId: recipientId,
+              to: recipientId,
               texts: ["⚠️内部エラーが発生しました。時間をおいてもう一度お試しください。"],
               delayMs: 250,
             });

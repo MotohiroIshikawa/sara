@@ -32,13 +32,13 @@ function chunk<T>(arr: T[], size: number): T[][] {
 export async function replyAndPushLine(
   {
     replyToken,
-    userId,
+    to,
     texts,
     delayMs = 250,  // push間インターバル（0で無効）
     log = console,  // ログ出力先（任意）
   }: {
     replyToken: string;
-    userId: string;
+    to: string;
     texts: string[];
     delayMs?: number;
     log?: Pick<typeof console, "info" | "warn" | "error">;
@@ -72,10 +72,7 @@ export async function replyAndPushLine(
 
   for (const batch of chunk(rest, pushMax)) {
     try {
-      await client.pushMessage({
-        to: userId, 
-        messages: batch
-      });
+      await client.pushMessage({to, messages: batch });
     } catch (e) {
       log?.error?.("[LINE pushMessage] failed:", e);
       break;
