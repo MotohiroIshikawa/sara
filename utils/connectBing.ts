@@ -246,7 +246,9 @@ function toLineTextsFromTextPart(
     if (urlLinesPerSection[idx].length >= maxUrls) continue;
     seen.add(url);
     urlLinesPerSection[idx].push(
-      showTitles && title ? `・${title}\n${url}` : `・${url}`
+    // showTitles && title ? `・${title}\n${url}` : `・${url}`
+    // URLのみに変更
+    `${url}`
     );
   }
 
