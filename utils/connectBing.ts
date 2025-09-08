@@ -322,6 +322,37 @@ function buildFollowup(meta?: Meta): string {
   return meta?.followups?.[0] ?? `${lead}ひとつだけ教えてください。`;
 }
 
+// この run の assistant メッセージだけ拾う
+type AssistantMsg = {
+  role: "assistant";
+  runId?: string;
+  content: MessageContentUnion[];
+};
+
+async function getAssistantMessageForRun(
+  threadId: string, 
+  runId: string
+): Promise<AssistantMsg | undefined> {
+  let fallback: AssistantMsg | undefined = undefined;
+
+  for await (const m of client.messages.list(threadId, { order: "desc" })) {
+    if (m.role !== "assistant") continue;
+    const normalized: AssistantMsg = {
+      role: "assistant",
+      runId: m.runId ?? undefined,
+      content: m.content as MessageContentUnion[],
+    };
+    // 最新のassistantをフォールバック候補として保持
+    if (!fallback) fallback = normalized;
+    // 同じrunのメッセージを最優先で返す
+    if (m.runId && m.runId === runId) {
+      return normalized;
+    }
+  }
+  // 同じrunが見つからなければ最新のassistantを返す
+  return fallback;
+}
+
 // main
 export async function connectBing(userId: string, question: string): Promise<string[]> {
   const q = question.trim();
@@ -359,32 +390,29 @@ export async function connectBing(userId: string, question: string): Promise<str
       return ["⚠️エラーが発生しました。(run createAndPoll)"];
     }
 
-    // すべてのメッセージを取得する->assistant, textのみ抽出
-    for await (const m of client.messages.list(threadId, { order: "desc" })) {
-      if (m.role !== "assistant") continue;
+    const picked = await getAssistantMessageForRun(threadId, run.id!);
+    if (!picked) return ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"];
 
-      const { cleaned: contentNoMeta, meta } = stripMetaFromContent(m.content);
-      const texts = toLineTextsFromMessage(contentNoMeta, {
-        maxUrls: maxUrlsPerBlock,
-        showTitles: false
+    const { cleaned: contentNoMeta, meta } = stripMetaFromContent(picked.content);
+    const texts = toLineTextsFromMessage(contentNoMeta, {
+      maxUrls: maxUrlsPerBlock,
+      showTitles: false
+    });
+
+    if (DEBUG_BING) {
+      console.log("\n===== [DEBUG] line texts =====");
+      texts.forEach((t, i) => {
+        console.log(`[${i}] len=${t.length}`);
+        console.log(t);
+        console.log("---");
       });
-
-      if (DEBUG_BING) {
-        console.log("\n===== [DEBUG] line texts =====");
-        texts.forEach((t, i) => {
-          console.log(`[${i}] len=${t.length}`);
-          console.log(t);
-          console.log("---");
-        });
-        console.log("===== [DEBUG] meta =====");
-        console.dir(meta, { depth: null });
-      }
-      // 不足がある場合はフォローアップ1行のみ返す
-      if (meta && meta.complete === false) return [buildFollowup(meta)];
-      // 正常
-      return texts.length ? texts : ["（結果が見つかりませんでした）"];
+      console.log("===== [DEBUG] meta =====");
+      console.dir(meta, { depth: null });
     }
-    return ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"];
+    // 不足がある場合はフォローアップ1行のみ返す
+    if (meta?.complete === false) return [buildFollowup(meta)];
+    // 正常
+    return texts.length ? texts : ["（結果が見つかりませんでした）"];
   });
 }
 
