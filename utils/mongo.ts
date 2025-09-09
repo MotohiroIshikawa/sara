@@ -27,6 +27,17 @@ async function getClient(): Promise<MongoClient> {
   return _clientPromise;
 }
 
+export async function pingMongo(): Promise<boolean> {
+  try {
+    const client = await getClient();
+    const res = await client.db("admin").command({ ping: 1 });
+    return !!res?.ok;
+  } catch (e) {
+    console.error("[mongo] ping failed:", (e as Error)?.message || e);
+    return false;
+  }
+}
+
 export async function getCollection<T extends Document = Document>( name: string ): Promise<Collection<T>> {
   const dbName = process.env.MONGODB_DB!;
   const client = await getClient();
