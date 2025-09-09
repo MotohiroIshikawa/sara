@@ -31,16 +31,21 @@ export type UserCycleDoc = {
   endAt?: Date | null;    // unfollow 時にセット
 };
 
+function swallow(e: unknown) {
+  // インデックス衝突や権限で失敗してもウォームアップを止めない
+  console.warn("[indexes] skipped:", (e as Error)?.message ?? e);
+}
+
 let _indexesEnsured = false;
 /** 初回だけインデックス作成（idempotent） */
 export async function ensureUserIndexes() {
   if (_indexesEnsured) return;
   const users = await getUsersCollection();
-  await users.createIndex({ userId: 1 }, { unique: true }); // _id=userId だが明示
   const cycles = await getUserCyclesCollection();
-  await cycles.createIndex({ userId: 1, cycleId: 1 }, { unique: true }); // 連結 unique
-  await cycles.createIndex({ userId: 1, startAt: -1 });
-  await cycles.createIndex({ userId: 1, endAt: 1 });
+  await users.createIndex({ userId: 1 }).catch(swallow);
+  await cycles.createIndex({ userId: 1, startAt: -1 }).catch(swallow);
+  await cycles.createIndex({ userId: 1, endAt: 1 }).catch(swallow);
+  await cycles.createIndex({ userId: 1, cycleId: 1 }).catch(swallow);
   _indexesEnsured = true;
 }
 
