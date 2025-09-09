@@ -64,7 +64,14 @@ async function preflightAuth(): Promise<void> {
 // client
 const client = new AgentsClient(endpoint, credential);
 // bingTool
-const bingTool = ToolUtility.createBingGroundingTool([{ connectionId: bingConnectionId }]);
+const bingTool = ToolUtility.createBingGroundingTool([
+  { 
+    connectionId: bingConnectionId,
+    market: "ja-JP",
+    setLang: "ja",
+    count: 5,
+    freshness: "week",
+   }]);
 
 // redis
 const redis = new Redis({
