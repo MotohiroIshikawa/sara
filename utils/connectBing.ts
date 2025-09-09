@@ -363,6 +363,22 @@ async function getAssistantMessageForRun(
   return fallback;
 }
 
+// フォローアップ検知
+const FOLLOWUP_MAX_LEN = envInt("FOLLOWUP_MAX_LEN", 80, 20, 200);
+function trimLite(s: string) {
+  return s.replace(/\s+/g, "").trim();
+}
+function looksLikeFollowup(line?: string, meta?: Meta): boolean {
+  if (!line) return false;
+  const s = line.trim();
+  if (!s) return false;
+  if (s.length > FOLLOWUP_MAX_LEN) return false;
+  const endsWithQ = /[?？]\s*$/.test(s);
+  const hasLead = /^不足[:：]/.test(s);
+  const equalsMeta = meta?.followups?.some(f => trimLite(f) === trimLite(s)) ?? false;
+  return endsWithQ || hasLead || equalsMeta;
+}
+
 // main
 export async function connectBing(userId: string, question: string): Promise<string[]> {
   const q = question.trim();
@@ -423,7 +439,12 @@ export async function connectBing(userId: string, question: string): Promise<str
     const out = texts.length ? [...texts] : ["（結果が見つかりませんでした）"];
     if (meta?.complete === false) {
       const ask = buildFollowup(meta);
-      out.push(`${ask}`);
+      const last = out[out.length - 1];
+      // すでに本文に同等の確認行が含まれていれば重複追加しない
+      const alreadyHas =
+        out.some(t => trimLite(t) === trimLite(ask)) ||
+        looksLikeFollowup(last, meta);
+      if (!alreadyHas) out.push(ask);
     }
     return out;
   });
