@@ -531,23 +531,24 @@ export async function connectBing(
       }
     }
 
-    // For Debug
-    if (DEBUG_BING) {
-      await dumpRunAndMessages(client, threadId, run, { maxMsgs: 5 });
-    }
-
     // ループ終了後の最終状態を取得して判定
     const final = (await client.runs.get(threadId, run.id)) as RunState;
+    if (DEBUG_BING) {
+      await dumpRunAndMessages(client, threadId, final, { maxMsgs: 5 });
+    }
     if (final.status !== "completed") {
       type RunError = { code?: string; message?: string };
       const lastError: RunError | undefined = (final as unknown as { lastError?: RunError }).lastError;
       const code = lastError?.code ?? "";
       const msg  = lastError?.message ?? "";
       console.warn(`⚠️Run ended: ${final.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
-      return { texts: ["⚠️エラーが発生しました。(run polling)"], agentId, threadId, runId: run.id };
+      return { texts: ["⚠️エラーが発生しました。(run poll)"], agentId, threadId, runId: (final as { id?: string })?.id ?? run.id };
     }
 
-    const picked = await getAssistantMessageForRun(threadId, run.id!);
+    const picked = await getAssistantMessageForRun(
+      threadId,
+      (final as { id?: string })?.id ?? run.id!
+    );
     if (!picked) return {
       texts: ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"],
       agentId, threadId, runId: (run as { id?: string })?.id
