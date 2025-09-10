@@ -23,3 +23,31 @@ export interface UserCycleDoc extends Document {
   startAt: Date;
   endAt?: Date | null;
 };
+
+export interface ThreadInstDoc extends Document {
+  _id?: string;           // Mongoが付与
+  userId: string;         // "user_..." | "group:..." | "room:..."
+  threadId: string;       // Azure Agents threadId
+  instpack: string;       // コンパイル済み指示
+  meta?: unknown;         // メタ JSON（スキーマ可変なので unknown）
+  updatedAt: Date;        // 保存時刻
+}
+
+export interface UserGptsDoc extends Document {
+  _id?: string;
+  id: string;             // gpts_<uuid>
+  userId: string;
+  name: string;
+  instpack: string;       // 固定スナップショット
+  fromThreadId?: string;
+  createdAt: Date;
+  tags?: string[];
+}
+
+export interface GptsBindingDoc extends Document {
+  _id?: string;
+  targetId: string;      // "group:xxx" | "room:yyy" | "user:zzz"
+  gptsId: string;        // user_gpts.id
+  instpack: string;      // スナップショット（運用は固定でOK）
+  updatedAt: Date;
+}

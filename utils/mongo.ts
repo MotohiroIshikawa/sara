@@ -1,6 +1,11 @@
-// utils/mongo.ts
 import { MongoClient, type Collection, type Document } from "mongodb";
-import type { UserDoc, UserCycleDoc } from "@/types/db";
+import type { 
+  UserDoc, 
+  UserCycleDoc, 
+  ThreadInstDoc, 
+  UserGptsDoc, 
+  GptsBindingDoc
+} from "@/types/db";
 
 let _clientPromise: Promise<MongoClient> | null = null;
 
@@ -54,7 +59,23 @@ export async function getUserCyclesCollection(): Promise<Collection<UserCycleDoc
   return getCollection<UserCycleDoc>(name);
 }
 
-// 任意: 開発時のクリーンアップ
+export async function getThreadInstCollection(): Promise<Collection<ThreadInstDoc>> {
+  const name = process.env.MONGODB_THREAD_INST_COLLECTION ?? "thread_inst";
+  return getCollection<ThreadInstDoc>(name);
+}
+
+export async function getUserGptsCollection(): Promise<Collection<UserGptsDoc>> {
+  const name = process.env.MONGODB_USER_GPTS_COLLECTION ?? "user_gpts";
+  return getCollection<UserGptsDoc>(name);
+}
+
+export async function getGptsBindingsCollection(): Promise<Collection<GptsBindingDoc>> {
+  const name = process.env.MONGODB_GPTS_BINDINGS_COLLECTION ?? "gpts_bindings";
+  return getCollection<GptsBindingDoc>(name);
+}
+
+
+//// 任意: 開発時のクリーンアップ
 export async function closeMongoForDev() {
   if (_clientPromise) {
     const client = await _clientPromise;
