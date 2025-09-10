@@ -14,19 +14,46 @@ async function ensureIndexes(): Promise<void> {
   if (_indexesReady) return;
   const col = await getThreadInstCollection();
 
-  // userId + threadId のユニーク制約（毎回上書き）
-  await col.createIndex(
-    { userId: 1, threadId: 1 },
-    { unique: true, name: "uniq_user_thread" }
-  );
+  // userId + threadId のユニーク制約（Cosmos Mongo は後から変更不可）
+  type IndexInfo = { name?: string; key?: Record<string, number>; unique?: boolean };
+  const indexes = (await col.indexes()) as IndexInfo[];
+  const targetKey = { userId: 1, threadId: 1 } as const;
+  const exists = indexes.find(ix => JSON.stringify(ix.key) === JSON.stringify(targetKey));
+  if (!exists) {
+    try {
+      await col.createIndex(targetKey, { unique: true, name: "uniq_user_thread" });
+    } catch (e) {
+      const msg = String((e as Error).message || "");
+      if (msg.includes("The unique index cannot be modified")) {
+        console.warn("[thread_inst] Index already exists with different options. Skip creating. To change it, drop & recreate collection `thread_inst`.");
+      } else {
+        throw e;
+      }
+    }
+  } else if (exists.unique !== true) {
+    console.warn("[thread_inst] Found NON-unique index on {userId,threadId}. Cosmos Mongo cannot alter to unique. Consider recreating collection if strict uniqueness is required.");
+  }
 
   // TTL: updatedAt から N日 で自動削除（デフォルト7日）
   //    ※ updatedAt が無いドキュメントは対象外
-  await col.createIndex(
-    { updatedAt: 1 },
-    { expireAfterSeconds: 60 * 60 * 24 * TTL_DAYS, name: "ttl_updatedAt" }
-  );
-
+  const ttlName = "ttl_updatedAt";
+  const hasTTL = indexes.some(ix => ix.name === ttlName);
+  if (!hasTTL) {
+    try {
+      await col.createIndex(
+        { updatedAt: 1 },
+        { expireAfterSeconds: 60 * 60 * 24 * TTL_DAYS, name: ttlName }
+      );
+    } catch (e) {
+      const msg = String((e as Error).message || "");
+      // 既存TTLが別設定で存在する場合など：Cosmos Mongo は変更不可
+      if (msg.includes("cannot be modified") || msg.includes("already exists")) {
+        console.warn("[thread_inst] TTL index already exists (possibly with different options). To change TTL, drop & recreate the index/collection.");
+      } else {
+        throw e;
+      }
+    }
+  }
   _indexesReady = true;
 }
 
