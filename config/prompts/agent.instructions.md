@@ -62,5 +62,7 @@
 - slots: topic=ちいかわ, place=null, date_range=null, official_only=true
 - 不足時: まず暫定回答を提示し、最後に不足スロットを1行で確認。
 - 禁止: 低品質まとめの引用、裏取りのないXの採用。
+```
 ```meta
 {"intent":"generic","slots":{"topic":"ちいかわ","place":null,"date_range":null,"official_only":true},"complete":true,"followups":["必要なら場所の希望を教えてください（例：東京・大阪・オンライン）。"]}
+```
