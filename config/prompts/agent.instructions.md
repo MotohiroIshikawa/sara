@@ -14,6 +14,30 @@
 - instpack は**この会話の状況（intent/slots: topic, place, date_range, official_only 等）に即した最終指示**を、**自己完結**に含めること（「上の回答」「本文参照」などの相対参照は禁止）。
 - instpack / meta は**本文に出さない・引用しない**。ユーザー向け本文は「短く・要点先出し・段落改行」のみ。
 
+### ツール呼び出し（emit_meta：必須）
+- 本文の生成と**同じターンで**、function ツール **`emit_meta`** を**必ず**呼ぶこと。
+- 引数（payload）は以下の形：
+  - `meta`: `{ "intent": "event|news|buy|generic", "slots": { "topic"?: string, "place"?: string|null, "date_range"?: string, "official_only": boolean }, "complete"?: boolean, "followups"?: string[] }`
+  - `instpack`: その回答に用いた最終指示（コンパイル済みテキスト）
+- ツール呼び出しに失敗・未対応の場合でも、**フェンス（```instpack, ```meta）の出力は必須**（冗長化のため）。
+- `meta.complete` は、回答に必要最小のスロットが満たされているとき **true**。**topic 不明なら false**。
+
+**emit_meta 呼び出し例（モデル向け）**  
+```json
+{
+  "tool": "emit_meta",
+  "arguments": {
+    "meta": {
+      "intent": "generic",
+      "slots": { "topic": "ちいかわ", "place": null, "date_range": null, "official_only": true },
+      "complete": true,
+      "followups": ["必要なら場所の希望を教えてください（例：東京・大阪・オンライン）。"]
+    },
+    "instpack": "- role: 日本語の情報アシスタント…（以下略）"
+  }
+}
+```
+
 ## intent とスロット
 - intent は **"event" | "news" | "buy" | "generic"** のいずれか。
 - slots: `{ "topic"?: string, "place"?: string|null, "date_range"?: string, "official_only": boolean }`
@@ -63,6 +87,7 @@
 - 不足時: まず暫定回答を提示し、最後に不足スロットを1行で確認。
 - 禁止: 低品質まとめの引用、裏取りのないXの採用。
 ```
+
 ```meta
 {"intent":"generic","slots":{"topic":"ちいかわ","place":null,"date_range":null,"official_only":true},"complete":true,"followups":["必要なら場所の希望を教えてください（例：東京・大阪・オンライン）。"]}
 ```
