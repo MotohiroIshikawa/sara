@@ -112,12 +112,9 @@ const redlock = new Redlock([redis], {
   retryJitter: 150,
 });
 
-type FunctionToolDefLite = { function?: { name?: string } };
-const emitToolName: string = (() => {
-  const def = emitMetaTool.definition as FunctionToolDefLite;
-  const name = def?.function?.name;
-  return typeof name === "string" && name.length > 0 ? name : "emit_meta";
-})();
+type EmitMetaToolShape = { definition?: { function?: { name?: string } } };
+const emitToolName: string =
+  ((emitMetaTool as EmitMetaToolShape | undefined)?.definition?.function?.name) ?? "emit_meta";
 
 // Agentのkey作成
 function agentIdKey(instructions: string) {
@@ -125,7 +122,6 @@ function agentIdKey(instructions: string) {
   // ツール構成が変わったら必ず新規Agentを作るためのシグネチャ
   const toolSig = JSON.stringify([
     "bing_grounding",
-    // 念のためツール名が変わっても追随
     emitToolName,
   ]);
   const h = createHash("sha256")
