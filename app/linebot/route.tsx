@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateSignature, WebhookEvent} from "@line/bot-sdk";
-import { lineEvent } from "../handlers/lineEvent";
+import { lineEvent } from "@/handlers/lineEvent";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",

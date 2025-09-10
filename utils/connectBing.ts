@@ -39,6 +39,8 @@ const maxUrlsPerBlock = envInt("LINE_MAX_URLS_PER_BLOCK", 3, 0, 10);
 const minSectionLength = envInt("MIN_SECTION_LENGTH", 8, 0, 10);
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const DEBUG_BING = process.env.DEBUG_BING === "1";
+//// METAの期間厳密化
+const metaDays = envInt("NEWS_DEFAULT_DAYS", 7, 1, 30);
 
 // 型宣言
 type Section = {
@@ -49,7 +51,17 @@ type Section = {
 type Intent = "event" | "news" | "buy" | "generic";
 type Slots = { topic?: string; place?: string | null; date_range?: string; official_only?: boolean };
 type Meta = { intent?: Intent; slots?: Slots; complete?: boolean; followups?: string[] };
-const META_BLOCK = /```meta\s*([\s\S]*?)```/i
+// meta/instpack 抽出用
+const FENCE_RE = (name: string) => new RegExp("```" + name + "\\s*\\r?\\n([\\s\\S]*?)\\r?\\n?```", "g");
+// 戻り値
+export type ConnectBingResult = {
+  texts: string[];         // ユーザーへ返す本文（instpack/meta を除去済み）
+  meta?: Meta;             // 末尾の meta JSON
+  instpack?: string;       // 末尾の instpack（コンパイル済み指示）
+  agentId: string;
+  threadId: string;
+  runId?: string;
+};
 
 // credential
 const credential = new DefaultAzureCredential();
@@ -58,7 +70,7 @@ async function preflightAuth(): Promise<void> {
   const token = await credential.getToken(scope);
   if (!token) throw new Error(`Failed to acquire token for scope: ${scope}`);
   const sec = Math.round((token.expiresOnTimestamp - Date.now()) / 1000);
-  console.log(`[auth] got token for ${scope}, expires in ~${sec}s`);
+  console.log(`[Auth OK] got token for ${scope}, expires in ~${sec}s`);
 }
 
 // client
@@ -297,25 +309,40 @@ function toLineTextsFromMessage(
   return all;
 }
 
-// assistantメッセージからmetaを除去
-function stripMetaFromContent(contents: MessageContentUnion[]): { cleaned: MessageContentUnion[]; meta?: Meta } {
+// assistantメッセージからmeta/instpackを除去
+function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
+  cleaned: MessageContentUnion[];
+  meta?: Meta;
+  instpack?: string;
+} {
   const cloned = JSON.parse(JSON.stringify(contents)) as MessageContentUnion[];
   let meta: Meta | undefined;
+  let inst: string | undefined;
+
   for (const c of cloned) {
-    if (isOutputOfType<MessageTextContent>(c, "text")) {
-      const v = c.text.value;
-      const m = v.match(META_BLOCK);
-      if (m) {
-        try {
-          meta = JSON.parse(m[1].trim()) as Meta;
-        } catch {
-          // 解析失敗は無視
-        }
-        c.text.value = v.replace(META_BLOCK, "").trim();
+    if (!isOutputOfType<MessageTextContent>(c, "text")) continue;
+    // instpack
+    const instRe = FENCE_RE("instpack");
+    let mInst: RegExpExecArray | null;
+    let lastInst: string | undefined;
+    while ((mInst = instRe.exec(c.text.value))) lastInst = mInst[1];
+    if (lastInst && lastInst.trim()) inst = lastInst.trim();
+    c.text.value = c.text.value.replace(instRe, "").trim();
+    // meta（最後のフェンスを採用・1行JSON想定）
+    const metaRe = FENCE_RE("meta");
+    let mMeta: RegExpExecArray | null;
+    let lastMeta: string | undefined;
+    while ((mMeta = metaRe.exec(c.text.value))) lastMeta = mMeta[1];
+    if (lastMeta) {
+      try {
+        meta = JSON.parse(lastMeta.trim()) as Meta;
+      } catch {
+        /* 解析失敗は無視 */
       }
     }
+    c.text.value = c.text.value.replace(metaRe, "").trim();
   }
-  return { cleaned: cloned, meta };
+  return { cleaned: cloned, meta, instpack: inst };
 }
 
 // スロットが不足している場合に問い合わせる
@@ -386,11 +413,26 @@ function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   return endsWithQ || hasLead || equalsMeta;
 }
 
+// META正規化
+function normalizeMeta(meta?: Meta): Meta | undefined {
+  if (!meta) return meta;
+  const out: Meta = { ...meta, slots: { ...(meta.slots ?? {}) } };
+  if (out.intent === "news") {
+    const r = out.slots?.date_range?.trim().toLowerCase();
+    if (!r || r === "ongoing" || r === "upcoming_30d") {
+      out.slots!.date_range = `last_${metaDays}d`;
+      // topic が特定できていれば news は complete
+      out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
+    }
+  }
+  return out;
+}
+
 // main
-export async function connectBing(userId: string, question: string): Promise<string[]> {
+export async function connectBing(userId: string, question: string): Promise<ConnectBingResult> {
   const q = question.trim();
   console.log("question:" + q);
-  if (!q) return ["⚠️メッセージが空です。"];
+  if (!q) return { texts: ["⚠️メッセージが空です。"], agentId: "", threadId: "" };
   // 認証チェック
   await preflightAuth();
 
@@ -417,17 +459,24 @@ export async function connectBing(userId: string, question: string): Promise<str
     }
 
     if (run.status !== "completed") {
-      const code = run.lastError?.code ?? "";
-      const msg  = run.lastError?.message ?? "";
+      type RunError = { code?: string; message?: string };
+      const lastError: RunError | undefined = (run as { lastError?: RunError }).lastError;
+      const code = lastError?.code ?? "";
+      const msg  = lastError?.message ?? "";
       console.warn(`⚠️Run ended: ${run.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
-      return ["⚠️エラーが発生しました。(run createAndPoll)"];
+      return { texts: ["⚠️エラーが発生しました。(run createAndPoll)"], agentId, threadId, runId: (run as { id?: string })?.id };
     }
 
     const picked = await getAssistantMessageForRun(threadId, run.id!);
-    if (!picked) return ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"];
+    if (!picked) return {
+      texts: ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"],
+      agentId, threadId, runId: (run as { id?: string })?.id
+    };
 
-    const { cleaned: contentNoMeta, meta } = stripMetaFromContent(picked.content);
-    const texts = toLineTextsFromMessage(contentNoMeta, {
+    const { cleaned: contentNoInternal, meta: rawMeta, instpack } = stripInternalBlocksFromContent(picked.content);
+    const meta = normalizeMeta(rawMeta);
+    // ユーザー向け本文をLINE整形
+    const texts = toLineTextsFromMessage(contentNoInternal, {
       maxUrls: maxUrlsPerBlock,
       showTitles: false
     });
@@ -441,7 +490,10 @@ export async function connectBing(userId: string, question: string): Promise<str
       });
       console.log("===== [DEBUG] meta =====");
       console.dir(meta, { depth: null });
+      console.log("===== [DEBUG] instpack =====");
+      console.log(instpack ?? "(none)");
     }
+
     // 暫定回答は出す。その上で不足があれば最後に1行だけ確認を付与
     const out = texts.length ? [...texts] : ["（結果が見つかりませんでした）"];
     if (meta?.complete === false) {
@@ -449,11 +501,11 @@ export async function connectBing(userId: string, question: string): Promise<str
       const last = out[out.length - 1];
       // すでに本文に同等の確認行が含まれていれば重複追加しない
       const alreadyHas =
-        out.some(t => trimLite(t) === trimLite(ask)) ||
+        out.some(t => t.replace(/\s+/g,"").trim() === ask.replace(/\s+/g,"").trim()) ||
         looksLikeFollowup(last, meta);
       if (!alreadyHas) out.push(ask);
     }
-    return out;
+    return { texts: out, meta, instpack, agentId, threadId, runId: (run as { id?: string })?.id };
   });
 }
 
