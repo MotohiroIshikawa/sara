@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateSignature, WebhookEvent} from "@line/bot-sdk";
+import { validateSignature, type WebhookEvent} from "@line/bot-sdk";
 import { lineEvent } from "@/handlers/lineEvent";
 
 const config = {
