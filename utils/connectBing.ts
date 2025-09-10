@@ -12,6 +12,7 @@ import Redlock from "redlock";
 import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 import { agentInstructions } from '@/utils/agentInstructions';
+import { emitMetaTool } from "@/services/tools/emitMeta.tool";
 
 // Int型環境変数
 function envInt(name: string, def: number, min = 0, max = 10) {
@@ -62,6 +63,15 @@ export type ConnectBingResult = {
   threadId: string;
   runId?: string;
 };
+type ToolCallBase = { id: string; type?: string };
+type FunctionToolCall = ToolCallBase & { type: "function"; function: { name: string; arguments?: string } };
+type ToolCall = FunctionToolCall | ToolCallBase;
+type SubmitToolOutputsAction = { type: "submit_tool_outputs"; toolCalls: ToolCall[] };
+type RunState = {
+  status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
+  requiredAction?: SubmitToolOutputsAction;
+};
+type EmitMetaPayload = { meta?: Meta; instpack?: string };
 
 // credential
 const credential = new DefaultAzureCredential();
@@ -102,14 +112,28 @@ const redlock = new Redlock([redis], {
   retryJitter: 150,
 });
 
+type FunctionToolDefLite = { function?: { name?: string } };
+const emitToolName: string = (() => {
+  const def = emitMetaTool.definition as FunctionToolDefLite;
+  const name = def?.function?.name;
+  return typeof name === "string" && name.length > 0 ? name : "emit_meta";
+})();
+
 // Agentのkey作成
-function agentIdKey() {
+function agentIdKey(instructions: string) {
   const ns = Buffer.from(endpoint).toString("base64url");
+  // ツール構成が変わったら必ず新規Agentを作るためのシグネチャ
+  const toolSig = JSON.stringify([
+    "bing_grounding",
+    // 念のためツール名が変わっても追随
+    emitToolName,
+  ]);
   const h = createHash("sha256")
     .update(JSON.stringify({
       modelDeployment,
       bingConnectionId,
-      instructions: agentInstructions 
+      instructions,
+      toolSig 
     }))
     .digest("base64url")
     .slice(0, 12);
@@ -117,17 +141,20 @@ function agentIdKey() {
 }
 
 // AGETN ID 取得
-async function getOrCreateAgentId(): Promise<string> {
+async function getOrCreateAgentId(instructions: string): Promise<string> {
   //  if (process.env.AZURE_AI_PRJ_AGENT_ID) return process.env.AZURE_AI_PRJ_AGENT_ID;
-  const key = agentIdKey();
+  const key = agentIdKey(instructions);
   const cached = await redis.get(key);
   if (cached) return cached;
 
   // redisのchacheがなければ AGENT作成
   const agent = await client.createAgent(modelDeployment, {
     name: `${agentNamePrefix}-${Date.now()}`,
-    instructions: agentInstructions,
-    tools: [bingTool.definition],
+    instructions,
+    tools: [
+      bingTool.definition,
+      emitMetaTool.definition,
+    ],
   });
   await redis.set(key, agent.id);
   return agent.id;
@@ -321,14 +348,17 @@ function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
 
   for (const c of cloned) {
     if (!isOutputOfType<MessageTextContent>(c, "text")) continue;
+
     // instpack
     const instRe = FENCE_RE("instpack");
     let mInst: RegExpExecArray | null;
     let lastInst: string | undefined;
     while ((mInst = instRe.exec(c.text.value))) lastInst = mInst[1];
     if (lastInst && lastInst.trim()) inst = lastInst.trim();
+    instRe.lastIndex = 0;
     c.text.value = c.text.value.replace(instRe, "").trim();
-    // meta（最後のフェンスを採用・1行JSON想定）
+
+    // meta（最後のフェンスを採用->1行JSONを想定）
     const metaRe = FENCE_RE("meta");
     let mMeta: RegExpExecArray | null;
     let lastMeta: string | undefined;
@@ -340,6 +370,7 @@ function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
         /* 解析失敗は無視 */
       }
     }
+    metaRe.lastIndex = 0;
     c.text.value = c.text.value.replace(metaRe, "").trim();
   }
   return { cleaned: cloned, meta, instpack: inst };
@@ -429,17 +460,25 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
 }
 
 // main
-export async function connectBing(userId: string, question: string): Promise<ConnectBingResult> {
+export async function connectBing(
+  userId: string, 
+  question: string,
+  opts?: { instructionsOverride?: string }
+): Promise<ConnectBingResult> {
   const q = question.trim();
   console.log("question:" + q);
   if (!q) return { texts: ["⚠️メッセージが空です。"], agentId: "", threadId: "" };
   // 認証チェック
   await preflightAuth();
 
+  const instructions = opts?.instructionsOverride?.trim()?.length
+    ? opts!.instructionsOverride!
+    : agentInstructions;
+  
   return await redlock.using([`lock:user:${userId}`], 90_000, async () => {
     // Agent/Thread作成
     const [agentId, threadId] = await Promise.all([
-      getOrCreateAgentId(),
+      getOrCreateAgentId(instructions),
       getOrCreateThreadId(userId),
     ]);
 
@@ -447,24 +486,69 @@ export async function connectBing(userId: string, question: string): Promise<Con
     await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
 
     // 実行
-    const run = await client.runs.createAndPoll(threadId, agentId, {
-      pollingOptions: { intervalInMs: 1500 },
+    //// createAndPoll廃止->runs.create
+    const run = await client.runs.create(threadId, agentId, {
       temperature: 0.2,
       topP: 1,
     });
+
+    let metaCaptured: Meta | undefined;
+    let instpackCaptured: string | undefined;
+    // セーフティ: 無限ループ防止
+    const POLL_SLEEP_MS = 500;
+    const POLL_TIMEOUT_MS = 60_000;
+    const POLL_MAX_TICKS = Math.ceil(POLL_TIMEOUT_MS / POLL_SLEEP_MS) + 10; // 余裕を少し追加
+    const startedAt = Date.now();
+    let ticks = 0;
+
+    while (true) {
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS || ++ticks > POLL_MAX_TICKS) {
+        console.warn("⚠️ run polling timeout");
+        break;
+      }
+      const cur = (await client.runs.get(threadId, run.id)) as RunState;
+      if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
+        const calls = cur.requiredAction.toolCalls ?? [];
+        const outputs = calls.map((c): { toolCallId: string; output: string } => {
+          const fn = c as FunctionToolCall; // 可能性のある構造だけを参照
+          console.debug("[tools] call:", fn.function?.name, (fn.function?.arguments ?? "").slice(0, 120));
+          if (fn.type === "function" && fn.function?.name === emitToolName) {
+            try {
+              const payload: EmitMetaPayload = JSON.parse(fn.function.arguments ?? "{}");
+              if (payload?.meta) metaCaptured = payload.meta;    // 値を保持
+              if (typeof payload?.instpack === "string") instpackCaptured = payload.instpack;
+            } catch {
+              /* parse error → ack して続行 */
+            }
+            return { toolCallId: c.id, output: "ok" };
+          }
+          // 他ツールがあれば通常処理
+          return { toolCallId: c.id, output: "" };
+        });
+        await client.runs.submitToolOutputs(threadId, run.id, outputs);
+      } else {
+        const terminal: RunState["status"][] = ["completed", "failed", "cancelled", "expired"];
+        if (cur.status && terminal.includes(cur.status)) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, POLL_SLEEP_MS));
+      }
+    }
 
     // For Debug
     if (DEBUG_BING) {
       await dumpRunAndMessages(client, threadId, run, { maxMsgs: 5 });
     }
 
-    if (run.status !== "completed") {
+    // ループ終了後の最終状態を取得して判定
+    const final = (await client.runs.get(threadId, run.id)) as RunState;
+    if (final.status !== "completed") {
       type RunError = { code?: string; message?: string };
-      const lastError: RunError | undefined = (run as { lastError?: RunError }).lastError;
+      const lastError: RunError | undefined = (final as unknown as { lastError?: RunError }).lastError;
       const code = lastError?.code ?? "";
       const msg  = lastError?.message ?? "";
-      console.warn(`⚠️Run ended: ${run.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
-      return { texts: ["⚠️エラーが発生しました。(run createAndPoll)"], agentId, threadId, runId: (run as { id?: string })?.id };
+      console.warn(`⚠️Run ended: ${final.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
+      return { texts: ["⚠️エラーが発生しました。(run polling)"], agentId, threadId, runId: run.id };
     }
 
     const picked = await getAssistantMessageForRun(threadId, run.id!);
@@ -474,7 +558,10 @@ export async function connectBing(userId: string, question: string): Promise<Con
     };
 
     const { cleaned: contentNoInternal, meta: rawMeta, instpack } = stripInternalBlocksFromContent(picked.content);
-    const meta = normalizeMeta(rawMeta);
+
+    const mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);   // ← 使用（no-unused-vars解消）
+    const mergedInst = instpackCaptured ?? instpack;             // ← 使用（no-unused-vars解消）
+
     // ユーザー向け本文をLINE整形
     const texts = toLineTextsFromMessage(contentNoInternal, {
       maxUrls: maxUrlsPerBlock,
@@ -489,23 +576,23 @@ export async function connectBing(userId: string, question: string): Promise<Con
         console.log("---");
       });
       console.log("===== [DEBUG] meta =====");
-      console.dir(meta, { depth: null });
+      console.dir(mergedMeta, { depth: null });
       console.log("===== [DEBUG] instpack =====");
-      console.log(instpack ?? "(none)");
+      console.log(mergedInst ?? "(none)");
     }
 
     // 暫定回答は出す。その上で不足があれば最後に1行だけ確認を付与
     const out = texts.length ? [...texts] : ["（結果が見つかりませんでした）"];
-    if (meta?.complete === false) {
-      const ask = buildFollowup(meta);
+    if (mergedMeta?.complete === false) {
+      const ask = buildFollowup(mergedMeta);
       const last = out[out.length - 1];
       // すでに本文に同等の確認行が含まれていれば重複追加しない
       const alreadyHas =
         out.some(t => t.replace(/\s+/g,"").trim() === ask.replace(/\s+/g,"").trim()) ||
-        looksLikeFollowup(last, meta);
+        looksLikeFollowup(last, mergedMeta);
       if (!alreadyHas) out.push(ask);
     }
-    return { texts: out, meta, instpack, agentId, threadId, runId: (run as { id?: string })?.id };
+    return { texts: out, meta: mergedMeta, instpack: mergedInst, agentId, threadId, runId: (run as { id?: string })?.id };
   });
 }
 
