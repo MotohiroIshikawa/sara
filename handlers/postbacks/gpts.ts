@@ -1,4 +1,4 @@
-import { type WebhookEvent } from "@line/bot-sdk";
+import { type PostbackEvent } from "@line/bot-sdk";
 import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
 import { getThreadInst, deleteThreadInst } from "@/services/threadInst.mongo";
 import { createUserGpts } from "@/services/userGpts.mongo";
@@ -8,7 +8,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 
 const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
 
-function getRecipientId(event: WebhookEvent): string | undefined {
+function getRecipientId(event: PostbackEvent): string | undefined {
   switch (event.source.type) {
     case "user": return event.source.userId;
     case "group": return event.source.groupId;
@@ -16,7 +16,7 @@ function getRecipientId(event: WebhookEvent): string | undefined {
     default: return undefined;
   }
 }
-function getThreadOwnerId(event: WebhookEvent): string | undefined {
+function getThreadOwnerId(event: PostbackEvent): string | undefined {
   switch (event.source.type) {
     case "user": return event.source.userId;
     case "group": return `group:${event.source.groupId}`;
@@ -26,7 +26,7 @@ function getThreadOwnerId(event: WebhookEvent): string | undefined {
 }
 
 // 保存
-export async function save(event: WebhookEvent, args: Record<string, string> = {}) {
+export async function save(event: PostbackEvent, args: Record<string, string> = {}) {
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
   const threadId = args["tid"];
@@ -66,7 +66,7 @@ export async function save(event: WebhookEvent, args: Record<string, string> = {
 }
 
 // 続ける
-export async function cont(event: WebhookEvent) {
+export async function cont(event: PostbackEvent) {
   const recipientId =
     event.source.type === "user" ? event.source.userId :
     event.source.type === "group" ? event.source.groupId :

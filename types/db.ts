@@ -35,13 +35,15 @@ export interface ThreadInstDoc extends Document {
 
 export interface UserGptsDoc extends Document {
   _id?: string;
-  id: string;             // gpts_<uuid>
+  id: string;
   userId: string;
   name: string;
-  instpack: string;       // 固定スナップショット
+  instpack: string;
   fromThreadId?: string;
   createdAt: Date;
+  updatedAt: Date;
   tags?: string[];
+  hash: string;
 }
 
 export interface GptsBindingDoc extends Document {
@@ -51,3 +53,4 @@ export interface GptsBindingDoc extends Document {
   instpack: string;      // スナップショット（運用は固定でOK）
   updatedAt: Date;
 }
+

@@ -30,7 +30,7 @@ const parameters = {
   additionalProperties: false
 } as const;
 
-// ★ named export（default にしない）
+// named export（default にしない）
 // ToolUtility.createFunctionTool は .definition を持つ形を返す
 export const emitMetaTool = ToolUtility.createFunctionTool({
   name: "emit_meta",
