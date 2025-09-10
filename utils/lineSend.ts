@@ -1,4 +1,5 @@
 import { messagingApi } from "@line/bot-sdk";
+
 type Message = messagingApi.Message;
 type TextMessage = messagingApi.TextMessage;
 type TemplateMessage = messagingApi.TemplateMessage;
@@ -16,12 +17,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // 文字列配列 → LINE TextMessage[]（空/空白は除去、各要素2000字に丸め）
 export function toTextMessages(blocks: string[], limit = textLimit): TextMessage[] {
   return blocks
-    .filter(Boolean)
-    .map((t) => t!.trim())
+    .map((t) => t.trim())
     .filter((t) => t.length > 0)
     .map((t) => ({ type: "text", text: t.slice(0, limit) }));
 }
 
+// 「保存|続ける」のConfirm作成
 export function buildSaveOrContinueConfirm({
   text = "この内容で保存しますか？",
   saveData,
@@ -49,10 +50,27 @@ export function buildSaveOrContinueConfirm({
   };
 }
 
+
+/** 任意配列をサイズごとに分割 */
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/** LINEの reply token 無効エラー判定（型に依存しない軽量チェック） */
+type MaybeHttpError = { status?: number; message?: string; response?: { status?: number } };
+function isInvalidReplyToken(err: unknown): boolean {
+  const e = err as MaybeHttpError | undefined;
+  const msg = (e?.message ?? "").toLowerCase();
+  const status = e?.status ?? e?.response?.status;
+  return status === 400 && msg.includes("invalid reply token");
+}
+
 /**
  * 汎用送信：先頭から最大5件を reply、残りは push（5件ずつ）
  * - Text/Template/Flex など LINE の Message 型なら混在OK
- * - エラー時は reply で停止（push は試みない）
+ * - reply 失敗時（Invalid reply token のみ）→ push にフォールバック
  */
 export async function sendMessagesReplyThenPush({
   replyToken,
@@ -66,39 +84,53 @@ export async function sendMessagesReplyThenPush({
   messages: Message[];
   delayMs?: number;
   log?: Pick<typeof console, "info" | "warn" | "error">;
-}) {
+}): Promise<void> {
   if (!messages?.length) {
-    // 応答は必要なので、最低限のエラーメッセージを返す
-    await client.replyMessage({
-      replyToken,
-      messages: [{ type: "text", text: "何か途中で失敗しました。もう一度お願いします" }],
-    });
+    const fallback: TextMessage = { type: "text", text: "何か途中で失敗しました。もう一度お願いします" };
+    if (to) {
+      try {
+        await client.pushMessage({ to, messages: [fallback] });
+        return;
+      } catch (e) {
+        log?.error?.("[LINE pushMessage] failed (empty messages fallback):", e);
+      }
+    }
+    // push できない場合のみ reply を試す
+    await client.replyMessage({ replyToken, messages: [fallback] });
     return;
   }
 
-  // 1) reply（最大5件）
+  // 1. reply（最大5件）
   const first = messages.slice(0, replyMax);
   try {
-    await client.replyMessage({
-       replyToken, 
-       messages: first 
-    });
+    await client.replyMessage({ replyToken, messages: first });
   } catch (e) {
     log?.warn?.("[LINE replyMessage] failed:", e);
-    return; // reply が失敗したら push はやらない（二重送信防止）
+    // 無効トークンのみ push にフォールバック（その他エラーは上位へ）
+    if (to && isInvalidReplyToken(e)) {
+      log?.warn?.("[lineSend] reply failed (Invalid reply token). Fallback to push.");
+      // すべて push（5件ずつ）
+      for (const batch of chunk(messages, pushMax)) {
+        try {
+          await client.pushMessage({ to, messages: batch });
+        } catch (pe) {
+          log?.error?.("[LINE pushMessage] failed during fallback:", pe);
+          break;
+        }
+        if (delayMs > 0) await sleep(delayMs);
+      }
+      return;
+    }
+    throw e;
   }
 
   if (delayMs > 0) await sleep(delayMs);
 
-  // 2) 6件目以降があれば push（5件ずつ）
+  // 2. 6件目以降があれば push（5件ずつ）
   const rest = messages.slice(replyMax);
-  for (let i = 0; i < rest.length; i += pushMax) {
-    const batch = rest.slice(i, i + pushMax);
+  for (const batch of chunk(rest, pushMax)) {
     try {
-      await client.pushMessage({ 
-        to, 
-        messages: batch 
-      });
+      await client.pushMessage({ to, messages: batch });
     } catch (e) {
       log?.error?.("[LINE pushMessage] failed:", e);
       break;
@@ -117,14 +149,12 @@ export async function pushMessages({
   messages: Message[];
   delayMs?: number;
   log?: Pick<typeof console, "info" | "warn" | "error">;
-}) {
-  for (let i = 0; i < messages.length; i += pushMax) {
-    const batch = messages.slice(i, i + pushMax);
+}) : Promise<void> {
+  if (!messages?.length) return;
+
+  for (const batch of chunk(messages, pushMax)) {
     try {
-      await client.pushMessage({ 
-        to, 
-        messages: batch 
-      });
+      await client.pushMessage({ to, messages: batch });
     } catch (e) {
       log?.error?.("[LINE pushMessage] failed:", e);
       break;
