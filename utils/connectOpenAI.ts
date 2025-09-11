@@ -1,4 +1,5 @@
 import { AzureOpenAI } from "openai";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 export const connectOpenAI = async (message: string) => {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT || "";
@@ -14,22 +15,23 @@ export const connectOpenAI = async (message: string) => {
     ${message}
     #返信する内容は、300文字以内としてください。
     `;
-  const messages = [
+  const messages: ChatCompletionMessageParam[] = [ // CHANGED: 型を明示
     { role: "system", content: "あなたは丁寧な日本語が得意です。" },
     { role: "user", content: words },
   ];
 
   try{
     const result = await client.chat.completions.create({
-      messages: messages,
+      model: deployment || modelName,
+      messages,
       max_tokens: 4096,
       temperature: 1,
       top_p: 0.95,
-      model: modelName,
     });
     console.log("text generated: ", message);
-    return result.choices[0].message.content;
+    return result.choices?.[0]?.message?.content ?? "";
   } catch (error) {
     console.log("ERROR text generating: ", error);
+    return "";
   }
 }
