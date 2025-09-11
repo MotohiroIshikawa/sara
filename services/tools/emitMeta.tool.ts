@@ -32,8 +32,9 @@ const parameters = {
 
 // named export（default にしない）
 // ToolUtility.createFunctionTool は .definition を持つ形を返す
+export const EMIT_META_FN = "emit_meta" as const;
 export const emitMetaTool = ToolUtility.createFunctionTool({
-  name: "emit_meta",
+  name: EMIT_META_FN,
   description:
     "Emit meta slots and instpack to the host. The host inspects the arguments; return value is ignored.",
   parameters

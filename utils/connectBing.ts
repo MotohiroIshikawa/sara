@@ -12,7 +12,7 @@ import Redlock from "redlock";
 import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 import { agentInstructions } from '@/utils/agentInstructions';
-import { emitMetaTool } from "@/services/tools/emitMeta.tool";
+import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 
 // Int型環境変数
 function envInt(name: string, def: number, min = 0, max = 10) {
@@ -63,9 +63,10 @@ export type ConnectBingResult = {
   threadId: string;
   runId?: string;
 };
-type ToolCallBase = { id: string; type?: string };
-type FunctionToolCall = ToolCallBase & { type: "function"; function: { name: string; arguments?: string } };
-type ToolCall = FunctionToolCall | ToolCallBase;
+type NonFunctionToolCall = { id: string; type?: Exclude<string, "function"> };
+type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown }; };
+type ToolCall = FunctionToolCall | NonFunctionToolCall;
+
 type SubmitToolOutputsAction = { type: "submit_tool_outputs"; toolCalls: ToolCall[] };
 type RunState = {
   status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
@@ -112,17 +113,13 @@ const redlock = new Redlock([redis], {
   retryJitter: 150,
 });
 
-type EmitMetaToolShape = { definition?: { function?: { name?: string } } };
-const emitToolName: string =
-  ((emitMetaTool as EmitMetaToolShape | undefined)?.definition?.function?.name) ?? "emit_meta";
-
 // Agentのkey作成
 function agentIdKey(instructions: string) {
   const ns = Buffer.from(endpoint).toString("base64url");
   // ツール構成が変わったら必ず新規Agentを作るためのシグネチャ
   const toolSig = JSON.stringify([
     "bing_grounding",
-    emitToolName,
+    EMIT_META_FN,
   ]);
   const h = createHash("sha256")
     .update(JSON.stringify({
@@ -455,6 +452,10 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
   return out;
 }
 
+function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
+  return tc.type === "function";
+}
+
 // main
 export async function connectBing(
   userId: string, 
@@ -486,6 +487,7 @@ export async function connectBing(
     const run = await client.runs.create(threadId, agentId, {
       temperature: 0.2,
       topP: 1,
+      parallelToolCalls: true,
     });
 
     let metaCaptured: Meta | undefined;
@@ -506,19 +508,27 @@ export async function connectBing(
       if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
         const calls = cur.requiredAction.toolCalls ?? [];
         const outputs = calls.map((c): { toolCallId: string; output: string } => {
-          const fn = c as FunctionToolCall; // 可能性のある構造だけを参照
-          console.debug("[tools] call:", fn.function?.name, (fn.function?.arguments ?? "").slice(0, 120));
-          if (fn.type === "function" && fn.function?.name === emitToolName) {
-            try {
-              const payload: EmitMetaPayload = JSON.parse(fn.function.arguments ?? "{}");
-              if (payload?.meta) metaCaptured = payload.meta;    // 値を保持
+          if (isFunctionToolCall(c)) {
+            // property 名 'function' を安全に扱うためリネーム
+            const { function: fn } = c;
+            console.debug("[tools] call:", fn?.name);
+            if (fn?.name === EMIT_META_FN) { // 共有定数があれば EMIT_META_FN を使う
+              let payload: EmitMetaPayload | undefined;
+              const raw = fn?.arguments;
+              try {
+                if (typeof raw === "string") {
+                  payload = JSON.parse(raw) as EmitMetaPayload;
+                } else if (raw && typeof raw === "object") {
+                  payload = raw as EmitMetaPayload;
+                }
+              } catch { /* noop: ack だけ返す */ }
+              if (payload?.meta) metaCaptured = payload.meta;
               if (typeof payload?.instpack === "string") instpackCaptured = payload.instpack;
-            } catch {
-              /* parse error → ack して続行 */
+              return { toolCallId: c.id, output: "ok" };
             }
-            return { toolCallId: c.id, output: "ok" };
+          } else {
+            console.debug("[tools] call:", c.type ?? "(unknown)");
           }
-          // 他ツールがあれば通常処理
           return { toolCallId: c.id, output: "" };
         });
         await client.runs.submitToolOutputs(threadId, run.id, outputs);
@@ -556,9 +566,39 @@ export async function connectBing(
 
     const { cleaned: contentNoInternal, meta: rawMeta, instpack } = stripInternalBlocksFromContent(picked.content);
 
-    const mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);   // ← 使用（no-unused-vars解消）
-    const mergedInst = instpackCaptured ?? instpack;             // ← 使用（no-unused-vars解消）
+    // function 呼び出し経由で拾えたもの優先
+    let mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);   // ← 使用（no-unused-vars解消）
+    let mergedInst = instpackCaptured ?? instpack;             // ← 使用（no-unused-vars解消）
+    // meta/instpackが無い場合 修復Run を投げて関数だけ呼ばせて回収
+    if (!mergedMeta || !mergedInst) {
+      await client.messages.create(threadId, "user", [{
+        type: "text",
+        // ユーザーに見せない内部促し（会話文脈は thread に残っている）
+      text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
+      }]);
+      const repair = await client.runs.create(threadId, agentId, {
+        temperature: 0,
+        parallelToolCalls: true,
+        toolChoice: { type: "function", function: { name: EMIT_META_FN } },
+      });
 
+      const started = Date.now();
+      while (true) {
+        const cur = (await client.runs.get(threadId, repair.id)) as RunState;
+        if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
+          const outs = cur.requiredAction.toolCalls!.map((c) => ({ toolCallId: c.id, output: "ok" }));
+          await client.runs.submitToolOutputs(threadId, repair.id, outs);
+        } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
+          break;
+        } else {
+          await new Promise(r => setTimeout(r, 400));
+          if (Date.now() - started > 30_000) break;
+        }
+      }
+      // 修復Runで拾えたもの
+      mergedMeta = normalizeMeta(metaCaptured ?? mergedMeta);
+      mergedInst = instpackCaptured ?? mergedInst;
+    }
     // ユーザー向け本文をLINE整形
     const texts = toLineTextsFromMessage(contentNoInternal, {
       maxUrls: maxUrlsPerBlock,
