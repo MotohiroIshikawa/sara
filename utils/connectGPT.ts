@@ -22,33 +22,7 @@ function toOpenAIMessages(raw: RawMsg[]): ChatCompletionMessageParam[] {
   });
 }
 
-const connectGPT = async (message: string) => {
-  const prompt = `
-    #以下のキーワードを含む情報を返信してください。
-    キーワード:
-    ${message}
-    #返信する内容は、300文字以内としてください。
-    `;
-  // RawMsg[] として作ってから toOpenAIMessages で正規化
-  const rawMessages: RawMsg[] = [
-    { role: "system", content: "あなたは丁寧な日本語が得意です。" },
-    { role: "user", content: prompt },
-  ];
-  try{
-    const result = await client.chat.completions.create({
-      model: deployment || modelName,
-      messages: toOpenAIMessages(rawMessages),
-      max_tokens: 4096,
-      temperature: 1,
-      top_p: 0.95,
-    });
-    console.log("1.GPT text generated: ", message);
-    return result.choices[0].message.content || "";
-  } catch (error) {
-    console.log("ERROR 1.GPT text generating: ", error);
-  }
-}
-
+// TODO: 将来使う可能性あり（未参照）
 export async function callGPT(messages: RawMsg[]) {
   try {
     const result = await client.chat.completions.create({
