@@ -20,11 +20,5 @@ export async function fetchLineUserProfile(userId: string): Promise<LineProfile 
     return null;
   }
 
-  const j = (await res.json()) as unknown;
-  return {
-    displayName: j.displayName,
-    pictureUrl: j.pictureUrl,
-    statusMessage: j.statusMessage,
-    language: j.language,
-  };
+  return (await res.json()) as LineProfile;
 }
