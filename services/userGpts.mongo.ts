@@ -11,9 +11,7 @@ async function ensureIndexes(): Promise<void> {
   if (_indexesReady) return;
   const col = await getUserGptsCollection();
 
-  // id は gpts_<uuid> を採番 → グローバル一意
-  await col.createIndex({ id: 1 }, { unique: true, name: "uniq_id" });
-
+  await col.createIndex({ id: 1 }, { name: "idx_id" });
   // よく使う一覧は userId & createdAt 降順
   await col.createIndex({ userId: 1, createdAt: -1 }, { name: "idx_user_created_desc" });
 
@@ -38,7 +36,8 @@ export async function createUserGpts(input: {
   const now = new Date();
   const hash = sha256(input.instpack);
   
-  const doc: UserGptsDoc = {
+  const doc: (UserGptsDoc & { _id: string }) = {
+    _id: id,
     id,
     userId: input.userId,
     name: input.name,
