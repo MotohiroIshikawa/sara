@@ -18,8 +18,8 @@ export function normalizeMarkdownForLine(md: string): string {
   s = s.replace(/【\d+:\d+†source】/g, "");
 
   // コードブロックはインデント化
-  s = s.replace(/```([\s\S]*?)```/g, (_, code) =>
-    code.split("\n").map(l => (l ? `    ${l}` : l)).join("\n")
+  s = s.replace(/```([\s\S]*?)```/g, (_m: string, code: string) =>
+    code.split("\n").map((l: string) => (l ? `    ${l}` : l)).join("\n")
   );
 
   // 見出し → 記号
