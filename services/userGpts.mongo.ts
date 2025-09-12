@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "crypto";
 import type { UserGptsDoc } from "@/types/db";
 import { getUserGptsCollection } from "@/utils/mongo";
+import { ObjectId, type Filter } from "mongodb";
 
 // 目的:
 //  - ユーザーが「保存」を押した instpack をユーザーの GPTS 保管庫に保存
@@ -70,10 +71,22 @@ export async function listUserGpts(userId: string): Promise<Array<{ id: string; 
 }
 
 // 単体取得（所有者スコープで）
-export async function getUserGptsById(userId: string, gptsId: string): Promise<UserGptsDoc | null> {
+export async function getUserGptsById(
+  userId: string, 
+  gptsId: string
+): Promise<UserGptsDoc | null> {
   await ensureIndexes();
   const col = await getUserGptsCollection();
-  return col.findOne({ id: gptsId, userId });
+
+  const or: Filter<UserGptsDoc>[] = [
+    { id: gptsId },      // 旧データ互換: id フィールド
+    { _id: gptsId },     // 新データ: _id に文字列を採用
+  ];
+  if (ObjectId.isValid(gptsId)) {
+    or.push({ _id: new ObjectId(gptsId) }); // 念のため ObjectId も許容
+  }
+  const query = { userId, $or: or } satisfies Filter<UserGptsDoc>;
+  return col.findOne(query);
 }
 
 export {};
