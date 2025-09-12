@@ -1,4 +1,4 @@
-import type { Document } from "mongodb";
+import type { Document, ObjectId } from "mongodb";
 
 // src/types/db.ts
 export interface UserDoc extends Document {
@@ -34,7 +34,7 @@ export interface ThreadInstDoc extends Document {
 }
 
 export interface UserGptsDoc extends Document {
-  _id?: string;
+  _id?: string | ObjectId;
   id: string;
   userId: string;
   name: string;
