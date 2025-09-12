@@ -14,7 +14,7 @@ import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 import { agentInstructions } from '@/utils/agentInstructions';
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 
-// Int型環境変数
+// 環境変数を整数として読み取り、既定／下限／上限を適用
 function envInt(name: string, def: number, min = 0, max = 10) {
   const raw = process.env[name];
   const n = raw === undefined ? def : Number(raw);
@@ -28,33 +28,37 @@ const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
 const bingConnectionId = process.env.AZURE_BING_CONNECTION_ID!;
 const modelDeployment = process.env.AZURE_AI_MODEL_DEPLOYMENT!;
 const agentNamePrefix = process.env.AZURE_AI_PRJ_AGENT_NAME ?? "lineai-bing-agent";
-const threadTTL = Number(process.env.THREAD_TTL ?? 168);
 //// Redis接続用
 const redisHost = process.env.REDIS_HOSTNAME!;
 const redisPort = Number(process.env.REDIS_PORT ?? 6380);
 const redisUser = process.env.REDIS_USERNAME ?? "default";
 const redisKey = process.env.REDIS_KEY!;
-//// LINE出力
+//// Redis に保存するスレッドの有効期限（時間）
+const threadTTL = Number(process.env.THREAD_TTL ?? 168);
+//// LINE送信の文字数やURL付与などの制約
 const lineTextLimit = envInt("LINE_TEXT_LIMIT", 1000, 200, 4800);
 const maxUrlsPerBlock = envInt("LINE_MAX_URLS_PER_BLOCK", 3, 0, 10);
 const minSectionLength = envInt("MIN_SECTION_LENGTH", 8, 0, 10);
-//// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
-const DEBUG_BING = process.env.DEBUG_BING === "1";
-//// METAの期間厳密化
+//// ニュース期間の既定（日）
 const metaDays = envInt("NEWS_DEFAULT_DAYS", 7, 1, 30);
 
+//// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
+const DEBUG_BING = process.env.DEBUG_BING === "1";
+
 // 型宣言
+//// 段落分割結果（原文中の位置範囲つき）
 type Section = {
   context: string;     // マーカー除去後の本文
   startIndex: number;  // 元テキスト内の開始位置
   endIndex: number;    // 元テキスト内の終了位置（end-exclusive）
 };
+//// emit_meta用 返す内容・スロット構造
 type Intent = "event" | "news" | "buy" | "generic";
 type Slots = { topic?: string; place?: string | null; date_range?: string; official_only?: boolean };
 type Meta = { intent?: Intent; slots?: Slots; complete?: boolean; followups?: string[] };
-// meta/instpack 抽出用
+//// meta/instpack 抽出用
 const FENCE_RE = (name: string) => new RegExp("```" + name + "\\s*\\r?\\n([\\s\\S]*?)\\r?\\n?```", "g");
-// 戻り値
+// mainの戻り値
 export type ConnectBingResult = {
   texts: string[];         // ユーザーへ返す本文（instpack/meta を除去済み）
   meta?: Meta;             // 末尾の meta JSON
@@ -63,19 +67,27 @@ export type ConnectBingResult = {
   threadId: string;
   runId?: string;
 };
+//// ツール呼び出しの受け側（function/非function）
 type NonFunctionToolCall = { id: string; type?: Exclude<string, "function"> };
 type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown }; };
 type ToolCall = FunctionToolCall | NonFunctionToolCall;
 
-type SubmitToolOutputsAction = { type: "submit_tool_outputs"; toolCalls: ToolCall[] };
+//// run状態の簡易型（SDKの抜粋）
 type RunState = {
   status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
   requiredAction?: SubmitToolOutputsAction;
 };
+type SubmitToolOutputsAction = {
+  type: "submit_tool_outputs"; 
+  toolCalls?: ToolCall[]
+};
+//// ツール引数の受け用
 type EmitMetaPayload = { meta?: Meta; instpack?: string };
 
-// credential
+// 認証
 const credential = new DefaultAzureCredential();
+
+// 認証の正常性確認：tokenを取得する
 async function preflightAuth(): Promise<void> {
   const scope = "https://ml.azure.com/.default";
   const token = await credential.getToken(scope);
@@ -84,9 +96,10 @@ async function preflightAuth(): Promise<void> {
   console.log(`[Auth OK] got token for ${scope}, expires in ~${sec}s`);
 }
 
-// client
+// Azure AI Agentsクライアント作成
 const client = new AgentsClient(endpoint, credential);
-// bingTool
+
+// Grounding with Bing Searchツールの定義
 const bingTool = ToolUtility.createBingGroundingTool([
   { 
     connectionId: bingConnectionId,
@@ -96,7 +109,7 @@ const bingTool = ToolUtility.createBingGroundingTool([
     freshness: "week",
    }]);
 
-// redis
+// Redis接続：スレッドID/エージェントIDのキャッシュとロック用途
 const redis = new Redis({
   host: redisHost,
   port: redisPort,
@@ -106,14 +119,19 @@ const redis = new Redis({
 });
 redis.on("error", (e) => console.error("[redis] error:", e));
 
-// radlock
+// Redlock：ユーザー単位の操作直列化（重複runを防止する）
 const redlock = new Redlock([redis], {
   retryCount: 6,
   retryDelay: 250,
   retryJitter: 150,
 });
 
-// Agentのkey作成
+/**
+ * agentIdKey: Agentのキャッシュキー作成用
+ * 
+ * @param instructions 
+ * @returns 
+ */
 function agentIdKey(instructions: string) {
   const ns = Buffer.from(endpoint).toString("base64url");
   // ツール構成が変わったら必ず新規Agentを作るためのシグネチャ
@@ -133,14 +151,18 @@ function agentIdKey(instructions: string) {
   return `agent:id:${ns}:${h}`;
 }
 
-// AGETN ID 取得
+/**
+ * getOrCreateAgentId: Agentを取得または作成
+ * 
+ * @param instructions 
+ * @returns 
+ */
 async function getOrCreateAgentId(instructions: string): Promise<string> {
-  //  if (process.env.AZURE_AI_PRJ_AGENT_ID) return process.env.AZURE_AI_PRJ_AGENT_ID;
   const key = agentIdKey(instructions);
   const cached = await redis.get(key);
   if (cached) return cached;
 
-  // redisのchacheがなければ AGENT作成
+  // redisのcacheがなければAgent作成
   const agent = await client.createAgent(modelDeployment, {
     name: `${agentNamePrefix}-${Date.now()}`,
     instructions,
@@ -153,14 +175,25 @@ async function getOrCreateAgentId(instructions: string): Promise<string> {
   return agent.id;
 }
 
-// ユーザ毎のTheadのkey作成
+/**
+ * threadKey: ThreadのKey作成用
+ * 
+ * @param userId 
+ * @returns 
+ */
 function threadKey(userId: string) {
   // ENDPOINT毎
   const ns = Buffer.from(endpoint).toString("base64url");
   return `thread:${ns}:${userId}`;
 }
 
-// Thread ID 取得
+/**
+ * getOrCreateThreadId: ユーザー単位の会話スレッドの永続化/TTL延長/削除
+ * 
+ * @param userId 
+ * @param ttlHours 
+ * @returns 
+ */
 async function getOrCreateThreadId(userId: string, ttlHours = threadTTL): Promise<string> {
   const k = threadKey(userId);
   const tid = await redis.get(k);
@@ -175,7 +208,11 @@ async function getOrCreateThreadId(userId: string, ttlHours = threadTTL): Promis
   return th.id;
 }
 
-// Threadのdelete
+/**
+ * resetThread: Threadの削除用
+ * 
+ * @param userId 
+ */
 export async function resetThread(userId: string) {
   const k = threadKey(userId);
   const tid = await redis.get(k);
@@ -210,32 +247,43 @@ export async function resetThread(userId: string) {
  * 
  */
 
-// 整形用
+// 整形用定数
+//// 注釈マーカー削除：返却されたテキストに【\d+:\d+†source】（注釈マーカー）があれば削除する用途
 const stripMarkers = (s: string) => s.replace(/【\d+:\d+†source】/g, "");
+//// 段落区切り：返却されたテキストを空行(改行2連続)で区切る用途
 const delimiter = /\r?\n\r?\n/g;
 const isAscii = (s: string) => /^[\x00-\x7F]+$/.test(s);
+//// 英数字短文のフィラー判定：空行で区切ったときにminSectionLengthより短い文字列があったらゴミとする用途
 const isFiller = (s: string) => {
   const t = s.trim();
   if (!t) return true; // 空はフィラー
   return isAscii(t) && t.length <= minSectionLength;
 };
 
-// textをdelimiterで分割、全text中での開始/終了文字数を取得する
+/**
+ * splitByHrWithRanges: テキストを段落に分割して原文中の文字数の範囲も保持。Section型を利用
+ * 
+ * @param text 
+ * @returns 
+ */
 function splitByHrWithRanges(text: string): Section[] {
   const out: Section[] = [];
   let last = 0;
+  // 段落区切り
   for (const m of text.matchAll(delimiter)) {
     const idx = m.index ?? -1;
     if (idx < 0) continue;
     const chunk = text.slice(last, idx);
     const trimmed = chunk.trim();
     if (!trimmed || isFiller(trimmed)) {
+      // フィラー段落はスキップ
       last = idx + m[0].length;
       continue;
     }
     out.push({ context: stripMarkers(trimmed), startIndex: last, endIndex: idx });
     last = idx + m[0].length;
   }
+  // 末尾の処理
   const tail = text.slice(last);
   const tailTrimmed = tail.trim();
   if (tailTrimmed && !isFiller(tailTrimmed)) {
@@ -244,16 +292,22 @@ function splitByHrWithRanges(text: string): Section[] {
   return out;
 }
 
-// LINEの文字数制限によるtext分割格納
+/**
+ * chunkForLine: LINEの文字数制限に合わせて段落をさらに分割
+ * 
+ * @param text 
+ * @param limit 
+ * @returns 
+ */
 function chunkForLine(text: string, limit: number): string[] {
   if (text.length <= limit) return [text];
   const out: string[] = [];
   let rest = text;
   while (rest.length > limit) {
-    // 直近の改行（できれば段落区切り）を探す
+    // 直近の改行（できれば段落区切り）を探す->改行が無ければ機械的に分割
     let cut = rest.lastIndexOf("\n\n", limit);
     if (cut < 0) cut = rest.lastIndexOf("\n", limit);
-    if (cut < 0) cut = limit; // 改行が無ければ機械的に分割
+    if (cut < 0) cut = limit;
     out.push(rest.slice(0, cut));
     rest = rest.slice(cut).replace(/^\n+/, "");
   }
@@ -261,23 +315,30 @@ function chunkForLine(text: string, limit: number): string[] {
   return out;
 }
 
-// annotationの各urlがどのtextに属するかの判断、urlをtextの末尾に付ける
+/**
+ * toLineTextsFromTextPart: 返却されたテキストをLINEにあったテキスト(配列)に分割する
+ * @param part 
+ * @param opts 
+ * @returns 
+ */
 function toLineTextsFromTextPart(
   part: MessageTextContent,
   opts: { maxUrls?: number; showTitles?: boolean } = {}
 ): string[] {
   const { maxUrls = maxUrlsPerBlock, showTitles = false } = opts;
-  const text = part.text.value;
-  const sections = splitByHrWithRanges(text);
+  const block = part.text.value;
+  const sections = splitByHrWithRanges(block);
 
-  // セクションごとのURL重複を避けるための集合
+  // 段落ごとのURL重複回避セット/追記バッファ
   const seenPerSection: Array<Set<string>> = sections.map(() => new Set<string>());
-
   // 注釈をセクションの末尾へ追記するための行バッファ
   const urlLinesPerSection: string[][] = sections.map(() => []);
+
+  // 注釈を位置順にソートして各段落に割当て
   const anns = (part.text.annotations ?? [])
     .filter((a): a is MessageTextUrlCitationAnnotation => a.type === "url_citation")
     .sort((a, b) => (a.startIndex ?? 0) - (b.startIndex ?? 0));
+
   for (const a of anns) {
     const s = a.startIndex ?? -1;
     if (s < 0) continue;
@@ -286,35 +347,45 @@ function toLineTextsFromTextPart(
     if (!url) continue;
 
     // 所属セクションを見つける
-    const idx = sections.findIndex(sec => s >= sec.startIndex && s < sec.endIndex);
+    let idx = sections.findIndex(sec => s >= sec.startIndex && s < sec.endIndex);
+    if (idx === -1 && sections.length > 0) {
+      // どの範囲にも入らない場合は最後のセクションに付与
+      idx = sections.length - 1;
+    }
     if (idx === -1) continue;
 
-    // 重複URLはスキップ
+    // 重複URLはスキップ、最大数より多い場合はスキップ
     const seen = seenPerSection[idx];
     if (seen.has(url)) continue;
     if (urlLinesPerSection[idx].length >= maxUrls) continue;
     seen.add(url);
+
     urlLinesPerSection[idx].push(
       showTitles && title ? `${title}\n${url}` : `${url}`
     );
   }
-  // 各セクションを LINE 向けテキストに整形
+
+  // 段落本文+URLを結合し、各段落をLINEのテキストサイズ以内に再分割
   const out: string[] = [];
   sections.forEach((sec, i) => {
-    // Markdownの整形
+    // マークダウン形式の整形
     const body = normalizeMarkdownForLine(sec.context.trim());
     const refs = urlLinesPerSection[i];
     // URLを末尾に追加
     const text = refs.length ? `${body}\n${refs.join("\n")}` : body;
     out.push(text);
   });
-  // LINE向けの文字数制限によるtext分割格納
   const sized: string[] = [];
   for (const t of out) sized.push(...chunkForLine(t, lineTextLimit));
   return sized;
 }
 
-// LINE向けにtextを作成
+/**
+ * toLineTextsFromMessage: メッセージ中のtext部分をすべてLINE向けに整形
+ * @param contents 
+ * @param opts 
+ * @returns 
+ */
 function toLineTextsFromMessage(
   contents: MessageContentUnion[],
   opts?: { maxUrls?: number; showTitles?: boolean }
@@ -329,7 +400,11 @@ function toLineTextsFromMessage(
   return all;
 }
 
-// assistantメッセージからmeta/instpackを除去
+/**
+ * stripInternalBlocksFromContent: assistantメッセージからmeta/instpackを除去、meta/instpackの中身を抽出
+ * @param contents 
+ * @returns 
+ */
 function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
   cleaned: MessageContentUnion[];
   meta?: Meta;
@@ -342,7 +417,7 @@ function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
   for (const c of cloned) {
     if (!isOutputOfType<MessageTextContent>(c, "text")) continue;
 
-    // instpack
+    // instpackを抽出・除去
     const instRe = FENCE_RE("instpack");
     let mInst: RegExpExecArray | null;
     let lastInst: string | undefined;
@@ -351,7 +426,7 @@ function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
     instRe.lastIndex = 0;
     c.text.value = c.text.value.replace(instRe, "").trim();
 
-    // meta（最後のフェンスを採用->1行JSONを想定）
+    // metaを抽出・除去（最後のフェンス優先）
     const metaRe = FENCE_RE("meta");
     let mMeta: RegExpExecArray | null;
     let lastMeta: string | undefined;
@@ -369,34 +444,45 @@ function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
   return { cleaned: cloned, meta, instpack: inst };
 }
 
-// スロットが不足している場合に問い合わせる
+/**
+ * buildFollowup: スロット不足時の追質問テキスト生成->不足スロットを1つだけ尋ねる簡潔な質問を用意
+ * @param meta 
+ * @returns 
+ */
 function buildFollowup(meta?: Meta): string {
   const slots = meta?.slots ?? {};
   const intent = meta?.intent;
-  const missing: string[] = [];
 
-  // topic が無ければ必ず聞く
+  if (intent === "generic") {
+    if (!slots.topic) return "対象（作品名など）を教えてください。";
+    return meta?.followups?.[0]
+      ?? "どんな会話にする（入門ガイド / 考察相棒 / ニュース速報 / クイズ作成 / グッズ案内）？";
+  }
+
+  const missing: string[] = [];
   if (!slots.topic) missing.push("対象（作品名など）");
-  // event では期間は質問しない（ongoing を採用する前提）
-  if (intent !== "event" && !slots.date_range) missing.push("期間");
-  // 場所は任意。必要に応じて軽く聞く
-  if (slots.topic && !slots.place) missing.push("場所（任意）");
+  if (intent === "news" && !slots.date_range) missing.push("期間");
+  if (missing.length === 0 && slots.topic && !slots.place) missing.push("場所（任意）");
 
   const lead = missing.length ? `不足: ${missing.join(" / ")}。` : "";
-  // モデルが followups を返してきても、event の場合は自前文面を優先
-  if (intent === "event") {
-    return `${lead}ひとつだけ教えてください。`;
-  }
+  if (intent === "event") return `${lead}ひとつだけ教えてください。`;
   return meta?.followups?.[0] ?? `${lead}ひとつだけ教えてください。`;
 }
 
-// この run の assistant メッセージだけ拾う
+// このrunのassistantメッセージだけ拾う用途
 type AssistantMsg = {
   role: "assistant";
   runId?: string;
   content: MessageContentUnion[];
 };
 
+/**
+ * getAssistantMessageForRun: 指定したrunIdのassistantメッセージを優先取得
+ * 
+ * @param threadId 
+ * @param runId 
+ * @returns 
+ */
 async function getAssistantMessageForRun(
   threadId: string, 
   runId: string
@@ -410,10 +496,9 @@ async function getAssistantMessageForRun(
       runId: m.runId ?? undefined,
       content: m.content as MessageContentUnion[],
     };
-    // 最新のassistantをフォールバック候補として保持
-    if (!fallback) fallback = normalized;
-    // 同じrunのメッセージを最優先で返す
-    if (m.runId && m.runId === runId) {
+    
+    if (!fallback) fallback = normalized; // 最新のassistantをフォールバック候補として保持
+    if (m.runId && m.runId === runId) { // 同じrunのメッセージを最優先で返す
       return normalized;
     }
   }
@@ -421,11 +506,18 @@ async function getAssistantMessageForRun(
   return fallback;
 }
 
-// フォローアップ検知
 const FOLLOWUP_MAX_LEN = envInt("FOLLOWUP_MAX_LEN", 80, 20, 200);
+
 function trimLite(s: string) {
   return s.replace(/\s+/g, "").trim();
 }
+
+/**
+ * looksLikeFollowup: 追質問の形状判定ヘルパー
+ * @param line 
+ * @param meta 
+ * @returns 
+ */
 function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   if (!line) return false;
   const s = line.trim();
@@ -437,7 +529,11 @@ function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   return endsWithQ || hasLead || equalsMeta;
 }
 
-// META正規化
+/**
+ * normalizeMeta: Metaの正規化（newsのdate_rangeを既定補正、completeフラグの正規化）
+ * @param meta 
+ * @returns 
+ */
 function normalizeMeta(meta?: Meta): Meta | undefined {
   if (!meta) return meta;
   const out: Meta = { ...meta, slots: { ...(meta.slots ?? {}) } };
@@ -449,14 +545,34 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
       out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
     }
   }
+  // generic は「専門化を促すため」常に未完了にして追質問を出す
+  if (out.intent === "generic") out.complete = false;
   return out;
 }
 
+/**
+ * isFunctionToolCall: ツールコールの判定ヘルパー
+ * @param tc 
+ * @returns 
+ */
 function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
   return tc.type === "function";
 }
 
-// main
+
+/**
+ * connectBing: メイン関数
+ *  1. Agent/Threadの確保
+ *  2. 質問を投入しrun実行
+ *  3. requires_actionでツール出力をsubmit（emit_metaのpayloadを回収）
+ *  4. 応答本文から内部ブロック除去、必要ならrepair runで meta/instpack回収
+ *  5. LINE用に本文整形して返却
+ * 
+ * @param userId 
+ * @param question 
+ * @param opts 
+ * @returns 
+ */
 export async function connectBing(
   userId: string, 
   question: string,
@@ -465,7 +581,8 @@ export async function connectBing(
   const q = question.trim();
   console.log("question:" + q);
   if (!q) return { texts: ["⚠️メッセージが空です。"], agentId: "", threadId: "" };
-  // 認証チェック
+
+  // 認証・認証チェック
   await preflightAuth();
 
   const instructions = opts?.instructionsOverride?.trim()?.length
@@ -473,17 +590,16 @@ export async function connectBing(
     : agentInstructions;
   
   return await redlock.using([`lock:user:${userId}`], 90_000, async () => {
-    // Agent/Thread作成
+    // Agent/Thread の確保（並列実行）
     const [agentId, threadId] = await Promise.all([
       getOrCreateAgentId(instructions),
       getOrCreateThreadId(userId),
     ]);
 
-    // ユーザクエリ投入
+    // 質問をスレッドへ投入
     await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
 
-    // 実行
-    //// createAndPoll廃止->runs.create
+    // runを開始（parallelToolCalls有効）
     const run = await client.runs.create(threadId, agentId, {
       temperature: 0.2,
       topP: 1,
@@ -492,7 +608,23 @@ export async function connectBing(
 
     let metaCaptured: Meta | undefined;
     let instpackCaptured: string | undefined;
-    // セーフティ: 無限ループ防止
+    // emit_metaの引数(JSON/obj)の取り出し用関数
+    function captureEmitMeta(raw: unknown) {
+      try {
+        const payload = (typeof raw === "string")
+          ? JSON.parse(raw) as EmitMetaPayload
+          : (raw && typeof raw === "object")
+            ? raw as EmitMetaPayload
+            : undefined;
+
+        if (payload?.meta) metaCaptured = payload.meta;
+        if (typeof payload?.instpack === "string") instpackCaptured = payload.instpack;
+      } catch {
+        /* noop */
+      }
+    }
+
+    // runポーリング（タイムアウト・最大tickで脱出）
     const POLL_SLEEP_MS = 500;
     const POLL_TIMEOUT_MS = 60_000;
     const POLL_MAX_TICKS = Math.ceil(POLL_TIMEOUT_MS / POLL_SLEEP_MS) + 10; // 余裕を少し追加
@@ -505,34 +637,45 @@ export async function connectBing(
         break;
       }
       const cur = (await client.runs.get(threadId, run.id)) as RunState;
+
+      // ツール出力が要求された場合：emit_metaのpayloadを読み取り、ackを返す
       if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
         const calls = cur.requiredAction.toolCalls ?? [];
+        if (calls.length === 0) {
+          // まだtoolCallsが並んでこないケースのため短期待機
+          await new Promise(r => setTimeout(r, 200));
+          continue;
+        }
+
         const outputs = calls.map((c): { toolCallId: string; output: string } => {
           if (isFunctionToolCall(c)) {
-            // property 名 'function' を安全に扱うためリネーム
             const { function: fn } = c;
             console.debug("[tools] call:", fn?.name);
-            if (fn?.name === EMIT_META_FN) { // 共有定数があれば EMIT_META_FN を使う
-              let payload: EmitMetaPayload | undefined;
-              const raw = fn?.arguments;
-              try {
-                if (typeof raw === "string") {
-                  payload = JSON.parse(raw) as EmitMetaPayload;
-                } else if (raw && typeof raw === "object") {
-                  payload = raw as EmitMetaPayload;
-                }
-              } catch { /* noop: ack だけ返す */ }
-              if (payload?.meta) metaCaptured = payload.meta;
-              if (typeof payload?.instpack === "string") instpackCaptured = payload.instpack;
-              return { toolCallId: c.id, output: "ok" };
+
+            if (fn?.name === EMIT_META_FN) {
+              captureEmitMeta(fn.arguments);
+              return { toolCallId: c.id, output: "ok" };  // ack
+            } else {
+              // 未知関数->空応答で返却（モデルに任せる）
+              console.warn("[tools] unknown function:", fn?.name);
             }
           } else {
+            // 非functionの場合のツール（将来拡張用）
             console.debug("[tools] call:", c.type ?? "(unknown)");
           }
           return { toolCallId: c.id, output: "" };
         });
-        await client.runs.submitToolOutputs(threadId, run.id, outputs);
+
+        if (outputs.length > 0) {
+          try {
+            await client.runs.submitToolOutputs(threadId, run.id, outputs);
+          } catch (e) {
+            console.warn(`[tools] submitToolOutputs failed phase=main thread=${threadId} run=${run.id} outputs=${outputs.length} calls=${(cur.requiredAction?.toolCalls??[]).map(c=>isFunctionToolCall(c)?`${c.id}:${c.function?.name}`:`${c.id}:${c.type??"non-fn"}`).join("|")} err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`);
+          }
+        }
+        continue;
       } else {
+        // 終了状態なら脱出、未終了なら待機継続
         const terminal: RunState["status"][] = ["completed", "failed", "cancelled", "expired"];
         if (cur.status && terminal.includes(cur.status)) {
           break;
@@ -541,7 +684,7 @@ export async function connectBing(
       }
     }
 
-    // ループ終了後の最終状態を取得して判定
+    // 最終状態確認（completed以外は失敗扱いで戻す）
     const final = (await client.runs.get(threadId, run.id)) as RunState;
     if (DEBUG_BING) {
       await dumpRunAndMessages(client, threadId, final, { maxMsgs: 5 });
@@ -555,6 +698,7 @@ export async function connectBing(
       return { texts: ["⚠️エラーが発生しました。(run poll)"], agentId, threadId, runId: (final as { id?: string })?.id ?? run.id };
     }
 
+    // runに紐づくassistant応答（なければ最新）を取得
     const picked = await getAssistantMessageForRun(
       threadId,
       (final as { id?: string })?.id ?? run.id!
@@ -564,17 +708,19 @@ export async function connectBing(
       agentId, threadId, runId: (run as { id?: string })?.id
     };
 
+    // 本文からinstpack/metaフェンスを除去し、値も抽出
     const { cleaned: contentNoInternal, meta: rawMeta, instpack } = stripInternalBlocksFromContent(picked.content);
 
-    // function 呼び出し経由で拾えたもの優先
-    let mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);   // ← 使用（no-unused-vars解消）
-    let mergedInst = instpackCaptured ?? instpack;             // ← 使用（no-unused-vars解消）
-    // meta/instpackが無い場合 修復Run を投げて関数だけ呼ばせて回収
+    // ツール経由のmeta/instpackを優先してマージ＆正規化
+    let mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);
+    let mergedInst = instpackCaptured ?? instpack;
+
+    // meta/instpackがない場合は、「修復run」でemit_metaを単発呼び出しして回収
     if (!mergedMeta || !mergedInst) {
       await client.messages.create(threadId, "user", [{
         type: "text",
-        // ユーザーに見せない内部促し（会話文脈は thread に残っている）
-      text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
+        // 内部プロンプト（ユーザーには見せない）：直前回答を要約しemit_metaを１回だけ呼ぶ
+        text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
       }]);
       const repair = await client.runs.create(threadId, agentId, {
         temperature: 0,
@@ -585,26 +731,53 @@ export async function connectBing(
       const started = Date.now();
       while (true) {
         const cur = (await client.runs.get(threadId, repair.id)) as RunState;
+        // 「修復run」のrequires_action：emit_metaのpayloadを回収してack
         if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-          const outs = cur.requiredAction.toolCalls!.map((c) => ({ toolCallId: c.id, output: "ok" }));
+          const calls = cur.requiredAction.toolCalls ?? [];
+          if (calls.length === 0) {
+            await new Promise(r => setTimeout(r, 200));
+            continue;
+          }
+
+          const outs = calls.map((c) => {
+            if (isFunctionToolCall(c)) {
+              const { function: fn } = c;
+              // payload を回収して保持
+              if (fn?.name === EMIT_META_FN) {
+                captureEmitMeta(fn.arguments);
+                return { toolCallId: c.id, output: "ok" };
+              }
+            }
+            return { toolCallId: c.id, output: "" };
+          });
+
+          try {
           await client.runs.submitToolOutputs(threadId, repair.id, outs);
-        } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
-          break;
-        } else {
-          await new Promise(r => setTimeout(r, 400));
-          if (Date.now() - started > 30_000) break;
+          } catch (e) {
+            console.warn(`[tools] submitToolOutputs failed phase=repair thread=${threadId} run=${repair.id} outputs=${outs.length} calls=${(cur.requiredAction?.toolCalls??[]).map(c=>isFunctionToolCall(c)?`${c.id}:${c.function?.name}`:`${c.id}:${c.type??"non-fn"}`).join("|")} err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`);
+          }
+          continue;
         }
+        // 「修復run」の終了待ち（タイムアウトガードあり）
+        if (["completed", "failed", "cancelled", "expired"].includes(cur.status ?? "")) {
+          break;
+        }
+        await new Promise(r => setTimeout(r, 400));
+        if (Date.now() - started > 30_000) break;
       }
-      // 修復Runで拾えたもの
+
+      // 「修復run」で回収できたmeta/instを更新し、metaは正規化
       mergedMeta = normalizeMeta(metaCaptured ?? mergedMeta);
       mergedInst = instpackCaptured ?? mergedInst;
     }
-    // ユーザー向け本文をLINE整形
+
+    // ユーザー向け本文をLINE仕様に整形
     const texts = toLineTextsFromMessage(contentNoInternal, {
       maxUrls: maxUrlsPerBlock,
       showTitles: false
     });
 
+    // デバグ用途コンソール出力
     if (DEBUG_BING) {
       console.log("\n===== [DEBUG] line texts =====");
       texts.forEach((t, i) => {
@@ -618,7 +791,7 @@ export async function connectBing(
       console.log(mergedInst ?? "(none)");
     }
 
-    // 暫定回答は出す。その上で不足があれば最後に1行だけ確認を付与
+    // 返却テキストの末尾に、必要なら追質問を１行付与
     const out = texts.length ? [...texts] : ["（結果が見つかりませんでした）"];
     if (mergedMeta?.complete === false) {
       const ask = buildFollowup(mergedMeta);
@@ -633,23 +806,28 @@ export async function connectBing(
   });
 }
 
-// Bing Searchの生jsonを見るためのデバグ
+// 
+/**
+ * dumpRunAndMessages: Bing Searchの生jsonを見るためのデバグ用途
+ * 
+ * @param client 
+ * @param threadId 
+ * @param run 
+ * @param opts 
+ */
 async function dumpRunAndMessages(
   client: AgentsClient,
   threadId: string,
-  run: unknown,           // SDKの型に縛らず raw をそのまま出す
+  run: unknown,           // SDKの型に縛らずrawをそのまま出す
   opts: { maxMsgs?: number } = {}
 ) {
   const { maxMsgs = 10 } = opts;
-
   // run 全体（unknown は object にキャストして表示）
   console.log("\n===== [DEBUG] run (raw) =====");
   console.dir(run as object, { depth: null, colors: true });
-
   // run.id を安全に取り出す
   const runId = (run as { id?: string })?.id;
   console.log("[DEBUG] runId =", runId);
-
   // steps（runId が取れたときだけ）
   console.log("\n===== [DEBUG] steps (raw) =====");
   try {
@@ -664,7 +842,6 @@ async function dumpRunAndMessages(
   } catch (e) {
     console.warn("[DEBUG] steps unavailable or error:", e);
   }
-
   // messages はそのまま
   console.log("\n===== [DEBUG] messages (raw, newest first) =====");
   let cnt = 0;

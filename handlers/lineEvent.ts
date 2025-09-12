@@ -87,8 +87,13 @@ export async function lineEvent(event: WebhookEvent) {
       console.log("#### BING REPLY (TEXTS) ####", res.texts);
       // 本文メッセージを配列化
       const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
-      // complete=true のときは Confirm を同梱
-      if (res.meta?.complete === true && res.threadId) {
+      // 「保存しますか？」を出力する条件
+      const shouldShowConfirm =
+        !!res.threadId &&
+        !!res.instpack &&
+        res.meta?.complete === true &&
+        res.meta?.intent !== "generic";
+      if (shouldShowConfirm) {
         messages.push(
           buildSaveOrContinueConfirm({
             text: "この内容で保存しますか？",
