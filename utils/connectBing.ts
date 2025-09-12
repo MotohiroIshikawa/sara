@@ -79,7 +79,7 @@ type RunState = {
 };
 type SubmitToolOutputsAction = {
   type: "submit_tool_outputs"; 
-  toolCalls?: ToolCall[]
+  submitToolOutputs?: { toolCalls?: ToolCall[] };
 };
 //// ツール引数の受け用
 type EmitMetaPayload = { meta?: Meta; instpack?: string };
@@ -640,7 +640,7 @@ export async function connectBing(
 
       // ツール出力が要求された場合：emit_metaのpayloadを読み取り、ackを返す
       if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-        const calls = cur.requiredAction.toolCalls ?? [];
+        const calls = cur.requiredAction?.submitToolOutputs?.toolCalls ?? [];
         if (calls.length === 0) {
           // まだtoolCallsが並んでこないケースのため短期待機
           await new Promise(r => setTimeout(r, 200));
