@@ -1,4 +1,10 @@
 import { messagingApi } from "@line/bot-sdk";
+import { LINE } from "@/utils/env";
+
+const pushMax = LINE.PUSH_MAX;
+const replyMax = LINE.REPLY_MAX;
+const textLimit = LINE.TEXT_LIMIT;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Message = messagingApi.Message;
 type TextMessage = messagingApi.TextMessage;
@@ -7,12 +13,6 @@ type TemplateMessage = messagingApi.TemplateMessage;
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN!,
 });
-
-const replyMax = 5;
-const pushMax = 5;
-const textLimit = 2000;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // 文字列配列 → LINE TextMessage[]（空/空白は除去、各要素2000字に丸め）
 export function toTextMessages(blocks: string[], limit = textLimit): TextMessage[] {
@@ -51,20 +51,23 @@ export function buildSaveOrContinueConfirm({
 }
 
 
-/** 任意配列をサイズごとに分割 */
+// 任意配列をサイズごとに分割
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
-/** LINEの reply token 無効エラー判定（型に依存しない軽量チェック） */
+// LINEの reply token 無効エラー判定（型に依存しない軽量チェック）
 type MaybeHttpError = { status?: number; message?: string; response?: { status?: number } };
 function isInvalidReplyToken(err: unknown): boolean {
   const e = err as MaybeHttpError | undefined;
   const msg = (e?.message ?? "").toLowerCase();
   const status = e?.status ?? e?.response?.status;
-  return status === 400 && msg.includes("invalid reply token");
+  return (
+    status === 400 &&
+    ( msg.includes("invalid reply token") || msg.includes("may not be empty") ) // ★追加
+  );
 }
 
 /**
@@ -79,7 +82,7 @@ export async function sendMessagesReplyThenPush({
   delayMs = 250,
   log = console,
 }: {
-  replyToken: string;
+  replyToken?: string | null;
   to: string;
   messages: Message[];
   delayMs?: number;
@@ -96,7 +99,21 @@ export async function sendMessagesReplyThenPush({
       }
     }
     // push できない場合のみ reply を試す
-    await client.replyMessage({ replyToken, messages: [fallback] });
+    await client.replyMessage({ replyToken: String(replyToken ?? ""), messages: [fallback] });
+    return;
+  }
+
+  // replyTokenが無い場合は最初からpushに切り替え
+  if (!replyToken) {
+    for (const batch of chunk(messages, pushMax)) {
+      try {
+        await client.pushMessage({ to, messages: batch });
+      } catch (e) {
+        log?.error?.("[LINE pushMessage] failed (no replyToken path):", e);
+        break;
+      }
+      if (delayMs > 0) await sleep(delayMs);
+    }
     return;
   }
 

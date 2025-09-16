@@ -13,26 +13,7 @@ import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 import { agentInstructions } from '@/utils/agentInstructions';
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
-
-// 環境変数を整数として読み取り、既定／下限／上限を適用
-function envInt(name: string, def: number, min = 0, max = 10) {
-  const raw = process.env[name];
-  const n = raw === undefined ? def : Number(raw);
-  if (!Number.isFinite(n)) return def;
-  return Math.min(max, Math.max(min, Math.floor(n)));
-}
-
-function envNumber(
-  name: string,
-  def: number,
-  { min = 0, max = Number.POSITIVE_INFINITY, floor = true }: { min?: number; max?: number; floor?: boolean } = {}
-) {
-  const raw = process.env[name];
-  const n = raw === undefined ? def : Number(raw);
-  if (!Number.isFinite(n)) return def;
-  const clamped = Math.min(max, Math.max(min, n));
-  return floor ? Math.floor(clamped) : clamped;
-}
+import { envInt, LINE, NEWS, MAIN, REPAIR, DEBUG } from "@/utils/env";
 
 // thenableを安全にPromiseに包むヘルパ
 function asPromise<T>(p: PromiseLike<T>): Promise<T> {
@@ -67,29 +48,29 @@ const redisKey = process.env.REDIS_KEY!;
 //// Redis に保存するスレッドの有効期限（時間）
 const threadTTL = Number(process.env.THREAD_TTL ?? 168);
 //// LINE送信の文字数やURL付与などの制約
-const lineTextLimit = envInt("LINE_TEXT_LIMIT", 1000, 200, 4800);
-const maxUrlsPerBlock = envInt("LINE_MAX_URLS_PER_BLOCK", 3, 0, 10);
-const minSectionLength = envInt("MIN_SECTION_LENGTH", 8, 0, 10);
+const lineTextLimit = LINE.TEXT_LIMIT;
+const maxUrlsPerBlock = LINE.MAX_URLS_PER_BLOCK;
+const minSectionLength = LINE.MIN_SECTION_LENGTH;
 //// ニュース期間の既定（日）
-const metaDays = envInt("NEWS_DEFAULT_DAYS", 7, 1, 30);
+const metaDays = NEWS.DEFAULT_DAYS;
 
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
-const debugBing = process.env.DEBUG_BING === "1";
+const debugBing = DEBUG.BING;
 
 //// 修復runの有効/無効切替
-const repairRunEnabled = process.env.REPAIR_RUN_ENABLED !== "0"; // 0なら修復runを無効化
-//// ネットワーク強制タイムアウト（ハング防止のため）
-const mainCreateTimeoutMS = envNumber("MAIN_CREATE_TIMEOUT_MS", 4000, { min: 100 });
-const mainGetTimeoutMS = envNumber("MAIN_GET_TIMEOUT_MS", 3000, { min: 200 });
-const mainPollSleepMS = envNumber("MAIN_POLL_SLEEP_MS", 500, { min: 50  });
-const mainPollTimeoutMS = envNumber("MAIN_POLL_TIMEOUT_MS", 60000, { min: 1000 });
-const repairCreateTimeoutMS = envNumber("REPAIR_CREATE_TIMEOUT_MS", 4000, { min: 100 });
-const repairGetTimeoutMS = envNumber("REPAIR_GET_TIMEOUT_MS", 3000, { min: 200 });
-const repairPollSleepMS = envNumber("REPAIR_POLL_SLEEP_MS", 400, { min: 50  });
-const repairPollTimeoutMS = envNumber("REPAIR_POLL_TIMEOUT_MS", 30000, { min: 1000 });
-
-const repairRunMode = (process.env.REPAIR_RUN_MODE ?? "sync").toLowerCase();
+const repairRunEnabled = REPAIR.ENABLED;
+const repairRunMode = REPAIR.MODE.toLowerCase();
 const repairRunAsync = repairRunMode === "async";
+
+//// ネットワーク強制タイムアウト（ハング防止のため）
+const mainCreateTimeoutMS = MAIN.CREATE_TIMEOUT_MS;
+const mainGetTimeoutMS = MAIN.GET_TIMEOUT_MS;
+const mainPollSleepMS = MAIN.POLL_SLEEP_MS;
+const mainPollTimeoutMS = MAIN.POLL_TIMEOUT_MS;
+const repairCreateTimeoutMS = REPAIR.CREATE_TIMEOUT_MS;
+const repairGetTimeoutMS = REPAIR.GET_TIMEOUT_MS;
+const repairPollSleepMS = REPAIR.POLL_SLEEP_MS;
+const repairPollTimeoutMS = REPAIR.POLL_TIMEOUT_MS;
 
 // 型宣言
 //// 段落分割結果（原文中の位置範囲つき）
@@ -661,7 +642,7 @@ export async function connectBing(
     );
 
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-    const briefWait       = Math.min(1000, Math.max(50, Math.floor(mainPollSleepMS   / 2)));
+    const briefWait = Math.min(1000, Math.max(50, Math.floor(mainPollSleepMS   / 2)));
     const repairBriefWait = Math.min(1000, Math.max(50, Math.floor(repairPollSleepMS / 2)));
 
     let metaCaptured: Meta | undefined;
