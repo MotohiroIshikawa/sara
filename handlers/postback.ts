@@ -56,7 +56,7 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
   }
 
   try {
-    await fn(event as PostbackEvent, env.args ?? {});
+    await fn(pe, decoded.args ?? {});
     console.info("[postback] handled", {
       action: `${decoded.ns}/${decoded.fn}`,
       args: decoded.args ?? null,
