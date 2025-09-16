@@ -30,7 +30,12 @@ function getThreadOwnerId(event: WebhookEvent): string | undefined {
   }
 }
 
-// main
+/**
+ * lineEvent:MAIN関数
+ * 
+ * @param event 
+ * @returns 
+ */
 export async function lineEvent(event: WebhookEvent) {
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
@@ -80,10 +85,50 @@ export async function lineEvent(event: WebhookEvent) {
 
       // Azure OpenAI (Grounding with Bing Search) への問い合わせ
       const binding = await getBinding(threadOwnerId); 
-          // GPTS利用の場合はinstpack使用
+      let confirmPushed = false;
+
+      // 非同期対応
       const res = await connectBing(threadOwnerId, question, {
         instructionsOverride: binding?.instpack,
-      });
+        onRepair: async ({ threadId, meta, instpack }) => {
+          try {
+            if (threadId && instpack) {
+              // 1. DBへ保存
+              await upsertThreadInst({
+                userId: threadOwnerId,
+                threadId,
+                instpack,
+                meta,
+              });
+
+              const shouldShowConfirm =
+                !!threadId &&
+                !!instpack &&
+                meta?.complete === true &&
+                meta?.intent !== "generic";
+              // 2. 条件がそろったら「保存しますか？」の確認を push 
+              if (shouldShowConfirm && !confirmPushed) {
+                await sendMessagesReplyThenPush({
+                  replyToken: undefined,
+                  to: recipientId,
+                  messages: [
+                    buildSaveOrContinueConfirm({
+                      text: "この内容で保存しますか？",
+                      saveData: encodePostback("gpts", "save", { tid: threadId }),
+                      continueData: encodePostback("gpts", "continue", { tid: threadId }),
+                    }),
+                  ],
+                  delayMs: 250,
+                });
+                confirmPushed = true;
+              }
+            }
+          } catch (e) {                                                                         // ★
+            console.warn("[onRepair] failed:", e);                                              // ★
+          }
+        },
+      }); // ここまで非同期対応
+
       console.log("#### BING REPLY (TEXTS) ####", res.texts);
       // 本文メッセージを配列化
       const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
@@ -93,7 +138,8 @@ export async function lineEvent(event: WebhookEvent) {
         !!res.instpack &&
         res.meta?.complete === true &&
         res.meta?.intent !== "generic";
-      if (shouldShowConfirm) {
+
+        if (shouldShowConfirm && !confirmPushed) { 
         messages.push(
           buildSaveOrContinueConfirm({
             text: "この内容で保存しますか？",
@@ -101,7 +147,9 @@ export async function lineEvent(event: WebhookEvent) {
             continueData: encodePostback("gpts", "continue", { tid: res.threadId }),
           })
         );
+        confirmPushed = true;
       }
+
       // LINEへ本文応答
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken,
