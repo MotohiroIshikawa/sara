@@ -14,22 +14,55 @@ const table: Record<string, Record<string, Handler>> = {
   },
 };
 
+//  ログ用にsourceを取り出す
+function getSourceId(e: PostbackEvent): { type: string; id?: string } {
+  switch (e.source.type) {
+    case "user":  return { type: "user",  id: e.source.userId };
+    case "group": return { type: "group", id: e.source.groupId };
+    case "room":  return { type: "room",  id: e.source.roomId };
+    default:      return { type: "unknown" };
+  }
+}
+
+/**
+ * MAIN
+ * 
+ * @param event 
+ * @returns 
+ */
 export async function handlePostback(event: WebhookEvent): Promise<void> {
   if (event.type !== "postback" || !event.postback?.data) return;
 
-  const env = decodePostback(event.postback.data);
-  if (!env) return;
+  const pe = event as PostbackEvent;
+  const src = getSourceId(pe);
+  const rawData = pe.postback.data;
+  const decoded = decodePostback(rawData);
 
-  const mod = table[env.ns];
-  const fn = mod?.[env.fn];
+  console.info("[postback] received", {
+    src,                               // { type: "user"|"group"|"room", id }
+    rawData,                           // エンコードされた data 文字列
+    params: pe.postback.params ?? null, // datetime picker 等
+    action: decoded ? `${decoded.ns}/${decoded.fn}` : "unknown",
+    args: decoded?.args ?? null,       // { tid: "...", ... }
+  });
+
+  if (!decoded) return;
+  
+  const mod = table[decoded.ns];
+  const fn = mod?.[decoded.fn];
   if (!fn) {
-    console.warn(`[postback] unknown ns/fn: ${env.ns}/${env.fn}`);
+    console.warn(`[postback] unknown ns/fn: ${decoded.ns}/${decoded.fn}`);
     return;
   }
 
   try {
     await fn(event as PostbackEvent, env.args ?? {});
+    console.info("[postback] handled", {
+      action: `${decoded.ns}/${decoded.fn}`,
+      args: decoded.args ?? null,
+      src,
+    });
   } catch (e) {
-    console.error(`[postback] handler error: ${env.ns}/${env.fn}`, e);
+    console.error(`[postback] handler error: ${decoded.ns}/${decoded.fn}`, e);
   }
 }
