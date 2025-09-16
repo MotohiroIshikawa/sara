@@ -119,8 +119,8 @@ export async function lineEvent(event: WebhookEvent) {
                   messages: [
                     buildSaveOrContinueConfirm({
                       text: "この内容で保存しますか？",
-                      saveData: encodePostback("gpts", "save", { tid: threadId }),
-                      continueData: encodePostback("gpts", "continue", { tid: threadId }),
+                      saveData: encodePostback("gpts", "save", { tid: threadId, label: "保存" }),
+                      continueData: encodePostback("gpts", "continue", { tid: threadId, label: "続ける" }),
                     }),
                   ],
                   delayMs: 250,
@@ -148,8 +148,8 @@ export async function lineEvent(event: WebhookEvent) {
       if (shouldShowConfirm && !confirmPushed) { 
         confirmMsg = buildSaveOrContinueConfirm({
           text: "この内容で保存しますか？",
-          saveData: encodePostback("gpts", "save", { tid: res.threadId }),
-          continueData: encodePostback("gpts", "continue", { tid: res.threadId }),
+          saveData: encodePostback("gpts", "save", { tid: res.threadId, label: "保存" }),
+          continueData: encodePostback("gpts", "continue", { tid: res.threadId, label: "続ける" }),
         });
         messages.push(confirmMsg);
         // 送信前に「push になる位置か」を予告ログ
