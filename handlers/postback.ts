@@ -2,6 +2,7 @@
 import { type WebhookEvent, type PostbackEvent } from "@line/bot-sdk";
 import { decodePostback } from "@/utils/postback";
 import * as gpts from "@/handlers/postbacks/gpts";
+import { CorrContext } from "@/logging/corr";
 
 // ハンドラ型
 type Handler = (event: PostbackEvent, args?: Record<string, string>) => Promise<void>;
@@ -35,8 +36,16 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
 
   const pe = event as PostbackEvent;
   const src = getSourceId(pe);
+  const corr = CorrContext.get();
   const rawData = pe.postback.data;
   const decoded = decodePostback(rawData);
+
+  const ctx = {
+    requestId: corr?.requestId,
+    threadId: decoded?.args?.tid ?? corr?.threadId,
+    runId: decoded?.args?.rid ?? corr?.runId,
+    userId: src.id,
+  };
 
   console.info("[postback] received", {
     src,                               // { type: "user"|"group"|"room", id }
@@ -44,6 +53,7 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
     params: pe.postback.params ?? null, // datetime picker 等
     action: decoded ? `${decoded.ns}/${decoded.fn}` : "unknown",
     args: decoded?.args ?? null,       // { tid: "...", ... }
+    ctx,
   });
 
   if (!decoded) return;
@@ -51,7 +61,7 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
   const mod = table[decoded.ns];
   const fn = mod?.[decoded.fn];
   if (!fn) {
-    console.warn(`[postback] unknown ns/fn: ${decoded.ns}/${decoded.fn}`);
+    console.warn(`[postback] unknown ns/fn: ${decoded.ns}/${decoded.fn}`, { ctx });
     return;
   }
 
@@ -61,8 +71,9 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
       action: `${decoded.ns}/${decoded.fn}`,
       args: decoded.args ?? null,
       src,
+      ctx,
     });
   } catch (e) {
-    console.error(`[postback] handler error: ${decoded.ns}/${decoded.fn}`, e);
+    console.error(`[postback] handler error: ${decoded.ns}/${decoded.fn}`, e, { ctx });
   }
 }
