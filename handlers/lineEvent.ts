@@ -33,6 +33,37 @@ function getThreadOwnerId(event: WebhookEvent): string | undefined {
   }
 }
 
+type Intent = "event" | "news" | "buy" | "generic";
+type MetaForConfirm = { intent?: Intent; complete?: boolean };
+/**
+ * 保存しますか？を出すか判定
+ * 1. threadIdが存在する
+ * 2. instpackが空でない
+ * 3. meta.completeがtrue
+ * 4. meta.intentがgenericでない
+ * -> この場合に「保存しますか？」を出す
+ * 
+ * @param meta 
+ * @param instpack 
+ * @param threadId 
+ * @returns 
+ */
+export function shouldShowConfirm(
+  meta: MetaForConfirm | undefined,
+  instpack: string | undefined,
+  threadId?: string
+): boolean {
+  // 1. 押下先の識別子がないと後続フローで困る
+  if (!threadId) return false;
+  // 2. 実体のない instpack では保存できない
+  if (!instpack?.trim()) return false;
+  // 3. meta 未確定ならまだ出さない
+  if (!meta || meta.complete !== true) return false;
+  // 4. generic は「保存」しない（例: 単語だけの曖昧質問）
+  if (meta.intent === "generic") return false;
+  return true;
+}
+
 /**
  * MAIN
  * 
@@ -105,14 +136,16 @@ export async function lineEvent(event: WebhookEvent) {
                 meta,
               });
 
-              const shouldShowConfirm =
-                !!threadId &&
-                !!instpack &&
-                meta?.complete === true &&
-                meta?.intent !== "generic";
               // 2. 条件がそろったら「保存しますか？」の確認を push 
-              if (shouldShowConfirm && !confirmPushed) {
-                console.info("[lineEvent:onRepair] confirm will be sent via PUSH (no replyToken). tid=%s", threadId);
+              const show = shouldShowConfirm(meta, instpack, threadId);
+              if (show && !confirmPushed) {
+                console.info("[lineEvent:onRepair] confirm will be sent via PUSH (no replyToken).", {
+                  tid: threadId,
+                  intent: meta?.intent,
+                  complete: meta?.complete,
+                  slots: meta?.slots,
+                  instpack_len: typeof instpack === "string" ? instpack.length : 0,
+                });
                 await sendMessagesReplyThenPush({
                   replyToken: undefined,
                   to: recipientId,
@@ -138,14 +171,9 @@ export async function lineEvent(event: WebhookEvent) {
       console.log("#### BING REPLY (TEXTS) ####", res.texts);
       // 本文メッセージを配列化
       const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
-      // 「保存しますか？」を出力する条件
-      const shouldShowConfirm =
-        !!res.threadId &&
-        !!res.instpack &&
-        res.meta?.complete === true &&
-        res.meta?.intent !== "generic";
-
-      if (shouldShowConfirm && !confirmPushed) { 
+      // 条件がそろったら「保存しますか？」の確認をpush
+      const show = shouldShowConfirm(res.meta, res.instpack, res.threadId);
+      if (show && !confirmPushed) { 
         confirmMsg = buildSaveOrContinueConfirm({
           text: "この内容で保存しますか？",
           saveData: encodePostback("gpts", "save", { tid: res.threadId, label: "保存" }),

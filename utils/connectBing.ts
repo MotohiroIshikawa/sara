@@ -205,7 +205,7 @@ async function getOrCreateThreadId(userId: string, ttlHours = threadTTL): Promis
   }
   // なければcreate
   const th = await client.threads.create();
-  await redis.set(k, th.id, "EX", ttlHours * 3600);
+  await redis.setex(k, ttlHours * 3600, th.id);
   return th.id;
 }
 
@@ -546,8 +546,12 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
       out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
     }
   }
-  // generic は「専門化を促すため」常に未完了にして追質問を出す
-  if (out.intent === "generic") out.complete = false;
+  // generic&topicなし: 追質問。generic&topicあり: 追質問なし->保存しますか？ダイアログ
+  const isNonEmpty = (v: unknown): v is string =>
+    typeof v === "string" && v.trim().length > 0;
+  if (out.intent === "generic"){
+    out.complete = isNonEmpty(out.slots?.topic);
+  }
   return out;
 }
 
@@ -560,6 +564,54 @@ function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
   return tc.type === "function";
 }
 
+// emit_metaのログ出力
+function logEmitMetaSnapshot(phase: "main" | "repair-async" | "repair", ctx: {
+  threadId: string;
+  runId?: string;
+}, payload: { meta?: Meta; instpack?: string }) {
+  const { meta, instpack } = payload;
+  console.info("[emit_meta] captured", {
+    phase,
+    threadId: ctx.threadId,
+    runId: ctx.runId,
+    intent: meta?.intent,
+    complete: meta?.complete,
+    slots: {
+      topic: meta?.slots?.topic,
+      place: meta?.slots?.place,
+      date_range: meta?.slots?.date_range,
+      official_only: meta?.slots?.official_only,
+    },
+    followups_len: meta?.followups?.length ?? 0,
+    instpack_len: typeof instpack === "string" ? instpack.length : 0,
+  });
+}
+
+// emit_metaのパース
+function parseEmitMeta(raw: unknown): EmitMetaPayload | undefined {
+  try {
+    if (typeof raw === "string") return JSON.parse(raw) as EmitMetaPayload;
+    if (raw && typeof raw === "object") return raw as EmitMetaPayload;
+  } catch { /* ignore parse errors */ }
+  return undefined;
+}
+
+// emit_metaの引数(JSON/obj)の取り出し用関数
+function applyAndLogEmitMeta(
+  payload: EmitMetaPayload | undefined,
+  phase: "main" | "repair-async" | "repair",
+  ctx: { threadId: string; runId?: string },
+  sinks: { setMeta: (m?: Meta) => void; setInstpack: (s?: string) => void }
+) {
+  if (!payload) return;
+  if (payload.meta) sinks.setMeta(payload.meta);
+  if (typeof payload.instpack === "string") sinks.setInstpack(payload.instpack);
+
+  logEmitMetaSnapshot(phase, ctx, {
+    meta: payload.meta,
+    instpack: payload.instpack,
+  });
+}
 
 /**
  * connectBing: メイン関数
@@ -622,21 +674,6 @@ export async function connectBing(
 
     let metaCaptured: Meta | undefined;
     let instpackCaptured: string | undefined;
-    // emit_metaの引数(JSON/obj)の取り出し用関数
-    function captureEmitMeta(raw: unknown) {
-      try {
-        const payload = (typeof raw === "string")
-          ? JSON.parse(raw) as EmitMetaPayload
-          : (raw && typeof raw === "object")
-            ? raw as EmitMetaPayload
-            : undefined;
-
-        if (payload?.meta) metaCaptured = payload.meta;
-        if (typeof payload?.instpack === "string") instpackCaptured = payload.instpack;
-      } catch {
-        /* noop */
-      }
-    }
 
     // runポーリング（タイムアウト・最大tickで脱出）
     const safeSleep = Math.max(1, mainPollSleepMS);
@@ -668,11 +705,13 @@ export async function connectBing(
         const outputs = calls.map((c): { toolCallId: string; output: string } => {
           if (isFunctionToolCall(c)) {
             const { function: fn } = c;
-            console.debug("[tools] call:", fn?.name);
-
             if (fn?.name === EMIT_META_FN) {
-              captureEmitMeta(fn.arguments);
-              return { toolCallId: c.id, output: "ok" };  // ack
+              const payload = parseEmitMeta(fn.arguments);
+              applyAndLogEmitMeta(payload, "main", { threadId, runId: run.id }, {
+                setMeta: (m) => { if (m) metaCaptured = m; },
+                setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
+              });
+              return { toolCallId: c.id, output: "ok" };
             } else {
               // 未知関数->空応答で返却（モデルに任せる）
               console.warn("[tools] unknown function:", fn?.name);
@@ -801,7 +840,11 @@ export async function connectBing(
                       const { function: fn } = c;
                       // payload を回収して保持
                       if (fn?.name === EMIT_META_FN) {
-                        captureEmitMeta(fn.arguments);
+                        const payload = parseEmitMeta(fn.arguments);
+                        applyAndLogEmitMeta(payload, "repair-async", { threadId, runId: repair.id }, {
+                          setMeta: (m) => { if (m) metaCaptured = m; },
+                          setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
+                        });
                         return { toolCallId: c.id, output: "ok" };
                       }
                     }
@@ -836,7 +879,14 @@ export async function connectBing(
               // 「修復run」で回収できたmeta/instを更新し、metaは正規化
               const repairedMeta = normalizeMeta(metaCaptured ?? undefined);
               const repairedInst = instpackCaptured ?? undefined;
-
+              console.info("[repair-async] result", {
+                threadId,
+                runId: (repair as { id?: string })?.id,
+                intent: repairedMeta?.intent,
+                complete: repairedMeta?.complete,
+                slots: repairedMeta?.slots,
+                instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
+              });
               // 修復結果を今回の応答にも即時反映
               //  mergedMeta = repairedMeta ?? mergedMeta;
               //  mergedInst = repairedInst ?? mergedInst;
@@ -892,7 +942,11 @@ export async function connectBing(
                     const { function: fn } = c;
                     // payload を回収して保持
                     if (fn?.name === EMIT_META_FN) {
-                      captureEmitMeta(fn.arguments);
+                      const payload = parseEmitMeta(fn.arguments);
+                      applyAndLogEmitMeta(payload, "repair", { threadId, runId: repair.id }, {
+                        setMeta: (m) => { if (m) metaCaptured = m; },
+                        setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
+                      });
                       return { toolCallId: c.id, output: "ok" };
                     }
                   }
@@ -925,7 +979,14 @@ export async function connectBing(
             // 「修復run」で回収できたmeta/instを更新し、metaは正規化
             const repairedMeta = normalizeMeta(metaCaptured ?? mergedMeta);
             const repairedInst = instpackCaptured ?? mergedInst;
-
+            console.info("[repair] result", {
+              threadId,
+              runId: (repair as { id?: string })?.id,
+              intent: repairedMeta?.intent,
+              complete: repairedMeta?.complete,
+              slots: repairedMeta?.slots,
+              instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
+            });
             // 修復結果を今回の応答にも即時反映（同期モード）
             mergedMeta = repairedMeta ?? mergedMeta;
             mergedInst = repairedInst ?? mergedInst;
