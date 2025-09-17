@@ -2,9 +2,6 @@ import {
   messagingApi, 
   type WebhookEvent, 
   type MessageEvent,
-  type PostbackEvent,
-  type MemberJoinedEvent,
-  type MemberLeftEvent,
 } from "@line/bot-sdk";
 import { connectBing } from "@/utils/connectBing";
 import {
@@ -96,7 +93,7 @@ export function buildLineEventLog(e: WebhookEvent) {
       : e.source?.type === "room" ? shortId(e.source.roomId)
       : undefined,
     hasReplyToken: (e as { replyToken?: string }).replyToken !== undefined,
-    timestamp: new Date(e.timestamp).toISOString(),
+    timestamp: typeof e.timestamp === "number" ? new Date(e.timestamp).toISOString() : undefined,
   };
 
   switch (e.type) {
@@ -123,7 +120,7 @@ export function buildLineEventLog(e: WebhookEvent) {
       return { ...base, message: msg };
     }
     case "postback": {
-      const p = (e as PostbackEvent).postback;
+      const p = e.postback;
       return { ...base, postback: {
           data: ellipsize(p?.data, 500),
           params: p?.params, // date, time, datetime など
@@ -133,13 +130,23 @@ export function buildLineEventLog(e: WebhookEvent) {
     case "follow":
     case "unfollow":
     case "join":
-    case "leave":
+    case "leave": {
+      return base;
+    }
     case "memberJoined": {
-      const members = (e as MemberJoinedEvent).joined.members?.map(m => shortId(m.userId));
+      const members = Array.isArray(e.joined?.members)
+        ? e.joined.members
+            .map(m => ("userId" in m ? shortId(m.userId) : undefined))
+            .filter(Boolean)
+          : [];
       return { ...base, members };
     }
     case "memberLeft": {
-      const members = (e as MemberLeftEvent).left.members?.map(m => shortId(m.userId));
+      const members = Array.isArray(e.left?.members)
+        ? e.left.members
+            .map(m => ("userId" in m ? shortId(m.userId) : undefined))
+            .filter(Boolean)
+          : [];
       return { ...base, members };
     }
     default:
