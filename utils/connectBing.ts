@@ -555,13 +555,23 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
   return out;
 }
 
-/**
- * isFunctionToolCall: ツールコールの判定ヘルパー
- * @param tc 
- * @returns 
- */
+// isFunctionToolCall: ツールコールの判定ヘルパー
 function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
   return tc.type === "function";
+}
+
+// instpackログ出力
+const sha12 = (s: string) => createHash("sha256").update(s).digest("base64url").slice(0, 12);
+const preview = (s: string, n = 1200) => (s.length > n ? `${s.slice(0, n)}…` : s);
+function logInstpack(
+  tag: "main" | "repair-async" | "repair" | "fence",
+  ctx: { threadId: string; runId?: string },
+  s?: string
+) {
+  if (!debugBing || !s) return;
+  console.info(
+    `[instpack:${tag}] tid=${ctx.threadId} run=${ctx.runId ?? "-"} len=${s.length} sha=${sha12(s)}\n${preview(s)}`
+  );
 }
 
 // emit_metaのログ出力
@@ -611,7 +621,9 @@ function applyAndLogEmitMeta(
     meta: payload.meta,
     instpack: payload.instpack,
   });
+  logInstpack(phase, ctx, payload.instpack);
 }
+
 
 /**
  * connectBing: メイン関数
@@ -636,7 +648,7 @@ export async function connectBing(
   }
 ): Promise<ConnectBingResult> {
   const q = question.trim();
-  console.log("question:" + q);
+  console.log("[question] " + q);
   if (!q) return { texts: ["⚠️メッセージが空です。"], agentId: "", threadId: "" };
 
   // 認証・認証チェック
@@ -785,7 +797,8 @@ export async function connectBing(
 
     // 本文からinstpack/metaフェンスを除去し、値も抽出
     const { cleaned: contentNoInternal, meta: rawMeta, instpack } = stripInternalBlocksFromContent(picked.content);
-
+    logInstpack("fence", { threadId, runId: (run as { id?: string })?.id }, instpack);
+    
     // ツール経由のmeta/instpackを優先してマージ＆正規化
     let mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);
     let mergedInst = instpackCaptured ?? instpack;

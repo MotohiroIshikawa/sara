@@ -1,4 +1,11 @@
-import { messagingApi, type WebhookEvent } from "@line/bot-sdk";
+import { 
+  messagingApi, 
+  type WebhookEvent, 
+  type MessageEvent,
+  type PostbackEvent,
+  type MemberJoinedEvent,
+  type MemberLeftEvent,
+} from "@line/bot-sdk";
 import { connectBing } from "@/utils/connectBing";
 import {
   sendMessagesReplyThenPush,
@@ -64,6 +71,82 @@ export function shouldShowConfirm(
   return true;
 }
 
+const ellipsize = (s: string, max = 300) =>
+  typeof s === "string" && s.length > max ? `${s.slice(0, max)}…` : s;
+const shortId = (id?: string) =>
+  id ? `${id.slice(0, 4)}…${id.slice(-4)}` : undefined;
+// 
+/**
+ * LINE Webhookをログ向けに要約
+ *   常に出す: type / source / timestamp
+ *   message: type と id、text のときだけ text（長文は省略）
+ *   postback: data と params（data は省略表示）
+ *   replyToken は漏洩リスクがあるので true/false のみ
+ * 
+ * @param e 
+ * @returns 
+ */
+export function buildLineEventLog(e: WebhookEvent) {
+  const base: Record<string, unknown> = {
+    type: e.type,
+    source: e.source?.type,
+    sourceId:
+      e.source?.type === "user" ? shortId(e.source.userId)
+      : e.source?.type === "group" ? shortId(e.source.groupId)
+      : e.source?.type === "room" ? shortId(e.source.roomId)
+      : undefined,
+    hasReplyToken: (e as { replyToken?: string }).replyToken !== undefined,
+    timestamp: new Date(e.timestamp).toISOString(),
+  };
+
+  switch (e.type) {
+    case "message": {
+      const m = (e as MessageEvent).message;
+      const msg: Record<string, unknown> = { id: m?.id, type: m?.type, };
+
+      if (m?.type === "text") {
+        msg.text = ellipsize(m.text, 500);
+      } else if ( m?.type === "image" || m?.type === "video" || m?.type === "audio" ) {
+        msg.contentProvider = m.contentProvider?.type;
+      } else if (m?.type === "file") {
+        msg.fileName = m.fileName;
+        msg.fileSize = m.fileSize;
+      } else if (m?.type === "sticker") {
+        msg.packageId = m.packageId;
+        msg.stickerId = m.stickerId;
+      } else if (m?.type === "location") {
+        msg.title = m.title;
+        msg.address = m.address;
+        msg.latitude = m.latitude;
+        msg.longitude = m.longitude;
+      }
+      return { ...base, message: msg };
+    }
+    case "postback": {
+      const p = (e as PostbackEvent).postback;
+      return { ...base, postback: {
+          data: ellipsize(p?.data, 500),
+          params: p?.params, // date, time, datetime など
+        },
+      };
+    }
+    case "follow":
+    case "unfollow":
+    case "join":
+    case "leave":
+    case "memberJoined": {
+      const members = (e as MemberJoinedEvent).joined.members?.map(m => shortId(m.userId));
+      return { ...base, members };
+    }
+    case "memberLeft": {
+      const members = (e as MemberLeftEvent).left.members?.map(m => shortId(m.userId));
+      return { ...base, members };
+    }
+    default:
+    return base;
+  }
+}
+
 /**
  * MAIN
  * 
@@ -71,6 +154,8 @@ export function shouldShowConfirm(
  * @returns 
  */
 export async function lineEvent(event: WebhookEvent) {
+  console.info("[LINE webhook]", buildLineEventLog(event));
+
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
   if (!recipientId || !threadOwnerId) return;
