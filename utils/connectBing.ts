@@ -9,10 +9,22 @@ import {
 import { DefaultAzureCredential } from "@azure/identity";
 import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
-import { agentInstructions } from '@/utils/agentInstructions';
+import {
+  buildReplyInstructions,
+  buildMetaInstructions,
+  buildInstpackInstructions,
+} from "@/utils/agentPrompts";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
+import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { redis, withLock } from "@/utils/redis";
-import { envInt, LINE, NEWS, MAIN, REPAIR, DEBUG, AZURE, THREAD } from "@/utils/env";
+import { envInt, LINE, NEWS, DEBUG, AZURE, THREAD, MAIN_TIMERS } from "@/utils/env";
+import {
+  toDefinition,
+  toToolCalls,
+  type ToolLike,
+  type FunctionToolCall,
+  type ToolCall,
+} from "@/utils/types";
 
 // thenableを安全にPromiseに包むヘルパ
 function asPromise<T>(p: PromiseLike<T>): Promise<T> {
@@ -49,20 +61,6 @@ const minSectionLength = LINE.MIN_SECTION_LENGTH;
 const metaDays = NEWS.DEFAULT_DAYS;
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const debugBing = DEBUG.BING;
-//// 修復runの有効/無効切替
-const repairRunEnabled = REPAIR.ENABLED;
-const repairRunMode = REPAIR.MODE.toLowerCase();
-const repairRunAsync = repairRunMode === "async";
-const repairMaxAttempts = REPAIR.MAX_ATTEMPTS;
-//// ネットワーク強制タイムアウト（ハング防止のため）
-const mainCreateTimeoutMS = MAIN.CREATE_TIMEOUT_MS;
-const mainGetTimeoutMS = MAIN.GET_TIMEOUT_MS;
-const mainPollSleepMS = MAIN.POLL_SLEEP_MS;
-const mainPollTimeoutMS = MAIN.POLL_TIMEOUT_MS;
-const repairCreateTimeoutMS = REPAIR.CREATE_TIMEOUT_MS;
-const repairGetTimeoutMS = REPAIR.GET_TIMEOUT_MS;
-const repairPollSleepMS = REPAIR.POLL_SLEEP_MS;
-const repairPollTimeoutMS = REPAIR.POLL_TIMEOUT_MS;
 
 // 型宣言
 //// 段落分割結果（原文中の位置範囲つき）
@@ -86,10 +84,6 @@ export type ConnectBingResult = {
   threadId: string;
   runId?: string;
 };
-//// ツール呼び出しの受け側（function/非function）
-type NonFunctionToolCall = { id: string; type?: Exclude<string, "function"> };
-type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown }; };
-type ToolCall = FunctionToolCall | NonFunctionToolCall;
 
 //// run状態の簡易型（SDKの抜粋）
 type RunState = {
@@ -126,52 +120,55 @@ const bingTool = ToolUtility.createBingGroundingTool([
     setLang: "ja",
     count: 5,
     freshness: "week",
-   }]);
+   }
+]);
 
-/**
- * agentIdKey: Agentのキャッシュキー作成用
- * 
- * @param instructions 
- * @returns 
- */
-function agentIdKey(instructions: string) {
-  const ns = Buffer.from(endpoint).toString("base64url");
-  // ツール構成が変わったら必ず新規Agentを作るためのシグネチャ
-  const toolSig = JSON.stringify([
-    "bing_grounding",
-    EMIT_META_FN,
-  ]);
-  const h = createHash("sha256")
-    .update(JSON.stringify({
-      modelDeployment,
-      bingConnectionId,
-      instructions,
-      toolSig 
-    }))
-    .digest("base64url")
-    .slice(0, 12);
-  return `agent:id:${ns}:${h}`;
+// ツール署名の生成（Agentキャッシュ分離に使用）
+function toolSignature(defs: ReadonlyArray<ToolLike | unknown>): string {
+  const defsNorm = defs.map(toDefinition);
+  type FnTool = { function?: { name?: unknown } };
+  type TypeTool = { type?: unknown };
+
+  const tokens = defsNorm.map((d) => {
+    const f = (d as FnTool).function;
+    if (f && typeof f.name === "string") return f.name;
+    const t = (d as TypeTool).type;
+    if (typeof t === "string") return t;
+    return "unknown";
+  });
+  return JSON.stringify(tokens);
 }
 
 /**
- * getOrCreateAgentId: Agentを取得または作成
+ * getOrCreateAgentIdWithTools: 指示文＋ツール構成でAgentをキャッシュ・作成
  * 
  * @param instructions 
+ * @param tools 
  * @returns 
  */
-async function getOrCreateAgentId(instructions: string): Promise<string> {
-  const key = agentIdKey(instructions);
+async function getOrCreateAgentIdWithTools(
+  instructions: string,
+  tools: ReadonlyArray<ToolLike | unknown>
+): Promise<string> {
+  const ns = Buffer.from(endpoint).toString("base64url");
+  const sig = createHash("sha256")
+    .update(JSON.stringify({
+      modelDeployment,
+      endpoint,
+      instructions,
+      toolSig: toolSignature(tools),
+    }))
+    .digest("base64url")
+    .slice(0, 12);
+  const key = `agent:id:${ns}:${sig}`;
+
   const cached = await redis.get(key);
   if (cached) return cached;
 
-  // redisのcacheがなければAgent作成
   const agent = await client.createAgent(modelDeployment, {
     name: `${agentNamePrefix}-${Date.now()}`,
     instructions,
-    tools: [
-      bingTool.definition,
-      emitMetaTool.definition,
-    ],
+    tools: tools.map(toDefinition),
   });
   await redis.set(key, agent.id);
   return agent.id;
@@ -549,6 +546,14 @@ function looksLikeInstpack(s?: string): boolean {
 function normalizeMeta(meta?: Meta): Meta | undefined {
   if (!meta) return meta;
   const out: Meta = { ...meta, slots: { ...(meta.slots ?? {}) } };
+  
+  if (out.intent === "event") {
+    const r = out.slots?.date_range?.trim().toLowerCase();
+    if (!r) out.slots!.date_range = "ongoing"; // 仕様: 未指定は ongoing
+    // topic & date_range が揃えば complete
+    out.complete = !!out.slots?.topic && !!out.slots?.date_range;
+  }
+  
   if (out.intent === "news") {
     const r = out.slots?.date_range?.trim().toLowerCase();
     if (!r || r === "ongoing" || r === "upcoming_30d") {
@@ -557,6 +562,12 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
       out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
     }
   }
+ 
+  if (out.intent === "buy") {
+    // topic があれば complete 扱いにする
+    out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
+  }
+
   // generic&topicなし: 追質問。generic&topicあり: 追質問なし->保存しますか？ダイアログ
   const isNonEmpty = (v: unknown): v is string =>
     typeof v === "string" && v.trim().length > 0;
@@ -572,10 +583,11 @@ function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
 }
 
 // instpackログ出力
+type PhaseTag = "main" | "repair-async" | "repair" | "fence" | "instpack" | "meta";
 const sha12 = (s: string) => createHash("sha256").update(s).digest("base64url").slice(0, 12);
 const preview = (s: string, n = 1200) => (s.length > n ? `${s.slice(0, n)}…` : s);
 function logInstpack(
-  tag: "main" | "repair-async" | "repair" | "fence",
+  tag: PhaseTag,
   ctx: { threadId: string; runId?: string },
   s?: string
 ) {
@@ -586,10 +598,14 @@ function logInstpack(
 }
 
 // emit_metaのログ出力
-function logEmitMetaSnapshot(phase: "main" | "repair-async" | "repair", ctx: {
-  threadId: string;
-  runId?: string;
-}, payload: { meta?: Meta; instpack?: string }) {
+function logEmitMetaSnapshot(
+  phase: PhaseTag, 
+  ctx: {
+    threadId: string;
+    runId?: string;
+  }, 
+  payload: { meta?: Meta; instpack?: string }
+) {
   const { meta, instpack } = payload;
   console.info("[emit_meta] captured", {
     phase,
@@ -620,7 +636,7 @@ function parseEmitMeta(raw: unknown): EmitMetaPayload | undefined {
 // emit_metaの引数(JSON/obj)の取り出し用関数
 function applyAndLogEmitMeta(
   payload: EmitMetaPayload | undefined,
-  phase: "main" | "repair-async" | "repair",
+  phase: PhaseTag,
   ctx: { threadId: string; runId?: string },
   sinks: { setMeta: (m?: Meta) => void; setInstpack: (s?: string) => void }
 ) {
@@ -635,6 +651,17 @@ function applyAndLogEmitMeta(
   logInstpack(phase, ctx, payload.instpack);
 }
 
+// 「保存する」判定（instpack取得を実施するかどうか）
+// - generic 以外（event/news/buy）は date_range 必須（normalizeMeta が補正）
+// - 本文が極端に短い場合は保留
+function shouldSave(meta?: Meta, replyText?: string): boolean {
+  if (!meta) return false;
+  const slots = meta.slots ?? {};
+  const hasTopic = !!(slots.topic && slots.topic.trim());
+  const hasDateOrIntent = meta.intent !== "generic" ? !!slots.date_range : true;
+  const replyOk = (replyText?.length ?? 0) >= 80;
+  return meta.complete === true && hasTopic && hasDateOrIntent && replyOk;
+}
 
 /**
  * connectBing: メイン関数
@@ -656,6 +683,8 @@ export async function connectBing(
     instructionsOverride?: string;
     // 修復runの回収結果を保存するためのコールバック
     onRepair?: (p: { userId: string; threadId: string; meta?: Meta; instpack?: string; }) => Promise<void>;
+    // metaの再試行回数
+    maxMetaRetry?: number;
   }
 ): Promise<ConnectBingResult> {
   const q = question.trim();
@@ -665,386 +694,184 @@ export async function connectBing(
   // 認証・認証チェック
   await preflightAuth();
 
-  const instructions = opts?.instructionsOverride?.trim()?.length
+  // 段階別instructionsを生成
+  const replyInstructions = (opts?.instructionsOverride?.trim()?.length
     ? opts!.instructionsOverride!
-    : agentInstructions;
-  
-  // Redlock v5/v6 差異を吸収
-  return await withLock(`user:${userId}`, 90_000, async () => {
-    // Agent/Thread の確保（並列実行）
-    const [agentId, threadId] = await Promise.all([
-      getOrCreateAgentId(instructions),
-      getOrCreateThreadId(userId),
-    ]);
+    : buildReplyInstructions()
+  ).trim();
+  const metaInstructions = buildMetaInstructions().trim();
+  const instInstructions = buildInstpackInstructions().trim();
 
-    // 質問をスレッドへ投入
+  return await withLock(`user:${userId}`, 90_000, async () => {
+    // Thread の確保
+    const threadId = await getOrCreateThreadId(userId);
+
+    // ユーザーの質問をスレッドへ投入
     await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
 
-    // runを開始（parallelToolCalls有効）
-    const run = await withTimeout(
-      client.runs.create(threadId, agentId, {
+    // run1. 返信用
+    const replyTools = [bingTool];
+    const replyAgentId = await getOrCreateAgentIdWithTools(replyInstructions, replyTools);
+    const replyRun = await withTimeout(
+      client.runs.create(threadId, replyAgentId, {
         temperature: 0.2,
         topP: 1,
         parallelToolCalls: true,
       }),
-      mainCreateTimeoutMS,
-      "main:create"
+      MAIN_TIMERS.createTimeout,
+      "reply:create"
     );
 
-    const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-    const briefWait = Math.min(1000, Math.max(50, Math.floor(mainPollSleepMS   / 2)));
-    const repairBriefWait = Math.min(1000, Math.max(50, Math.floor(repairPollSleepMS / 2)));
-
-    let metaCaptured: Meta | undefined;
-    let instpackCaptured: string | undefined;
-
-    // runポーリング（タイムアウト・最大tickで脱出）
-    const safeSleep = Math.max(1, mainPollSleepMS);
-    const pollMaxTicks = Math.max(1, Math.ceil(mainPollTimeoutMS / safeSleep)) + 10; // 余裕を少し追加
-    const startedAt = Date.now();
-    let ticks = 0;
-
-    while (true) {
-      if (Date.now() - startedAt > mainPollTimeoutMS || ++ticks > pollMaxTicks) {
-        console.warn("⚠️ run polling timeout");
-        break;
-      }
-      // runs.getにタイムアウトを付与（SDKハングで無限待ちを防止）
-      const cur = (await withTimeout(
-        client.runs.get(threadId, run.id),
-        mainGetTimeoutMS,
-        "main:get"
-      )) as RunState;
-
-      // ツール出力が要求された場合：emit_metaのpayloadを読み取り、ackを返す
-      if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-        const calls = cur.requiredAction?.submitToolOutputs?.toolCalls ?? [];
-        if (calls.length === 0) {
-          // まだtoolCallsが並んでこないケースのため短期待機
-          await sleep(briefWait);
-          continue;
-        }
-
-        const outputs = calls.map((c): { toolCallId: string; output: string } => {
-          if (isFunctionToolCall(c)) {
-            const { function: fn } = c;
-            if (fn?.name === EMIT_META_FN) {
-              const payload = parseEmitMeta(fn.arguments);
-              applyAndLogEmitMeta(payload, "main", { threadId, runId: run.id }, {
-                setMeta: (m) => { if (m) metaCaptured = m; },
-                setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
-              });
-              return { toolCallId: c.id, output: "ok" };
-            } else {
-              // 未知関数->空応答で返却（モデルに任せる）
-              console.warn("[tools] unknown function:", fn?.name);
-            }
-          } else {
-            // 非functionの場合のツール（将来拡張用）
-            console.debug("[tools] call:", c.type ?? "(unknown)");
-          }
-          return { toolCallId: c.id, output: "" };
-        });
-
-        if (outputs.length > 0) {
-          try {
-            await client.runs.submitToolOutputs(threadId, run.id, outputs);
-          } catch (e) {
-            // ログ出力
-            console.warn(
-              `[tools] submitToolOutputs failed phase=main ` +
-                `thread=${threadId} ` +
-                `run=${run.id} ` +
-                `outputs=${outputs.length} ` +
-                `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
-                  .map(c => (isFunctionToolCall(c)
-                    ? `${c.id}:${c.function?.name}`
-                    : `${c.id}:${c.type ?? "non-fn"}`))
-                  .join("|")} ` +
-                `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
-            );
-          }
-        }
-        continue;
-      } else {
-        // 終了状態なら脱出、未終了なら待機継続
-        const terminal: RunState["status"][] = ["completed", "failed", "cancelled", "expired"];
-        if (cur.status && terminal.includes(cur.status)) {
-          break;
-        }
+    // 返信の完了待ち
+    {
+      const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+      const safeSleep = Math.max(1, MAIN_TIMERS.pollSleep);
+      const pollMaxTicks = Math.max(1, Math.ceil(MAIN_TIMERS.pollTimeout / safeSleep)) + 10;
+      const startedAt = Date.now();
+      let ticks = 0;
+      while (true) {
+        if (Date.now() - startedAt > MAIN_TIMERS.pollTimeout || ++ticks > pollMaxTicks) break;
+        const st = await withTimeout(
+          client.runs.get(threadId, replyRun.id),
+          MAIN_TIMERS.getTimeout,
+          "reply:get"
+        ) as RunState;
+        if (["completed","failed","cancelled","expired"].includes(st.status ?? "")) break;
         await sleep(safeSleep);
       }
     }
 
-    // 最終状態確認（completed以外は失敗扱いで戻す）
-    const final = (await withTimeout(
-      client.runs.get(threadId, run.id),
-      mainGetTimeoutMS,
-      "main:get:final"
-    )) as RunState;
-
-    if (debugBing) {
-      await dumpRunAndMessages(client, threadId, final, { maxMsgs: 5 });
+    // 返信メッセージを取得
+    const replyMsg = await getAssistantMessageForRun(threadId, replyRun.id);
+    if (!replyMsg) {
+      return {
+        texts: ["⚠️エラーが発生しました（返信メッセージが見つかりません）"],
+        agentId: replyAgentId,
+        threadId,
+        runId: replyRun.id
+      };
     }
+    // 本文から内部ブロック除去
+    const { cleaned: replyContent } = stripInternalBlocksFromContent(replyMsg.content);
+    let texts = toLineTextsFromMessage(replyContent, { maxUrls: maxUrlsPerBlock, showTitles: false });
+    const replyTextJoined = texts.join("\n\n");
 
-    if (final.status !== "completed") {
-      type RunError = { code?: string; message?: string };
-      const lastError: RunError | undefined = (final as unknown as { lastError?: RunError }).lastError;
-      const code = lastError?.code ?? "";
-      const msg  = lastError?.message ?? "";
-      console.warn(`⚠️Run ended: ${final.status}${code ? ` code=${code}` : ""}${msg ? ` message=${msg}` : ""}`);
-      return { texts: ["⚠️エラーが発生しました。(run poll)"], agentId, threadId, runId: (final as { id?: string })?.id ?? run.id };
-    }
+    // run2. meta（テキスト禁止・emit_meta 一発）用
+    const metaTools = [emitMetaTool];
+    const metaAgentId = await getOrCreateAgentIdWithTools(metaInstructions, metaTools);
+    const getMetaOnce = async (): Promise<Meta | undefined> => {
+      const metaRun = await withTimeout(
+        client.runs.create(threadId, metaAgentId, {
+          temperature: 0.0,
+          parallelToolCalls: false,
+          toolChoice: { type: "function", function: { name: EMIT_META_FN } },
+        }),
+        MAIN_TIMERS.createTimeout,
+        "meta:create"
+      );
 
-    // runに紐づくassistant応答（なければ最新）を取得
-    const picked = await getAssistantMessageForRun(
-      threadId,
-      (final as { id?: string })?.id ?? run.id!
-    );
-    if (!picked) return {
-      texts: ["⚠️エラーが発生しました（Bing応答にtextが見つかりません）"],
-      agentId, threadId, runId: (run as { id?: string })?.id
-    };
+      let captured: Meta | undefined;
+      while (true) {
+        const cur = await withTimeout(
+          client.runs.get(threadId, metaRun.id),
+          MAIN_TIMERS.getTimeout,
+          "meta:get"
+        ) as RunState;
 
-    // 本文からinstpack/metaフェンスを除去し、値も抽出
-    const { cleaned: contentNoInternal, meta: rawMeta, instpack } = stripInternalBlocksFromContent(picked.content);
-    logInstpack("fence", { threadId, runId: (run as { id?: string })?.id }, instpack);
-    
-    // ツール経由のmeta/instpackを優先してマージ＆正規化
-    let mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);
-    let mergedInst = instpackCaptured ?? instpack;
-
-    // meta/instpackがない場合やinstpackの形がおかしい場合は、「修復run」でemit_metaを単発呼び出しして回収
-    if (!mergedMeta || !mergedInst || !looksLikeInstpack(mergedInst)) {
-      if (repairRunEnabled) { // 修復runの実施可否
-        metaCaptured = undefined;
-        instpackCaptured = undefined;
-
-        // 修復runを非同期実施の場合
-        if (repairRunAsync) {
-          for (let attempt = 1; attempt <= repairMaxAttempts; attempt++) {
-            (async () => {
-              try {
-                console.log("[repair-async] start thread=%s", threadId);
-
-                await client.messages.create(threadId, "user", [{
-                  type: "text",
-                  // 内部プロンプト（ユーザーには見せない）：直前回答を要約しemit_metaを１回だけ呼ぶ
-                  text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
-                }]);
-
-                // 修復run
-                const repair = await withTimeout(
-                  client.runs.create(threadId, agentId, {
-                    temperature: 0,
-                    parallelToolCalls: true,
-                    toolChoice: { type: "function", function: { name: EMIT_META_FN } },
-                  }),
-                  repairCreateTimeoutMS,
-                  "repair-async:create"
-                );
-
-                const started = Date.now();
-                while (true) {
-                  const cur = await withTimeout(
-                    client.runs.get(threadId, repair.id),
-                    repairGetTimeoutMS,
-                    "repair-async:get"
-                  ) as RunState;
-
-                  // 「修復run」のrequires_action：emit_metaのpayloadを回収してack
-                  if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-                    const calls = cur.requiredAction?.submitToolOutputs?.toolCalls ?? [];
-                    if (calls.length === 0) {
-                      await sleep(repairBriefWait);
-                      continue;
-                    }
-
-                    const outs = calls.map((c) => {
-                      if (isFunctionToolCall(c)) {
-                        const { function: fn } = c;
-                        // payload を回収して保持
-                        if (fn?.name === EMIT_META_FN) {
-                          const payload = parseEmitMeta(fn.arguments);
-                          applyAndLogEmitMeta(payload, "repair-async", { threadId, runId: repair.id }, {
-                            setMeta: (m) => { if (m) metaCaptured = m; },
-                            setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
-                          });
-                          return { toolCallId: c.id, output: "ok" };
-                        }
-                      }
-                      return { toolCallId: c.id, output: "" };
-                    });
-
-                    try {
-                      await client.runs.submitToolOutputs(threadId, repair.id, outs);
-                    } catch (e) {
-                      console.warn(
-                        `[tools] submitToolOutputs failed phase=repair-async ` +
-                          `thread=${threadId} ` +
-                          `run=${repair.id} ` +
-                          `outputs=${outs.length} ` +
-                          `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
-                            .map(c => (isFunctionToolCall(c)
-                              ? `${c.id}:${c.function?.name}`
-                              : `${c.id}:${c.type ?? "non-fn"}`))
-                            .join("|")} ` +
-                          `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
-                      );
-                    }
-                    continue;
-                  }
-
-                  // 「修復run」の終了待ち（タイムアウトガードあり）
-                  if (["completed", "failed", "cancelled", "expired"].includes(cur.status ?? "")) break;
-                  if (Date.now() - started > repairPollTimeoutMS) break;
-                  await sleep(repairPollSleepMS);
-                }
-
-                // 「修復run」で回収できたmeta/instを更新し、metaは正規化
-                const repairedMeta = normalizeMeta(metaCaptured ?? undefined);
-                const repairedInst = instpackCaptured ?? undefined;
-                console.info("[repair-async] result", {
-                  threadId,
-                  runId: (repair as { id?: string })?.id,
-                  intent: repairedMeta?.intent,
-                  complete: repairedMeta?.complete,
-                  slots: repairedMeta?.slots,
-                  instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
-                });
-                // 修復結果を今回の応答にも即時反映
-                //  mergedMeta = repairedMeta ?? mergedMeta;
-                //  mergedInst = repairedInst ?? mergedInst;
-
-                if (repairedMeta || repairedInst) {
-                  await opts?.onRepair?.({ userId, threadId, meta: repairedMeta, instpack: repairedInst });
-                }
-                console.log("[repair-async] done thread=%s run=%s", threadId, (repair as { id?: string })?.id);
-              } catch (e) {
-                console.warn("[repair-async] aborted err=%s", e instanceof Error ? e.message : String(e));
-              }
-            })().catch((e) => console.warn("[repair-async] unhandled err=%s", e instanceof Error ? e.message : String(e)));
-
-            // instpackが正常か判定
-            const ok = looksLikeInstpack(instpackCaptured);
-            console.info(`[repair-async] attempt=${attempt} ok=${ok} len=${instpackCaptured?.length ?? 0}`);
-            if (ok) break;
-          }
-            // 修復runを同期実施の場合
-        } else {
-          for (let attempt = 1; attempt <= repairMaxAttempts; attempt++) {
-            try {
-              console.log("[repair] start thread=%s", threadId);
-
-              await client.messages.create(threadId, "user", [{
-                type: "text",
-                // 内部プロンプト（ユーザーには見せない）：直前回答を要約しemit_metaを１回だけ呼ぶ
-                text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
-              }]);
-
-              // 修復run
-              const repair = await withTimeout(
-                client.runs.create(threadId, agentId, {
-                  temperature: 0,
-                  parallelToolCalls: true,
-                  toolChoice: { type: "function", function: { name: EMIT_META_FN } },
-                }),
-                repairCreateTimeoutMS,
-                "repair:create"
-              );
-
-              const started = Date.now();
-              while (true) {
-                const cur = await withTimeout(
-                  client.runs.get(threadId, repair.id),
-                  repairGetTimeoutMS,
-                  "repair:get"
-                ) as RunState;
-
-                // 「修復run」のrequires_action：emit_metaのpayloadを回収してack
-                if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-                  const calls = cur.requiredAction?.submitToolOutputs?.toolCalls ?? [];
-                  if (calls.length === 0) {
-                    await sleep(repairBriefWait);
-                    continue;
-                  }
-
-                  const outs = calls.map((c) => {
-                    if (isFunctionToolCall(c)) {
-                      const { function: fn } = c;
-                      // payload を回収して保持
-                      if (fn?.name === EMIT_META_FN) {
-                        const payload = parseEmitMeta(fn.arguments);
-                        applyAndLogEmitMeta(payload, "repair", { threadId, runId: repair.id }, {
-                          setMeta: (m) => { if (m) metaCaptured = m; },
-                          setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
-                        });
-                        return { toolCallId: c.id, output: "ok" };
-                      }
-                    }
-                    return { toolCallId: c.id, output: "" };
-                  });
-
-                  try {
-                    await client.runs.submitToolOutputs(threadId, repair.id, outs);
-                  } catch (e) {
-                    console.warn(
-                      `[tools] submitToolOutputs failed phase=repair ` +
-                      `thread=${threadId} ` +
-                      `run=${repair.id} ` +
-                      `outputs=${outs.length} ` +
-                      `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
-                        .map(c => (isFunctionToolCall(c) ? `${c.id}:${c.function?.name}` : `${c.id}:${c.type ?? "non-fn"}`))
-                        .join("|")} ` +
-                      `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
-                    );
-                  }
-                  continue;
-                }
-
-                // 「修復run」の終了待ち（タイムアウトガードあり）
-                if (["completed", "failed", "cancelled", "expired"].includes(cur.status ?? "")) break;
-                if (Date.now() - started > repairPollTimeoutMS) break;
-                await sleep(repairPollSleepMS)
-              }
-
-              // 「修復run」で回収できたmeta/instを更新し、metaは正規化
-              const repairedMeta = normalizeMeta(metaCaptured ?? mergedMeta);
-              const repairedInst = instpackCaptured ?? mergedInst;
-              console.info("[repair] result", {
-                threadId,
-                runId: (repair as { id?: string })?.id,
-                intent: repairedMeta?.intent,
-                complete: repairedMeta?.complete,
-                slots: repairedMeta?.slots,
-                instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
+        if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
+          const calls = toToolCalls(cur.requiredAction?.submitToolOutputs?.toolCalls);
+          const outs = calls.map((c): { toolCallId: string; output: string } => {
+            if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
+              const payload = parseEmitMeta(c.function?.arguments);
+              if (payload?.meta) captured = payload.meta;
+              // ログ
+              applyAndLogEmitMeta(payload, "meta", { threadId, runId: metaRun.id }, {
+                setMeta: () => {}, setInstpack: () => {}
               });
-              // 修復結果を今回の応答にも即時反映（同期モード）
-              mergedMeta = repairedMeta ?? mergedMeta;
-              mergedInst = repairedInst ?? mergedInst;
-
-              if (repairedMeta || repairedInst) {
-                await opts?.onRepair?.({ userId, threadId, meta: repairedMeta, instpack: repairedInst });
-              }
-              console.log("[repair] done thread=%s run=%s", threadId, (repair as { id?: string })?.id);
-            } catch (e) {
-              console.warn("[repair] aborted err=%s", e instanceof Error ? e.message : String(e));
+              return { toolCallId: c.id, output: "ok" };
             }
-
-            // instpackが正常か判定
-            const ok = looksLikeInstpack(instpackCaptured);
-            console.info(`[repair] attempt=${attempt} ok=${ok} len=${instpackCaptured?.length ?? 0}`);
-            if (ok) break;
-          }
+            return { toolCallId: c.id, output: "" };
+          });
+          await client.runs.submitToolOutputs(threadId, metaRun.id, outs);
+        } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
+          break;
+        } else {
+          await new Promise(r => setTimeout(r, MAIN_TIMERS.pollSleep));
         }
       }
+      return normalizeMeta(captured);
+    };
+
+    let mergedMeta: Meta | undefined = await getMetaOnce();
+    for (let i = 1; !mergedMeta && i <= (opts?.maxMetaRetry ?? 2); i++) {
+      mergedMeta = await getMetaOnce();
     }
 
-    // ユーザー向け本文をLINE仕様に整形
-    const texts = toLineTextsFromMessage(contentNoInternal, {
-      maxUrls: maxUrlsPerBlock,
-      showTitles: false
-    });
+    // meta 不足なら最後に1行の確認を付与
+    if (mergedMeta?.complete === false) {
+      const ask = buildFollowup(mergedMeta);
+      const last = texts[texts.length - 1] ?? "";
+      const already =
+        last.replace(/\s+/g,"").trim() === ask.replace(/\s+/g,"").trim() ||
+        looksLikeFollowup(last, mergedMeta);
+      if (!already) texts = [...texts, ask];
+    }
+    if (!texts.length) texts = ["（結果が見つかりませんでした）"];
+
+    // run3. instpack（保存条件を満たす場合のみ）用
+    let mergedInst: string | undefined = undefined;
+    if (shouldSave(mergedMeta, replyTextJoined)) {
+      const instTools = [emitInstpackTool];
+      const instAgentId = await getOrCreateAgentIdWithTools(instInstructions, instTools);
+      const instpackRun = await withTimeout(
+        client.runs.create(threadId, instAgentId, {
+          temperature: 0.0,
+          parallelToolCalls: false,
+          toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
+        }),
+        MAIN_TIMERS.createTimeout,
+        "inst:create"
+      );
+
+      while (true) {
+        const cur = await withTimeout(
+          client.runs.get(threadId, instpackRun.id),
+          MAIN_TIMERS.getTimeout,
+          "inst:get"
+        ) as RunState;
+
+        if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
+          const calls = toToolCalls(cur.requiredAction?.submitToolOutputs?.toolCalls);
+          const outs = calls.map((c): { toolCallId: string; output: string } => {
+            if (isFunctionToolCall(c) && c.function?.name === EMIT_INSTPACK_FN) {
+              const payload = parseEmitMeta(c.function?.arguments);
+              if (typeof payload?.instpack === "string") mergedInst = payload.instpack;
+              applyAndLogEmitMeta(payload, "instpack", { threadId, runId: instpackRun.id }, {
+                setMeta: () => {}, setInstpack: () => {}
+              });
+              return { toolCallId: c.id, output: "ok" };
+            }
+            return { toolCallId: c.id, output: "" };
+          });
+          await client.runs.submitToolOutputs(threadId, instpackRun.id, outs);
+        } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
+          break;
+        } else {
+          await new Promise(r => setTimeout(r, MAIN_TIMERS.pollSleep));
+        }
+      }
+
+      if (mergedInst && !looksLikeInstpack(mergedInst)) {
+        logInstpack("fence", { threadId, runId: instpackRun.id }, mergedInst);
+        mergedInst = undefined;
+      }
+
+      // ログ＆保存
+      logInstpack("instpack", { threadId, runId: instpackRun.id }, mergedInst);
+      if (mergedMeta || mergedInst) {
+        await opts?.onRepair?.({ userId, threadId, meta: mergedMeta, instpack: mergedInst });
+      }
+    }
 
     // デバグ用途コンソール出力
     if (debugBing) {
@@ -1060,22 +887,17 @@ export async function connectBing(
       console.log(mergedInst ?? "(none)");
     }
 
-    // 返却テキストの末尾に、必要なら追質問を１行付与
-    const out = texts.length ? [...texts] : ["（結果が見つかりませんでした）"];
-    if (mergedMeta?.complete === false) {
-      const ask = buildFollowup(mergedMeta);
-      const last = out[out.length - 1];
-      // すでに本文に同等の確認行が含まれていれば重複追加しない
-      const alreadyHas =
-        out.some(t => t.replace(/\s+/g,"").trim() === ask.replace(/\s+/g,"").trim()) ||
-        looksLikeFollowup(last, mergedMeta);
-      if (!alreadyHas) out.push(ask);
-    }
-    return { texts: out, meta: mergedMeta, instpack: mergedInst, agentId, threadId, runId: (run as { id?: string })?.id };
+    return {
+      texts,
+      meta: mergedMeta,
+      instpack: mergedInst,
+      agentId: replyAgentId,  // 返信用runのagentId
+      threadId,
+      runId: replyRun.id
+    };
   });
 }
 
-// 
 /**
  * dumpRunAndMessages: Bing Searchの生jsonを見るためのデバグ用途
  * 
@@ -1084,6 +906,7 @@ export async function connectBing(
  * @param run 
  * @param opts 
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function dumpRunAndMessages(
   client: AgentsClient,
   threadId: string,
@@ -1091,13 +914,10 @@ async function dumpRunAndMessages(
   opts: { maxMsgs?: number } = {}
 ) {
   const { maxMsgs = 10 } = opts;
-  // run 全体（unknown は object にキャストして表示）
   console.log("\n===== [DEBUG] run (raw) =====");
   console.dir(run as object, { depth: null, colors: true });
-  // run.id を安全に取り出す
   const runId = (run as { id?: string })?.id;
   console.log("[DEBUG] runId =", runId);
-  // steps（runId が取れたときだけ）
   console.log("\n===== [DEBUG] steps (raw) =====");
   try {
     if (runId) {
@@ -1111,7 +931,6 @@ async function dumpRunAndMessages(
   } catch (e) {
     console.warn("[DEBUG] steps unavailable or error:", e);
   }
-  // messages はそのまま
   console.log("\n===== [DEBUG] messages (raw, newest first) =====");
   let cnt = 0;
   for await (const m of client.messages.list(threadId, { order: "desc" })) {

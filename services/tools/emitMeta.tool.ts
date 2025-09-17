@@ -1,7 +1,7 @@
-// services/tools/emitMeta.tool.ts
 import { ToolUtility } from "@azure/ai-agents";
 
-// モデルから受け取る引数の JSON Schema（最小でOK）
+export const EMIT_META_FN = "emit_meta" as const;
+
 const parameters = {
   type: "object",
   properties: {
@@ -15,32 +15,25 @@ const parameters = {
             topic: { type: "string" },
             place: { type: ["string", "null"] },
             date_range: { type: "string" },
-            official_only: { type: "boolean" }
+            official_only: { type: "boolean", default: true }
           },
           additionalProperties: true
         },
         complete: { type: "boolean" },
-        followups: { type: "array", items: { type: "string" } }
+        followups: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 5 } }
       },
-      additionalProperties: true
-    },
-    instpack: {
-      type: "string",
-      minLength: 50,
-      pattern: "^(?!.*```)(?!.*[?？]\\s*$)[\\s\\S]+$",
-      description: "Compiled instructions (not a question, no fences)."
+      required: ["intent", "complete"],
+      additionalProperties: false
     }
   },
-  required: ["meta", "instpack"],
+  required: ["meta"],
   additionalProperties: false
 } as const;
 
 // named export（default にしない）
 // ToolUtility.createFunctionTool は .definition を持つ形を返す
-export const EMIT_META_FN = "emit_meta" as const;
 export const emitMetaTool = ToolUtility.createFunctionTool({
   name: EMIT_META_FN,
-  description:
-    "Emit meta slots and instpack to the host. The host inspects the arguments; return value is ignored.",
+  description: "Return conversation meta only (no text output).",  
   parameters
 });

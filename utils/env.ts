@@ -82,22 +82,11 @@ export const NEWS = {
 };
 
 /** メイン run のポーリング/タイムアウト設定 */
-export const MAIN = {
-  CREATE_TIMEOUT_MS: envInt("MAIN_CREATE_TIMEOUT_MS", 4000, { min: 100 }),
-  GET_TIMEOUT_MS: envInt("MAIN_GET_TIMEOUT_MS", 3000, { min: 200 }),
-  POLL_SLEEP_MS: envInt("MAIN_POLL_SLEEP_MS", 500, { min: 50 }),
-  POLL_TIMEOUT_MS: envInt("MAIN_POLL_TIMEOUT_MS", 60000, { min: 1000 }),
-};
-
-/** 修復 run の有効/無効やポーリング/タイムアウト設定 */
-export const REPAIR = {
-  ENABLED: envBool("REPAIR_RUN_ENABLED", true),
-  MODE: envStr("REPAIR_RUN_MODE", "sync"), // "sync" | "async"
-  CREATE_TIMEOUT_MS: envInt("REPAIR_CREATE_TIMEOUT_MS", 4000, { min: 100 }),
-  GET_TIMEOUT_MS: envInt("REPAIR_GET_TIMEOUT_MS", 3000, { min: 200 }),
-  POLL_SLEEP_MS: envInt("REPAIR_POLL_SLEEP_MS", 400, { min: 50 }),
-  POLL_TIMEOUT_MS: envInt("REPAIR_POLL_TIMEOUT_MS", 30000, { min: 1000 }),
-  MAX_ATTEMPTS: envInt("REPAIR_MAX_ATTEMPTS", 3, { min:1, max:10 }),
+export const MAIN_TIMERS = {
+  createTimeout: envInt("MAIN_CREATE_TIMEOUT_MS", 4000, { min: 100 }),
+  getTimeout:    envInt("MAIN_GET_TIMEOUT_MS",    3000, { min: 200 }),
+  pollSleep:     envInt("MAIN_POLL_SLEEP_MS",      500, { min: 50  }),
+  pollTimeout:   envInt("MAIN_POLL_TIMEOUT_MS",  60000, { min: 1000 }),
 };
 
 /** 機能トグル */
@@ -109,3 +98,10 @@ export const TOGGLES = {
 export const DEBUG = {
   BING: envBool("DEBUG_BING", false),
 };
+
+export type MainTimers = Readonly<{
+  createTimeout: number;
+  getTimeout: number;
+  pollSleep: number;
+  pollTimeout: number;
+}>;
