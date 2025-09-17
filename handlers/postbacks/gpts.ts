@@ -5,8 +5,10 @@ import { createUserGpts } from "@/services/userGpts.mongo";
 import { setBinding } from "@/services/gptsBindings.mongo";
 import { AgentsClient } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
+import { setNxEx } from "@/utils/redis";
+import { AZURE } from "@/utils/env";
 
-const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
+const endpoint = AZURE.AI_PRJ_ENDPOINT;
 
 function getRecipientId(event: PostbackEvent): string | undefined {
   switch (event.source.type) {
@@ -32,12 +34,27 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
   const threadId = args["tid"];
   if (!recipientId || !threadOwnerId || !threadId) return;
 
+  try {
+    const dedupKey = `pb:save:${threadOwnerId}:${threadId}`;
+    const ok = await setNxEx(dedupKey, "1", 30);
+    if (!ok) {
+      await sendMessagesReplyThenPush({
+        replyToken: event.replyToken!,
+        to: recipientId,
+        messages: toTextMessages(["少し待ってからお試しください。"]),
+      });
+      return;
+    }
+  } catch (e) {
+      console.warn("[gpts.save] dedup check skipped (redis error):", e);
+  }
+
   const inst = await getThreadInst(threadOwnerId, threadId);
   if (!inst?.instpack) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!,
       to: recipientId,
-      messages: toTextMessages(["保存対象の指示が見つかりませんでした。もう一度お試しください。"]),
+      messages: toTextMessages(["保存対象が見つかりませんでした。もう一度お試しください。"]),
     });
     return;
   }
@@ -61,7 +78,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!,
     to: recipientId,
-    messages: toTextMessages([`保存しました：${g.name}\nこのトークではこのGPTSを使います。`]),
+    messages: toTextMessages([`保存しました：${g.name}\nこのトークではこの設定を使います。`]),
   });
 }
 

@@ -36,6 +36,37 @@ export function envStr(name: string, def: string): string {
   return v == null || v === "" ? def : v;
 }
 
+export function envReqStr(name: string): string {
+  const v = process.env[name];
+  if (v == null || v === "") throw new Error(`ENV ${name} is required`);
+  return v;
+}
+
+/** REDIS 接続設定（ioredis想定） */
+export const REDIS = {
+  HOST: envReqStr("REDIS_HOSTNAME"),
+  PORT: envInt("REDIS_PORT", 6380, { min: 1, max: 65535 }),
+  USERNAME: envStr("REDIS_USERNAME", "default"),
+  // パスワードは REDIS_PASSWORD 優先、無ければ REDIS_KEY
+  PASSWORD: process.env.REDIS_PASSWORD ?? envReqStr("REDIS_KEY"),
+  TLS: envBool("REDIS_TLS", true),
+  TLS_SERVERNAME: envStr("REDIS_TLS_SERVERNAME", process.env.REDIS_HOSTNAME ?? ""),
+};
+
+/** AZURE / AGENTS 関連 */
+export const AZURE = {
+  AI_PRJ_ENDPOINT: envStr("AZURE_AI_PRJ_ENDPOINT", ""),
+  BING_CONNECTION_ID: envStr("AZURE_BING_CONNECTION_ID", ""),
+  AI_MODEL_DEPLOYMENT: envStr("AZURE_AI_MODEL_DEPLOYMENT", ""),
+  API_TIMEOUT_MS: envInt("API_TIMEOUT_MS", 20_000, { min: 1_000 }),
+  AGENT_NAME_PREFIX: envStr("AZURE_AI_PRJ_AGENT_NAME", "lineai-bing-agent"),
+};
+
+/** Thread TTL */
+export const THREAD = {
+  TTL_HOURS: envInt("THREAD_TTL", 168, { min: 1, max: 24 * 30 }),
+};
+
 /** LINE 関連 */
 export const LINE = {
   REPLY_MAX: envInt("LINE_REPLY_MAX", 5, { min: 1, max: 5 }),
@@ -66,6 +97,11 @@ export const REPAIR = {
   GET_TIMEOUT_MS: envInt("REPAIR_GET_TIMEOUT_MS", 3000, { min: 200 }),
   POLL_SLEEP_MS: envInt("REPAIR_POLL_SLEEP_MS", 400, { min: 50 }),
   POLL_TIMEOUT_MS: envInt("REPAIR_POLL_TIMEOUT_MS", 30000, { min: 1000 }),
+};
+
+/** 機能トグル */
+export const TOGGLES = {
+  CONFIRM_FORCE_PUSH: envBool("CONFIRM_FORCE_PUSH", false),  // Confirmを常にPUSHで送る
 };
 
 /** デバッグ系 */

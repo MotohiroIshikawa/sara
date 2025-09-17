@@ -7,13 +7,12 @@ import {
   type MessageTextUrlCitationAnnotation,
 } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
-import Redis from "ioredis";
-import Redlock from "redlock";
 import { createHash } from "crypto";
 import { normalizeMarkdownForLine } from "@/utils/normalizeMarkdownForLine";
 import { agentInstructions } from '@/utils/agentInstructions';
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
-import { envInt, LINE, NEWS, MAIN, REPAIR, DEBUG } from "@/utils/env";
+import { redis, withLock } from "@/utils/redis";
+import { envInt, LINE, NEWS, MAIN, REPAIR, DEBUG, AZURE, THREAD } from "@/utils/env";
 
 // thenableを安全にPromiseに包むヘルパ
 function asPromise<T>(p: PromiseLike<T>): Promise<T> {
@@ -36,32 +35,24 @@ async function withTimeout<T>(
 
 // 環境変数
 //// Bing接続用
-const endpoint = process.env.AZURE_AI_PRJ_ENDPOINT!;
-const bingConnectionId = process.env.AZURE_BING_CONNECTION_ID!;
-const modelDeployment = process.env.AZURE_AI_MODEL_DEPLOYMENT!;
-const agentNamePrefix = process.env.AZURE_AI_PRJ_AGENT_NAME ?? "lineai-bing-agent";
-//// Redis接続用
-const redisHost = process.env.REDIS_HOSTNAME!;
-const redisPort = Number(process.env.REDIS_PORT ?? 6380);
-const redisUser = process.env.REDIS_USERNAME ?? "default";
-const redisKey = process.env.REDIS_KEY!;
+const endpoint = AZURE.AI_PRJ_ENDPOINT;
+const bingConnectionId = AZURE.BING_CONNECTION_ID;
+const modelDeployment = AZURE.AI_MODEL_DEPLOYMENT;
+const agentNamePrefix = AZURE.AGENT_NAME_PREFIX;
 //// Redis に保存するスレッドの有効期限（時間）
-const threadTTL = Number(process.env.THREAD_TTL ?? 168);
+const threadTTL = THREAD.TTL_HOURS;
 //// LINE送信の文字数やURL付与などの制約
 const lineTextLimit = LINE.TEXT_LIMIT;
 const maxUrlsPerBlock = LINE.MAX_URLS_PER_BLOCK;
 const minSectionLength = LINE.MIN_SECTION_LENGTH;
 //// ニュース期間の既定（日）
 const metaDays = NEWS.DEFAULT_DAYS;
-
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const debugBing = DEBUG.BING;
-
 //// 修復runの有効/無効切替
 const repairRunEnabled = REPAIR.ENABLED;
 const repairRunMode = REPAIR.MODE.toLowerCase();
 const repairRunAsync = repairRunMode === "async";
-
 //// ネットワーク強制タイムアウト（ハング防止のため）
 const mainCreateTimeoutMS = MAIN.CREATE_TIMEOUT_MS;
 const mainGetTimeoutMS = MAIN.GET_TIMEOUT_MS;
@@ -135,23 +126,6 @@ const bingTool = ToolUtility.createBingGroundingTool([
     count: 5,
     freshness: "week",
    }]);
-
-// Redis接続：スレッドID/エージェントIDのキャッシュとロック用途
-const redis = new Redis({
-  host: redisHost,
-  port: redisPort,
-  username: redisUser,
-  password: redisKey,
-  tls: { servername: redisHost },
-});
-redis.on("error", (e) => console.error("[redis] error:", e));
-
-// Redlock：ユーザー単位の操作直列化（重複runを防止する）
-const redlock = new Redlock([redis], {
-  retryCount: 6,
-  retryDelay: 250,
-  retryJitter: 150,
-});
 
 /**
  * agentIdKey: Agentのキャッシュキー作成用
@@ -533,7 +507,7 @@ async function getAssistantMessageForRun(
   return fallback;
 }
 
-const followupMaxLen = envInt("FOLLOWUP_MAX_LEN", 80, 20, 200);
+const followupMaxLen = envInt("FOLLOWUP_MAX_LEN", 80, { min: 20, max: 200 });
 
 function trimLite(s: string) {
   return s.replace(/\s+/g, "").trim();
@@ -620,7 +594,8 @@ export async function connectBing(
     ? opts!.instructionsOverride!
     : agentInstructions;
   
-  return await redlock.using([`lock:user:${userId}`], 90_000, async () => {
+  // Redlock v5/v6 差異を吸収
+  return await withLock(`user:${userId}`, 90_000, async () => {
     // Agent/Thread の確保（並列実行）
     const [agentId, threadId] = await Promise.all([
       getOrCreateAgentId(instructions),
