@@ -53,6 +53,7 @@ const debugBing = DEBUG.BING;
 const repairRunEnabled = REPAIR.ENABLED;
 const repairRunMode = REPAIR.MODE.toLowerCase();
 const repairRunAsync = repairRunMode === "async";
+const repairMaxAttempts = REPAIR.MAX_ATTEMPTS;
 //// ネットワーク強制タイムアウト（ハング防止のため）
 const mainCreateTimeoutMS = MAIN.CREATE_TIMEOUT_MS;
 const mainGetTimeoutMS = MAIN.GET_TIMEOUT_MS;
@@ -530,6 +531,16 @@ function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   return endsWithQ || hasLead || equalsMeta;
 }
 
+// instpack用バリデーション
+function looksLikeInstpack(s?: string): boolean {
+  if (!s) return false;
+  const t = s.trim();
+  if (t.length < 50) return false;            // 短すぎ
+  if (/[?？]$/.test(t)) return false;         // 質問文っぽい
+  const signals = [/^-\s*role:/m, /\bintent\s*:/i, /\bslots\s*:/i, /参照|出力|ポリシー|Bing/i];
+  return signals.filter(r => r.test(t)).length >= 2;
+}
+
 /**
  * normalizeMeta: Metaの正規化（newsのdate_rangeを既定補正、completeフラグの正規化）
  * @param meta 
@@ -803,17 +814,127 @@ export async function connectBing(
     let mergedMeta = normalizeMeta(metaCaptured ?? rawMeta);
     let mergedInst = instpackCaptured ?? instpack;
 
-    // meta/instpackがない場合は、「修復run」でemit_metaを単発呼び出しして回収
-    if (!mergedMeta || !mergedInst) {
+    // meta/instpackがない場合やinstpackの形がおかしい場合は、「修復run」でemit_metaを単発呼び出しして回収
+    if (!mergedMeta || !mergedInst || !looksLikeInstpack(mergedInst)) {
       if (repairRunEnabled) { // 修復runの実施可否
         metaCaptured = undefined;
         instpackCaptured = undefined;
 
         // 修復runを非同期実施の場合
         if (repairRunAsync) {
-          (async () => {
+          for (let attempt = 1; attempt <= repairMaxAttempts; attempt++) {
+            (async () => {
+              try {
+                console.log("[repair-async] start thread=%s", threadId);
+
+                await client.messages.create(threadId, "user", [{
+                  type: "text",
+                  // 内部プロンプト（ユーザーには見せない）：直前回答を要約しemit_metaを１回だけ呼ぶ
+                  text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
+                }]);
+
+                // 修復run
+                const repair = await withTimeout(
+                  client.runs.create(threadId, agentId, {
+                    temperature: 0,
+                    parallelToolCalls: true,
+                    toolChoice: { type: "function", function: { name: EMIT_META_FN } },
+                  }),
+                  repairCreateTimeoutMS,
+                  "repair-async:create"
+                );
+
+                const started = Date.now();
+                while (true) {
+                  const cur = await withTimeout(
+                    client.runs.get(threadId, repair.id),
+                    repairGetTimeoutMS,
+                    "repair-async:get"
+                  ) as RunState;
+
+                  // 「修復run」のrequires_action：emit_metaのpayloadを回収してack
+                  if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
+                    const calls = cur.requiredAction?.submitToolOutputs?.toolCalls ?? [];
+                    if (calls.length === 0) {
+                      await sleep(repairBriefWait);
+                      continue;
+                    }
+
+                    const outs = calls.map((c) => {
+                      if (isFunctionToolCall(c)) {
+                        const { function: fn } = c;
+                        // payload を回収して保持
+                        if (fn?.name === EMIT_META_FN) {
+                          const payload = parseEmitMeta(fn.arguments);
+                          applyAndLogEmitMeta(payload, "repair-async", { threadId, runId: repair.id }, {
+                            setMeta: (m) => { if (m) metaCaptured = m; },
+                            setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
+                          });
+                          return { toolCallId: c.id, output: "ok" };
+                        }
+                      }
+                      return { toolCallId: c.id, output: "" };
+                    });
+
+                    try {
+                      await client.runs.submitToolOutputs(threadId, repair.id, outs);
+                    } catch (e) {
+                      console.warn(
+                        `[tools] submitToolOutputs failed phase=repair-async ` +
+                          `thread=${threadId} ` +
+                          `run=${repair.id} ` +
+                          `outputs=${outs.length} ` +
+                          `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
+                            .map(c => (isFunctionToolCall(c)
+                              ? `${c.id}:${c.function?.name}`
+                              : `${c.id}:${c.type ?? "non-fn"}`))
+                            .join("|")} ` +
+                          `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
+                      );
+                    }
+                    continue;
+                  }
+
+                  // 「修復run」の終了待ち（タイムアウトガードあり）
+                  if (["completed", "failed", "cancelled", "expired"].includes(cur.status ?? "")) break;
+                  if (Date.now() - started > repairPollTimeoutMS) break;
+                  await sleep(repairPollSleepMS);
+                }
+
+                // 「修復run」で回収できたmeta/instを更新し、metaは正規化
+                const repairedMeta = normalizeMeta(metaCaptured ?? undefined);
+                const repairedInst = instpackCaptured ?? undefined;
+                console.info("[repair-async] result", {
+                  threadId,
+                  runId: (repair as { id?: string })?.id,
+                  intent: repairedMeta?.intent,
+                  complete: repairedMeta?.complete,
+                  slots: repairedMeta?.slots,
+                  instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
+                });
+                // 修復結果を今回の応答にも即時反映
+                //  mergedMeta = repairedMeta ?? mergedMeta;
+                //  mergedInst = repairedInst ?? mergedInst;
+
+                if (repairedMeta || repairedInst) {
+                  await opts?.onRepair?.({ userId, threadId, meta: repairedMeta, instpack: repairedInst });
+                }
+                console.log("[repair-async] done thread=%s run=%s", threadId, (repair as { id?: string })?.id);
+              } catch (e) {
+                console.warn("[repair-async] aborted err=%s", e instanceof Error ? e.message : String(e));
+              }
+            })().catch((e) => console.warn("[repair-async] unhandled err=%s", e instanceof Error ? e.message : String(e)));
+
+            // instpackが正常か判定
+            const ok = looksLikeInstpack(instpackCaptured);
+            console.info(`[repair-async] attempt=${attempt} ok=${ok} len=${instpackCaptured?.length ?? 0}`);
+            if (ok) break;
+          }
+            // 修復runを同期実施の場合
+        } else {
+          for (let attempt = 1; attempt <= repairMaxAttempts; attempt++) {
             try {
-              console.log("[repair-async] start thread=%s", threadId);
+              console.log("[repair] start thread=%s", threadId);
 
               await client.messages.create(threadId, "user", [{
                 type: "text",
@@ -829,7 +950,7 @@ export async function connectBing(
                   toolChoice: { type: "function", function: { name: EMIT_META_FN } },
                 }),
                 repairCreateTimeoutMS,
-                "repair-async:create"
+                "repair:create"
               );
 
               const started = Date.now();
@@ -837,7 +958,7 @@ export async function connectBing(
                 const cur = await withTimeout(
                   client.runs.get(threadId, repair.id),
                   repairGetTimeoutMS,
-                  "repair-async:get"
+                  "repair:get"
                 ) as RunState;
 
                 // 「修復run」のrequires_action：emit_metaのpayloadを回収してack
@@ -854,7 +975,7 @@ export async function connectBing(
                       // payload を回収して保持
                       if (fn?.name === EMIT_META_FN) {
                         const payload = parseEmitMeta(fn.arguments);
-                        applyAndLogEmitMeta(payload, "repair-async", { threadId, runId: repair.id }, {
+                        applyAndLogEmitMeta(payload, "repair", { threadId, runId: repair.id }, {
                           setMeta: (m) => { if (m) metaCaptured = m; },
                           setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
                         });
@@ -868,16 +989,14 @@ export async function connectBing(
                     await client.runs.submitToolOutputs(threadId, repair.id, outs);
                   } catch (e) {
                     console.warn(
-                      `[tools] submitToolOutputs failed phase=repair-async ` +
-                        `thread=${threadId} ` +
-                        `run=${repair.id} ` +
-                        `outputs=${outs.length} ` +
-                        `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
-                          .map(c => (isFunctionToolCall(c)
-                            ? `${c.id}:${c.function?.name}`
-                            : `${c.id}:${c.type ?? "non-fn"}`))
-                          .join("|")} ` +
-                        `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
+                      `[tools] submitToolOutputs failed phase=repair ` +
+                      `thread=${threadId} ` +
+                      `run=${repair.id} ` +
+                      `outputs=${outs.length} ` +
+                      `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
+                        .map(c => (isFunctionToolCall(c) ? `${c.id}:${c.function?.name}` : `${c.id}:${c.type ?? "non-fn"}`))
+                        .join("|")} ` +
+                      `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
                     );
                   }
                   continue;
@@ -886,13 +1005,13 @@ export async function connectBing(
                 // 「修復run」の終了待ち（タイムアウトガードあり）
                 if (["completed", "failed", "cancelled", "expired"].includes(cur.status ?? "")) break;
                 if (Date.now() - started > repairPollTimeoutMS) break;
-                await sleep(repairPollSleepMS);
+                await sleep(repairPollSleepMS)
               }
 
               // 「修復run」で回収できたmeta/instを更新し、metaは正規化
-              const repairedMeta = normalizeMeta(metaCaptured ?? undefined);
-              const repairedInst = instpackCaptured ?? undefined;
-              console.info("[repair-async] result", {
+              const repairedMeta = normalizeMeta(metaCaptured ?? mergedMeta);
+              const repairedInst = instpackCaptured ?? mergedInst;
+              console.info("[repair] result", {
                 threadId,
                 runId: (repair as { id?: string })?.id,
                 intent: repairedMeta?.intent,
@@ -900,116 +1019,22 @@ export async function connectBing(
                 slots: repairedMeta?.slots,
                 instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
               });
-              // 修復結果を今回の応答にも即時反映
-              //  mergedMeta = repairedMeta ?? mergedMeta;
-              //  mergedInst = repairedInst ?? mergedInst;
+              // 修復結果を今回の応答にも即時反映（同期モード）
+              mergedMeta = repairedMeta ?? mergedMeta;
+              mergedInst = repairedInst ?? mergedInst;
 
               if (repairedMeta || repairedInst) {
                 await opts?.onRepair?.({ userId, threadId, meta: repairedMeta, instpack: repairedInst });
               }
-              console.log("[repair-async] done thread=%s run=%s", threadId, (repair as { id?: string })?.id);
+              console.log("[repair] done thread=%s run=%s", threadId, (repair as { id?: string })?.id);
             } catch (e) {
-              console.warn("[repair-async] aborted err=%s", e instanceof Error ? e.message : String(e));
-            }
-          })().catch((e) => console.warn("[repair-async] unhandled err=%s", e instanceof Error ? e.message : String(e)));
-        // 修復runを同期実施の場合
-        } else {
-          try {
-            console.log("[repair] start thread=%s", threadId);
-
-            await client.messages.create(threadId, "user", [{
-              type: "text",
-              // 内部プロンプト（ユーザーには見せない）：直前回答を要約しemit_metaを１回だけ呼ぶ
-              text: "（内部メンテ）直前の回答内容を要約し、emit_meta を1回だけ呼び出して meta と instpack を返して。本文は生成しない。"
-            }]);
-
-            // 修復run
-            const repair = await withTimeout(
-              client.runs.create(threadId, agentId, {
-                temperature: 0,
-                parallelToolCalls: true,
-                toolChoice: { type: "function", function: { name: EMIT_META_FN } },
-              }),
-              repairCreateTimeoutMS,
-              "repair:create"
-            );
-
-            const started = Date.now();
-            while (true) {
-              const cur = await withTimeout(
-                client.runs.get(threadId, repair.id),
-                repairGetTimeoutMS,
-                "repair:get"
-              ) as RunState;
-
-              // 「修復run」のrequires_action：emit_metaのpayloadを回収してack
-              if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-                const calls = cur.requiredAction?.submitToolOutputs?.toolCalls ?? [];
-                if (calls.length === 0) {
-                  await sleep(repairBriefWait);
-                  continue;
-                }
-
-                const outs = calls.map((c) => {
-                  if (isFunctionToolCall(c)) {
-                    const { function: fn } = c;
-                    // payload を回収して保持
-                    if (fn?.name === EMIT_META_FN) {
-                      const payload = parseEmitMeta(fn.arguments);
-                      applyAndLogEmitMeta(payload, "repair", { threadId, runId: repair.id }, {
-                        setMeta: (m) => { if (m) metaCaptured = m; },
-                        setInstpack: (s) => { if (typeof s === "string") instpackCaptured = s; },
-                      });
-                      return { toolCallId: c.id, output: "ok" };
-                    }
-                  }
-                  return { toolCallId: c.id, output: "" };
-                });
-
-                try {
-                  await client.runs.submitToolOutputs(threadId, repair.id, outs);
-                } catch (e) {
-                  console.warn(
-                    `[tools] submitToolOutputs failed phase=repair ` +
-                    `thread=${threadId} ` +
-                    `run=${repair.id} ` +
-                    `outputs=${outs.length} ` +
-                    `calls=${(cur.requiredAction?.submitToolOutputs?.toolCalls ?? [])
-                      .map(c => (isFunctionToolCall(c) ? `${c.id}:${c.function?.name}` : `${c.id}:${c.type ?? "non-fn"}`))
-                      .join("|")} ` +
-                    `err=${e instanceof Error ? `${e.name}:${e.message}` : String(e)}`
-                  );
-                }
-                continue;
-              }
-
-              // 「修復run」の終了待ち（タイムアウトガードあり）
-              if (["completed", "failed", "cancelled", "expired"].includes(cur.status ?? "")) break;
-              if (Date.now() - started > repairPollTimeoutMS) break;
-              await sleep(repairPollSleepMS)
+              console.warn("[repair] aborted err=%s", e instanceof Error ? e.message : String(e));
             }
 
-            // 「修復run」で回収できたmeta/instを更新し、metaは正規化
-            const repairedMeta = normalizeMeta(metaCaptured ?? mergedMeta);
-            const repairedInst = instpackCaptured ?? mergedInst;
-            console.info("[repair] result", {
-              threadId,
-              runId: (repair as { id?: string })?.id,
-              intent: repairedMeta?.intent,
-              complete: repairedMeta?.complete,
-              slots: repairedMeta?.slots,
-              instpack_len: typeof repairedInst === "string" ? repairedInst.length : 0,
-            });
-            // 修復結果を今回の応答にも即時反映（同期モード）
-            mergedMeta = repairedMeta ?? mergedMeta;
-            mergedInst = repairedInst ?? mergedInst;
-
-            if (repairedMeta || repairedInst) {
-              await opts?.onRepair?.({ userId, threadId, meta: repairedMeta, instpack: repairedInst });
-            }
-            console.log("[repair] done thread=%s run=%s", threadId, (repair as { id?: string })?.id);
-          } catch (e) {
-            console.warn("[repair] aborted err=%s", e instanceof Error ? e.message : String(e));
+            // instpackが正常か判定
+            const ok = looksLikeInstpack(instpackCaptured);
+            console.info(`[repair] attempt=${attempt} ok=${ok} len=${instpackCaptured?.length ?? 0}`);
+            if (ok) break;
           }
         }
       }

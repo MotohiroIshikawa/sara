@@ -68,6 +68,25 @@ export function shouldShowConfirm(
   return true;
 }
 
+/**
+ * finalCheckBeforeConfirm: 確認ダイアログ前の最終チェック
+ * 
+ * @param meta 
+ * @param instpack 
+ * @returns 
+ */
+function finalCheckBeforeConfirm(meta: MetaForConfirm | undefined, instpack: string | undefined): { ok: boolean; reason?: string } {
+  if (!meta) return { ok: false, reason: "meta:undefined" };
+  if (meta.intent === "generic") return { ok: false, reason: "intent:generic" };
+  if (meta.complete !== true) return { ok: false, reason: "meta:incomplete" };
+  const s = instpack?.trim() ?? "";
+  if (!s) return { ok: false, reason: "instpack:empty" };
+  if (s.length < 50) return { ok: false, reason: "instpack:too_short" };
+  if (/```/.test(s)) return { ok: false, reason: "instpack:has_fence" };
+  if (/[?？]\s*$/.test(s)) return { ok: false, reason: "instpack:looks_question" };
+  return { ok: true };
+}
+
 const ellipsize = (s: string, max = 300) =>
   typeof s === "string" && s.length > max ? `${s.slice(0, max)}…` : s;
 const shortId = (id?: string) =>
@@ -230,6 +249,13 @@ export async function lineEvent(event: WebhookEvent) {
 
               // 2. 条件がそろったら「保存しますか？」の確認を push 
               const show = shouldShowConfirm(meta, instpack, threadId);
+                // 確認ダイアログ直前の最終チェック
+              const guard = show ? finalCheckBeforeConfirm(meta, instpack) : { ok: false, reason: "shouldShowConfirm:false" };
+              if (!guard.ok) {
+                console.info("[lineEvent:onRepair] confirm skipped by finalCheck:", { tid: threadId, reason: guard.reason });
+                return;
+              }
+
               if (show && !confirmPushed) {
                 console.info("[lineEvent:onRepair] confirm will be sent via PUSH (no replyToken).", {
                   tid: threadId,
@@ -265,7 +291,13 @@ export async function lineEvent(event: WebhookEvent) {
       const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
       // 条件がそろったら「保存しますか？」の確認をpush
       const show = shouldShowConfirm(res.meta, res.instpack, res.threadId);
-      if (show && !confirmPushed) { 
+        // 本送信前の最終チェック
+      const guard = show ? finalCheckBeforeConfirm(res.meta, res.instpack) : { ok: false, reason: "shouldShowConfirm:false" };
+      if (!guard.ok) {
+        console.info("[lineEvent] confirm skipped by finalCheck:", { tid: res.threadId, reason: guard.reason });
+      }
+
+      if (show && guard.ok && !confirmPushed) { 
         confirmMsg = buildSaveOrContinueConfirm({
           text: "この内容で保存しますか？",
           saveData: encodePostback("gpts", "save", { tid: res.threadId, label: "保存" }),
