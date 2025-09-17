@@ -97,6 +97,7 @@ export const REPAIR = {
   GET_TIMEOUT_MS: envInt("REPAIR_GET_TIMEOUT_MS", 3000, { min: 200 }),
   POLL_SLEEP_MS: envInt("REPAIR_POLL_SLEEP_MS", 400, { min: 50 }),
   POLL_TIMEOUT_MS: envInt("REPAIR_POLL_TIMEOUT_MS", 30000, { min: 1000 }),
+  MAX_ATTEMPTS: envInt("REPAIR_MAX_ATTEMPTS", 3, { min:1, max:10 }),
 };
 
 /** 機能トグル */

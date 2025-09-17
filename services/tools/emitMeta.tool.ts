@@ -24,9 +24,14 @@ const parameters = {
       },
       additionalProperties: true
     },
-    instpack: { type: "string" }
+    instpack: {
+      type: "string",
+      minLength: 50,
+      pattern: "^(?!.*```)(?!.*[?？]\\s*$)[\\s\\S]+$",
+      description: "Compiled instructions (not a question, no fences)."
+    }
   },
-  required: [],
+  required: ["meta", "instpack"],
   additionalProperties: false
 } as const;
 
