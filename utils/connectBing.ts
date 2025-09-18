@@ -533,9 +533,10 @@ function looksLikeInstpack(s?: string): boolean {
   if (!s) return false;
   const t = s.trim();
   if (t.length < 50) return false;            // 短すぎ
-  if (/[?？]$/.test(t)) return false;         // 質問文っぽい
-  const signals = [/^-\s*role:/m, /\bintent\s*:/i, /\bslots\s*:/i, /参照|出力|ポリシー|Bing/i];
-  return signals.filter(r => r.test(t)).length >= 2;
+//  if (/[?？]$/.test(t)) return false;         // 質問文っぽい
+//  const signals = [/^-\s*role:/m, /\bintent\s*:/i, /\bslots\s*:/i, /参照|出力|ポリシー|Bing/i];
+//  return signals.filter(r => r.test(t)).length >= 2;
+  return true;
 }
 
 /**
@@ -863,7 +864,7 @@ export async function connectBing(
 
       if (mergedInst && !looksLikeInstpack(mergedInst)) {
         logInstpack("fence", { threadId, runId: instpackRun.id }, mergedInst);
-        mergedInst = undefined;
+//        mergedInst = undefined;
       }
 
       // ログ＆保存
