@@ -652,16 +652,20 @@ function applyAndLogEmitMeta(
   logInstpack(phase, ctx, payload.instpack);
 }
 
+function isTrackable(meta?: Meta): boolean {
+  if (!meta) return false;
+  if (meta.intent && meta.intent !== "generic") return true;
+  const s = meta.slots ?? {};
+  const hasTopic = !!(s.topic && s.topic.trim());
+  const hasPlace = typeof s.place === "string" && s.place.trim().length > 0;
+  const hasDate  = !!(s.date_range && String(s.date_range).trim().length > 0);
+  return (hasTopic && hasPlace) || (hasTopic && hasDate);
+}
 // 「保存する」判定（instpack取得を実施するかどうか）
-// - generic 以外（event/news/buy）は date_range 必須（normalizeMeta が補正）
-// - 本文が極端に短い場合は保留
 function shouldSave(meta?: Meta, replyText?: string): boolean {
   if (!meta) return false;
-  const slots = meta.slots ?? {};
-  const hasTopic = !!(slots.topic && slots.topic.trim());
-  const hasDateOrIntent = meta.intent !== "generic" ? !!slots.date_range : true;
   const replyOk = (replyText?.length ?? 0) >= 80;
-  return meta.complete === true && hasTopic && hasDateOrIntent && replyOk;
+  return meta.complete === true && isTrackable(meta) && replyOk;
 }
 
 /**
@@ -719,22 +723,22 @@ export async function connectBing(
         topP: 1,
         parallelToolCalls: true,
       }),
-      MAIN_TIMERS.createTimeout,
+      MAIN_TIMERS.CREATE_TIMEOUT,
       "reply:create"
     );
 
     // 返信の完了待ち
     {
       const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-      const safeSleep = Math.max(1, MAIN_TIMERS.pollSleep);
-      const pollMaxTicks = Math.max(1, Math.ceil(MAIN_TIMERS.pollTimeout / safeSleep)) + 10;
+      const safeSleep = Math.max(1, MAIN_TIMERS.POLL_SLEEP);
+      const pollMaxTicks = Math.max(1, Math.ceil(MAIN_TIMERS.POLL_TIMEOUT / safeSleep)) + 10;
       const startedAt = Date.now();
       let ticks = 0;
       while (true) {
-        if (Date.now() - startedAt > MAIN_TIMERS.pollTimeout || ++ticks > pollMaxTicks) break;
+        if (Date.now() - startedAt > MAIN_TIMERS.POLL_TIMEOUT || ++ticks > pollMaxTicks) break;
         const st = await withTimeout(
           client.runs.get(threadId, replyRun.id),
-          MAIN_TIMERS.getTimeout,
+          MAIN_TIMERS.GET_TIMEOUT,
           "reply:get"
         ) as RunState;
         if (["completed","failed","cancelled","expired"].includes(st.status ?? "")) break;
@@ -767,7 +771,7 @@ export async function connectBing(
           parallelToolCalls: false,
           toolChoice: { type: "function", function: { name: EMIT_META_FN } },
         }),
-        MAIN_TIMERS.createTimeout,
+        MAIN_TIMERS.CREATE_TIMEOUT,
         "meta:create"
       );
 
@@ -775,7 +779,7 @@ export async function connectBing(
       while (true) {
         const cur = await withTimeout(
           client.runs.get(threadId, metaRun.id),
-          MAIN_TIMERS.getTimeout,
+          MAIN_TIMERS.GET_TIMEOUT,
           "meta:get"
         ) as RunState;
 
@@ -797,7 +801,7 @@ export async function connectBing(
         } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
           break;
         } else {
-          await new Promise(r => setTimeout(r, MAIN_TIMERS.pollSleep));
+          await new Promise(r => setTimeout(r, MAIN_TIMERS.POLL_SLEEP));
         }
       }
       return normalizeMeta(captured);
@@ -830,14 +834,14 @@ export async function connectBing(
           parallelToolCalls: false,
           toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
         }),
-        MAIN_TIMERS.createTimeout,
+        MAIN_TIMERS.CREATE_TIMEOUT,
         "inst:create"
       );
 
       while (true) {
         const cur = await withTimeout(
           client.runs.get(threadId, instpackRun.id),
-          MAIN_TIMERS.getTimeout,
+          MAIN_TIMERS.GET_TIMEOUT,
           "inst:get"
         ) as RunState;
 
@@ -858,7 +862,7 @@ export async function connectBing(
         } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
           break;
         } else {
-          await new Promise(r => setTimeout(r, MAIN_TIMERS.pollSleep));
+          await new Promise(r => setTimeout(r, MAIN_TIMERS.POLL_SLEEP));
         }
       }
 

@@ -1,4 +1,4 @@
-{% include "./00.base.common.md" %}
+{% include "./base.md" %}
 
 # このプリセットの目的
 **テキストは一切出力せず**、関数ツール **`emit_meta` を「一度だけ」呼び出して meta を返す**。  

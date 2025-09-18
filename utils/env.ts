@@ -83,10 +83,10 @@ export const NEWS = {
 
 /** メイン run のポーリング/タイムアウト設定 */
 export const MAIN_TIMERS = {
-  createTimeout: envInt("MAIN_CREATE_TIMEOUT_MS", 4000, { min: 100 }),
-  getTimeout:    envInt("MAIN_GET_TIMEOUT_MS",    3000, { min: 200 }),
-  pollSleep:     envInt("MAIN_POLL_SLEEP_MS",      500, { min: 50  }),
-  pollTimeout:   envInt("MAIN_POLL_TIMEOUT_MS",  60000, { min: 1000 }),
+  CREATE_TIMEOUT: envInt("MAIN_CREATE_TIMEOUT_MS", 4000, { min: 100 }),
+  GET_TIMEOUT:    envInt("MAIN_GET_TIMEOUT_MS",    3000, { min: 200 }),
+  POLL_SLEEP:     envInt("MAIN_POLL_SLEEP_MS",      500, { min: 50  }),
+  POLL_TIMEOUT:   envInt("MAIN_POLL_TIMEOUT_MS",  60000, { min: 1000 }),
 };
 
 /** 機能トグル */
