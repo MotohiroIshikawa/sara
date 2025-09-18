@@ -81,9 +81,9 @@ function finalCheckBeforeConfirm(meta: MetaForConfirm | undefined, instpack: str
   if (meta.complete !== true) return { ok: false, reason: "meta:incomplete" };
   const s = instpack?.trim() ?? "";
   if (!s) return { ok: false, reason: "instpack:empty" };
-  if (s.length < 50) return { ok: false, reason: "instpack:too_short" };
-  if (/```/.test(s)) return { ok: false, reason: "instpack:has_fence" };
-  if (/[?？]\s*$/.test(s)) return { ok: false, reason: "instpack:looks_question" };
+//  if (s.length < 50) return { ok: false, reason: "instpack:too_short" };
+//  if (/```/.test(s)) return { ok: false, reason: "instpack:has_fence" };
+//  if (/[?？]\s*$/.test(s)) return { ok: false, reason: "instpack:looks_question" };
   return { ok: true };
 }
 
