@@ -1,4 +1,4 @@
-{% include "./00.base.common.md" %}
+{% include "./base.md" %}
 
 # このプリセットの目的
 **テキストは一切出力せず**、関数ツール **`emit_instpack` を「一度だけ」呼び出し、instpack（命令書）を返す**。  

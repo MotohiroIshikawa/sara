@@ -38,33 +38,30 @@ function getThreadOwnerId(event: WebhookEvent): string | undefined {
 }
 
 type Intent = "event" | "news" | "buy" | "generic";
-type MetaForConfirm = { intent?: Intent; complete?: boolean };
-/**
- * 保存しますか？を出すか判定
- * 1. threadIdが存在する
- * 2. instpackが空でない
- * 3. meta.completeがtrue
- * 4. meta.intentがgenericでない
- * -> この場合に「保存しますか？」を出す
- * 
- * @param meta 
- * @param instpack 
- * @param threadId 
- * @returns 
- */
+type MetaForConfirm = { 
+  intent?: Intent; 
+  complete?: boolean; 
+  slots?: { topic?: string; place?: string | null; date_range?: string | null; official_only?: boolean | null };
+};
+function isTrackable(meta?: MetaForConfirm): boolean { // ★追加
+  if (!meta) return false;
+  if (meta.intent && meta.intent !== "generic") return true;
+  const s = meta.slots ?? {};
+  const hasTopic = !!(s.topic && s.topic.trim());
+  const hasPlace = typeof s.place === "string" && s.place.trim().length > 0;
+  const hasDate  = !!(s.date_range && String(s.date_range).trim().length > 0);
+  return (hasTopic && (hasPlace || hasDate));
+}
+// 保存しますか？を出すか判定
 export function shouldShowConfirm(
   meta: MetaForConfirm | undefined,
   instpack: string | undefined,
   threadId?: string
 ): boolean {
-  // 1. 押下先の識別子がないと後続フローで困る
   if (!threadId) return false;
-  // 2. 実体のない instpack では保存できない
   if (!instpack?.trim()) return false;
-  // 3. meta 未確定ならまだ出さない
   if (!meta || meta.complete !== true) return false;
-  // 4. generic は「保存」しない（例: 単語だけの曖昧質問）
-  if (meta.intent === "generic") return false;
+  if (!isTrackable(meta)) return false;
   return true;
 }
 
@@ -77,13 +74,13 @@ export function shouldShowConfirm(
  */
 function finalCheckBeforeConfirm(meta: MetaForConfirm | undefined, instpack: string | undefined): { ok: boolean; reason?: string } {
   if (!meta) return { ok: false, reason: "meta:undefined" };
-  if (meta.intent === "generic") return { ok: false, reason: "intent:generic" };
+  if (!isTrackable(meta)) return { ok: false, reason: "meta:not_trackable" };
   if (meta.complete !== true) return { ok: false, reason: "meta:incomplete" };
   const s = instpack?.trim() ?? "";
   if (!s) return { ok: false, reason: "instpack:empty" };
-//  if (s.length < 50) return { ok: false, reason: "instpack:too_short" };
-//  if (/```/.test(s)) return { ok: false, reason: "instpack:has_fence" };
-//  if (/[?？]\s*$/.test(s)) return { ok: false, reason: "instpack:looks_question" };
+  if (s.length < 80) return { ok: false, reason: "instpack:too_short" };
+  if (/```/.test(s)) return { ok: false, reason: "instpack:has_fence" };
+  if (/[?？]\s*$/.test(s)) return { ok: false, reason: "instpack:looks_question" };
   return { ok: true };
 }
 

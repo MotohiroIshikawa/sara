@@ -1,4 +1,4 @@
-{% include "./00.base.common.md" %}
+{% include "./base.md" %}
 
 # このプリセットの目的
 ユーザー向けの**「返信（本文のみ）」**を出す。**meta/instpackは出力しない**。ツール呼び出しもしない。
