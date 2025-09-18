@@ -13,4 +13,7 @@ const INST = P('config/prompts/instpack.md');
 // それぞれを結合して“完成した instructions”を返す
 export const buildReplyInstructions = () => `${BASE}\n\n${REPLY}`.trim();
 export const buildMetaInstructions = () => `${BASE}\n\n${META}`.trim();
-export const buildInstpackInstructions = () => `${BASE}\n\n${INST}`.trim();
+  // instpack 生成時は base を混ぜない（差分だけ出させる）
+export const buildInstpackInstructions = () => `${INST}`.trim();
+// 保存済み instpack を実行時に使うときは base + instpack を合成
+export const buildReplyWithUserInstpack = (userInstpack: string) => `${BASE}\n\n${userInstpack}`.trim();

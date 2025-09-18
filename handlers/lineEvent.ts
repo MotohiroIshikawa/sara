@@ -16,6 +16,7 @@ import { followUser, unfollowUser } from "@/services/users.mongo";
 import { upsertThreadInst } from "@/services/threadInst.mongo";
 import { getBinding } from "@/services/gptsBindings.mongo";
 import { LINE } from "@/utils/env";
+import { buildReplyWithUserInstpack } from "@/utils/agentPrompts";
 
 const replyMax = LINE.REPLY_MAX;
 
@@ -227,80 +228,36 @@ export async function lineEvent(event: WebhookEvent) {
 
       // Azure OpenAI (Grounding with Bing Search) への問い合わせ
       const binding = await getBinding(threadOwnerId); 
-      let confirmPushed = false;
       let confirmMsg: messagingApi.TemplateMessage | null = null;
 
-      // 非同期対応
+      const replyOverride = binding?.instpack
+        ? buildReplyWithUserInstpack(binding.instpack)
+        : undefined;
+
       const res = await connectBing(threadOwnerId, question, {
-        instructionsOverride: binding?.instpack,
-        onRepair: async ({ threadId, meta, instpack }) => {
-          try {
-            if (threadId && instpack) {
-              // 1. DBへ保存
-              await upsertThreadInst({
-                userId: threadOwnerId,
-                threadId,
-                instpack,
-                meta,
-              });
-
-              // 2. 条件がそろったら「保存しますか？」の確認を push 
-              const show = shouldShowConfirm(meta, instpack, threadId);
-                // 確認ダイアログ直前の最終チェック
-              const guard = show ? finalCheckBeforeConfirm(meta, instpack) : { ok: false, reason: "shouldShowConfirm:false" };
-              if (!guard.ok) {
-                console.info("[lineEvent:onRepair] confirm skipped by finalCheck:", { tid: threadId, reason: guard.reason });
-                return;
-              }
-
-              if (show && !confirmPushed) {
-                console.info("[lineEvent:onRepair] confirm will be sent via PUSH (no replyToken).", {
-                  tid: threadId,
-                  intent: meta?.intent,
-                  complete: meta?.complete,
-                  slots: meta?.slots,
-                  instpack_len: typeof instpack === "string" ? instpack.length : 0,
-                });
-                await sendMessagesReplyThenPush({
-                  replyToken: undefined,
-                  to: recipientId,
-                  messages: [
-                    buildSaveOrContinueConfirm({
-                      text: "この内容で保存しますか？",
-                      saveData: encodePostback("gpts", "save", { tid: threadId, label: "保存" }),
-                      continueData: encodePostback("gpts", "continue", { tid: threadId, label: "続ける" }),
-                    }),
-                  ],
-                  delayMs: 250,
-                });
-                console.info("[lineEvent:onRepair] confirm PUSH done. tid=%s", threadId);
-                confirmPushed = true;
-              }
-            }
-          } catch (e) {
-            console.warn("[onRepair] failed:", e);
-          }
-        },
-      }); // ここまで非同期対応
+        instructionsOverride: replyOverride,
+      });
 
       console.log("#### BING REPLY (TEXTS) ####", res.texts);
       // 本文メッセージを配列化
       const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
       // 条件がそろったら「保存しますか？」の確認をpush
       const show = shouldShowConfirm(res.meta, res.instpack, res.threadId);
-        // 本送信前の最終チェック
-      const guard = show ? finalCheckBeforeConfirm(res.meta, res.instpack) : { ok: false, reason: "shouldShowConfirm:false" };
+      const guard = show
+        ? finalCheckBeforeConfirm(res.meta, res.instpack)
+        : { ok: false, reason: "shouldShowConfirm:false" };
       if (!guard.ok) {
         console.info("[lineEvent] confirm skipped by finalCheck:", { tid: res.threadId, reason: guard.reason });
       }
 
-      if (show && guard.ok && !confirmPushed) { 
+      if (show && guard.ok) { 
         confirmMsg = buildSaveOrContinueConfirm({
           text: "この内容で保存しますか？",
           saveData: encodePostback("gpts", "save", { tid: res.threadId, label: "保存" }),
           continueData: encodePostback("gpts", "continue", { tid: res.threadId, label: "続ける" }),
         });
         messages.push(confirmMsg);
+
         // 送信前に「push になる位置か」を予告ログ
         const idx = messages.indexOf(confirmMsg);
         const willBePushedIfReplyOK = idx >= replyMax;
@@ -340,7 +297,7 @@ export async function lineEvent(event: WebhookEvent) {
       // 実際に confirm が PUSH で出たかの最終ログ
       if (confirmMsg) {
         const idx = messages.indexOf(confirmMsg);
-        const wasPushed = replyFellBackToPush || (idx >= replyMax); // 5 は replyMax と合わせる
+        const wasPushed = replyFellBackToPush || (idx >= replyMax);
         console.info(
           "[lineEvent] confirm delivered via %s. idx=%d, fallback=%s, tid=%s",
           wasPushed ? "PUSH" : "REPLY",

@@ -550,9 +550,8 @@ function normalizeMeta(meta?: Meta): Meta | undefined {
   
   if (out.intent === "event") {
     const r = out.slots?.date_range?.trim().toLowerCase();
+    out.complete = !!out.slots?.topic && out.slots!.topic.trim().length > 0;
     if (!r) out.slots!.date_range = "ongoing"; // 仕様: 未指定は ongoing
-    // topic & date_range が揃えば complete
-    out.complete = !!out.slots?.topic && !!out.slots?.date_range;
   }
   
   if (out.intent === "news") {
