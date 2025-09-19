@@ -1,5 +1,5 @@
 import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
-import { handlePostback } from "@/handlers/postback";
+import { handlePostback } from "@/handlers/postbacks/gpts";
 import { getBinding } from "@/services/gptsBindings.mongo";
 import { upsertThreadInst } from "@/services/threadInst.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
@@ -11,26 +11,9 @@ import { fetchLineUserProfile } from "@/utils/lineProfile";
 import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm } from "@/utils/lineSend";
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
+import { getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 
 const replyMax = LINE.REPLY_MAX;
-
-function getRecipientId(event: WebhookEvent): string | undefined {
-  switch (event.source.type){
-    case "user": return event.source.userId;
-    case "group": return event.source.groupId;
-    case "room": return event.source.roomId;
-    default: return undefined;
-  }
-}
-
-function getThreadOwnerId(event: WebhookEvent): string | undefined {
-  switch (event.source.type) {
-    case "user": return event.source.userId;
-    case "group": return `group:${event.source.groupId}`;
-    case "room": return `room:${event.source.roomId}`;
-    default: return undefined;
-  }
-}
 
 // 保存しますか？を出すか判定
 export function shouldShowConfirm( meta: MetaForConfirm | undefined, instpack: string | undefined, threadId?: string ): boolean {

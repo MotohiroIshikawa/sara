@@ -91,6 +91,3 @@ export function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   const equalsMeta = meta?.followups?.some(f => trimLite(f) === trimLite(s)) ?? false;
   return endsWithQ || hasLead || equalsMeta;
 }
-
-
-

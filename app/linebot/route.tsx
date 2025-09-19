@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { validateSignature, type WebhookEvent} from "@line/bot-sdk";
 import { lineEvent } from "@/handlers/lineEvent";
 import { CorrContext } from "@/logging/corr";
+import { getRecipientId } from "@/utils/lineSource";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
@@ -13,16 +14,6 @@ export async function GET() {
         return NextResponse.json(
             { status: 200 }
         );
-}
-
-// 送信元ID抽出
-function pickSourceUserId(ev: WebhookEvent): string | undefined {
-  switch (ev.source.type) {
-    case "user":  return ev.source.userId;
-    case "group": return ev.source.groupId;
-    case "room":  return ev.source.roomId;
-    default:      return undefined;
-  }
 }
 
 export async function POST(req: NextRequest) {
@@ -37,9 +28,9 @@ export async function POST(req: NextRequest) {
       const requestId = nanoid(); 
 
       for (const event of events) {
-        const userId = pickSourceUserId(event);
+        const recipientId = getRecipientId(event);
           // LINEイベントハンドラ
-        await CorrContext.run({ requestId, userId }, async () => {
+        await CorrContext.run({ requestId, userId: recipientId }, async () => {
           await lineEvent(event);
         });
       }
