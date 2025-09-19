@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "crypto";
+import { ObjectId, type Filter } from "mongodb";
 import type { UserGptsDoc } from "@/types/db";
 import { getUserGptsCollection } from "@/utils/mongo";
-import { ObjectId, type Filter } from "mongodb";
 
 // 目的:
 //  - ユーザーが「保存」を押した instpack をユーザーの GPTS 保管庫に保存

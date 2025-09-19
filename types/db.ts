@@ -1,4 +1,5 @@
 import type { Document, ObjectId } from "mongodb";
+import type { Meta } from "@/types/gpts";
 
 // src/types/db.ts
 export interface UserDoc extends Document {
@@ -29,7 +30,7 @@ export interface ThreadInstDoc extends Document {
   userId: string;         // "user_..." | "group:..." | "room:..."
   threadId: string;       // Azure Agents threadId
   instpack: string;       // コンパイル済み指示
-  meta?: unknown;         // メタ JSON（スキーマ可変なので unknown）
+  meta?: Meta | null;     // メタ JSON
   updatedAt: Date;        // 保存時刻
 }
 

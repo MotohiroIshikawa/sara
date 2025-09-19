@@ -1,5 +1,5 @@
-import { getGptsBindingsCollection } from "@/utils/mongo";
 import type { GptsBindingDoc } from "@/types/db";
+import { getGptsBindingsCollection } from "@/utils/mongo";
 
 let indexesReady = false;
 // コレクションのインデックスを1回だけ作成

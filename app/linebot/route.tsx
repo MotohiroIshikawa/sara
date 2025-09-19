@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { nanoid } from "nanoid";
 import { validateSignature, type WebhookEvent} from "@line/bot-sdk";
 import { lineEvent } from "@/handlers/lineEvent";
-import { nanoid } from "nanoid";
 import { CorrContext } from "@/logging/corr";
 
 const config = {

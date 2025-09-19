@@ -1,5 +1,3 @@
-// utils/normalizeMarkdownForLine.ts
-
 /**
  * Markdown を LINE の通常テキスト向けに読みやすく整形する。
  * - LINE は Markdown を解釈しないため、記号で代替表現に置換

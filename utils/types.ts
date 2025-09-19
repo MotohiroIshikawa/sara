@@ -35,6 +35,10 @@ export type NonFunctionToolCall = { id: string; type?: Exclude<string, "function
 export type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown } };
 export type ToolCall = FunctionToolCall | NonFunctionToolCall;
 
+export function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
+  return tc?.type === "function";
+}
+
 /** toolCall らしさの判定（id:string は必須。function 型は function オブジェクト必須） */
 export function isToolCallLike(v: unknown): v is ToolCall {
   if (!isRecord(v)) return false;
