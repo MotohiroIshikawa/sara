@@ -1,7 +1,7 @@
 import { type PostbackEvent, type WebhookEvent } from "@line/bot-sdk";
 import { CorrContext } from "@/logging/corr";
 import { setBinding, clearBinding } from "@/services/gptsBindings.mongo";
-import { getThreadInst, deleteThreadInst } from "@/services/threadInst.mongo";
+import { getThreadInst, deleteThreadInst, purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
 import { createUserGpts, getUserGptsById } from "@/services/userGpts.mongo";
 import type { Meta } from "@/types/gpts";
@@ -113,7 +113,7 @@ export async function newRule(event: PostbackEvent) {
   // 現在の会話は破棄し、既存の有効化ルールも解除
   try { await resetThread(threadOwnerId); } catch {}
   try { await clearBinding(threadOwnerId); } catch {}
-  try { await purgeAllThreadInstByUser(userId); } catch(() => {});
+  try { await purgeAllThreadInstByUser(recipientId); } catch{};
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!,
