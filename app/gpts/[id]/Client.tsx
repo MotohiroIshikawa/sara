@@ -5,6 +5,7 @@ import {
   type GptsUpdateRequest,
   isGptsDetailResponse
 } from "@/utils/types";
+import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
 export default function Client({ id }: { id: string }) {
   const [name, setName] = useState("");
@@ -16,6 +17,13 @@ export default function Client({ id }: { id: string }) {
   useEffect(() => {
     void (async () => {
       try {
+        const sess = await ensureLiffSession();
+        if (!sess.ok) {
+          if (sess.reason === "login_redirected") return;
+          setErr("ログインに失敗しました");
+          return;
+        }
+
         const r = await fetch(`/api/gpts/${encodeURIComponent(id)}`, {
           credentials: "include",
         });
