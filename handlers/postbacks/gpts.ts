@@ -36,13 +36,23 @@ function defaultTitleFromMeta(meta?: Meta): string {
 // 保存
 export async function save(event: PostbackEvent, args: Record<string, string> = {}) {
   const recipientId = getRecipientId(event);
-  const threadOwnerId = getThreadOwnerId(event);
+  const userId = getThreadOwnerId(event, "plain");
+  const scopedId = getThreadOwnerId(event, "scoped");
   const threadId = args["tid"];
-  if (!recipientId || !threadOwnerId || !threadId) return;
+  if (!recipientId || !userId || !scopedId || !threadId) return;
+
+  if (!userId.startsWith("U")) { // ★追加: 念のため
+    await sendMessagesReplyThenPush({
+      replyToken: event.replyToken!,
+      to: recipientId,
+      messages: toTextMessages(["グループルームではチャットルールの保存はできません。"]),
+    });
+    return;
+  }
 
   // 重複タップ禁止
   try {
-    const dedupKey = `pb:save:${threadOwnerId}:${threadId}`;
+    const dedupKey = `pb:save:${scopedId}:${threadId}`;
     const ok = await setNxEx(dedupKey, "1", 30);
     if (!ok) {
       await sendMessagesReplyThenPush({
@@ -56,7 +66,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
       console.warn("[gpts.save] dedup check skipped (redis error):", e);
   }
 
-  const inst = await getThreadInst(threadOwnerId, threadId);
+  const inst = await getThreadInst(scopedId, threadId);
   if (!inst?.instpack) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!,
@@ -68,14 +78,15 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
 
   const name = defaultTitleFromMeta(inst?.meta as Meta | undefined);
   const g = await createUserGpts({
-    userId: threadOwnerId,
+    userId,
     instpack: inst.instpack,
     fromThreadId: threadId,
     name,
   });
   console.info("[gpts.save] saved", { gptsId: g.id, name: g.name });
-  await setBinding(threadOwnerId, g.id, inst.instpack);
-  console.info("[gpts.save] bound", { userId: threadOwnerId, gptsId: g.id });
+
+  await setBinding(scopedId, g.id, inst.instpack);
+  console.info("[gpts.save] bound", { scopedId, gptsId: g.id });
 
 // 旧threadの破棄->旧threadは破棄しない
 //  try {
@@ -84,7 +95,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
 //  } catch { /* ignore */ }
 
   // 一時保存レコードは削除する
-  try { await deleteThreadInst(threadOwnerId, threadId); } catch {}
+  try { await deleteThreadInst(scopedId, threadId); } catch {}
   console.info("[gpts.save] tempThreadInstDeleted", { threadId });
 
   await sendMessagesReplyThenPush({
