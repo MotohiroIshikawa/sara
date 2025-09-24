@@ -11,6 +11,22 @@ async function ensureIndexes(): Promise<void> {
   // よく使う一覧は userId & createdAt 降順
   await col.createIndex({ userId: 1, createdAt: -1 }, { name: "idx_user_created_desc" });
 
+  // /api/gpts/list で使う userId 絞り込み＋ updatedAt 降順ソート用
+  await col.createIndex({ userId: 1, updatedAt: -1 }, { name: "idx_user_updated_desc" });
+
+  // 非削除ドキュメント（deletedAt が存在しないもの）向けの部分インデックス
+  try {
+    await col.createIndex(
+      { userId: 1, updatedAt: -1 },
+      {
+        name: "idx_user_active_updated_desc",
+        partialFilterExpression: { deletedAt: { $exists: false } },
+      }
+    );
+  } catch (e) {
+    console.warn("[userGpts.ensureIndexes] partial index skipped:", (e as Error)?.message);
+  }
+
   _indexesReady = true;
 }
 
@@ -48,7 +64,7 @@ export async function createUserGpts(input: {
   return { id, name: doc.name };
 }
 
-// 一覧（新しい順）
+// 一覧（新しい順:createdAt）
 export async function listUserGpts(userId: string): Promise<Array<{ id: string; name: string; createdAt: Date; tags?: string[] }>> {
   await ensureIndexes();
   const col = await getUserGptsCollection();
@@ -60,6 +76,25 @@ export async function listUserGpts(userId: string): Promise<Array<{ id: string; 
   const out: Array<{ id: string; name: string; createdAt: Date; tags?: string[] }> = [];
   for await (const d of cur) {
     out.push({ id: d.id, name: d.name, createdAt: d.createdAt, tags: d.tags });
+  }
+  return out;
+}
+
+// 一覧（更新順：updatedAt 降順、未削除のみ）
+export async function listUserGptsByUpdatedDesc(
+  userId: string
+): Promise<Array<{ id: string; name: string; updatedAt: Date; tags?: string[] }>> {
+  await ensureIndexes();
+  const col = await getUserGptsCollection();
+
+  const cur = col.find(
+    { userId, deletedAt: { $exists: false } },
+    { projection: { _id: 0, id: 1, name: 1, updatedAt: 1, tags: 1 } }
+  ).sort({ updatedAt: -1 });
+
+  const out: Array<{ id: string; name: string; updatedAt: Date; tags?: string[] }> = [];
+  for await (const d of cur) {
+    out.push({ id: d.id, name: d.name, updatedAt: d.updatedAt, tags: d.tags });
   }
   return out;
 }

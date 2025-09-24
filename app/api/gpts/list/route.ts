@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
-import type { Filter } from "mongodb";
+import { listUserGptsByUpdatedDesc } from "@/services/userGpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
-import { getUserGptsCollection } from "@/utils/mongo";
-import type { UserGptsDoc } from "@/types/db";
 
 export async function GET(request: Request) {
   try {
     const userId = await requireLineUser(request);
-    const col = await getUserGptsCollection();
-
-    const query: Filter<UserGptsDoc> = { userId, deletedAt: { $exists: false } };
-    const items = await col.find(query).project({ _id: 0 }).sort({ updatedAt: -1 }).toArray();
-
+    const items = await listUserGptsByUpdatedDesc(userId);
     return NextResponse.json({ items });
   } catch (e) {
     if (e instanceof HttpError) {
