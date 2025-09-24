@@ -34,44 +34,69 @@ export async function ensureLiffSession(
   try {
     const liffId =
       options.liffId ?? (process.env.NEXT_PUBLIC_LIFF_ID as string | undefined);
+
+    console.debug("[ensureLiffSession] start", {
+      hasLiffId: !!liffId,
+      loginIfNeeded: options.loginIfNeeded ?? true,
+      loginUrl,
+    });
+
     if (!liffId) {
+      console.warn("[ensureLiffSession] no_liff_id");
       return { ok: false, reason: "no_liff_id", detail: "NEXT_PUBLIC_LIFF_ID is empty" };
     }
 
     const liffMod = await import("@line/liff");
     const liff: Liff = liffMod.default;
+    console.debug("[ensureLiffSession] liff module loaded");
 
     await liff.init({ liffId });
+    console.debug("[ensureLiffSession] liff.init done");
 
     if (!liff.isLoggedIn()) {
+      console.debug("[ensureLiffSession] not logged in");
       if (options.loginIfNeeded === false) {
+        console.debug("[ensureLiffSession] skip login (loginIfNeeded=false)");
         // ログインせず進む（既存CookieがあればAPIは通る）
       } else {
         const redirectUri = options.redirectUri ?? window.location.href;
+        console.debug("[ensureLiffSession] redirecting to liff.login", { redirectUri });
         liff.login({ redirectUri });
         return { ok: false, reason: "login_redirected" };
       }
+    } else {
+      console.debug("[ensureLiffSession] already logged in");
     }
 
     // IDトークンが取れるなら loginUrl に投げて Cookie を確立
     const idToken = liff.getIDToken();
+    console.debug("[ensureLiffSession] idToken", { present: !!idToken });
     if (idToken) {
+      console.debug("[ensureLiffSession] POST", { loginUrl });
       const res = await fetch(loginUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ idToken }),
       });
-      if (!res.ok) return { ok: false, reason: "verify_failed" };
+      console.debug("[ensureLiffSession] liff-login response", { status: res.status });
+      
+      if (!res.ok){
+        console.warn("[ensureLiffSession] verify_failed");
+        return { ok: false, reason: "verify_failed" };
+      }
 
       const decoded = liff.getDecodedIDToken();
       const userId = decoded?.sub;
+      console.debug("[ensureLiffSession] established", { hasUserId: !!userId });
       return { ok: true, established: true, idToken, userId };
     }
 
     // 既に Cookie がある（またはブラウザ直開きで未ログインだが先に進めたい）ケース
+    console.debug("[ensureLiffSession] proceed without idToken (assume cookie exists)");
     return { ok: true, established: false };
   } catch (e) {
+    console.error("[ensureLiffSession] unexpected", e);
     return {
       ok: false,
       reason: "unexpected",

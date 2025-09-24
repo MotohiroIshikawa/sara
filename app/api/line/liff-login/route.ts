@@ -1,44 +1,63 @@
 import { NextResponse } from "next/server";
+import { verifyIdTokenWithLINE, assertLineVerifyClaims } from "@/utils/lineAuth";
 
-const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "lineUserId";
-const CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID!;
-
-// LINEのIDトークン検証エンドポイント（サーバ側から呼ぶ）
-async function verifyIdToken(idToken: string) {
-  const res = await fetch("https://api.line.me/oauth2/v2.1/verify", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      id_token: idToken,
-      client_id: CHANNEL_ID, // = Channel ID
-    }),
-  });
-  if (!res.ok) return null;
-  // 返ってくる JSON は { iss, sub, aud, exp, iat, amr, name?, picture?, ... }
-  return (await res.json()) as { sub?: string } | null;
-}
+const ID_TOKEN_COOKIE_PRIMARY = "liff_id_token";
+const ID_TOKEN_COOKIE_COMPAT = "id_token";
+const COOKIE_DOMAIN = process.env.SESSION_COOKIE_DOMAIN || undefined;
 
 export async function POST(req: Request) {
+  const rid = crypto.randomUUID().slice(0, 8);
+
   try {
     const { idToken } = (await req.json()) as { idToken?: string };
-    if (!idToken) return NextResponse.json({ error: "no_id_token" }, { status: 400 });
+    console.info(`[liff-login:${rid}] start`, {
+      hasIdToken: !!idToken,
+      origin: req.headers.get("origin") || "",
+      ua: req.headers.get("user-agent") || "",
+    });
 
-    const verified = await verifyIdToken(idToken);
-    const userId = verified?.sub;
-    if (!userId) return NextResponse.json({ error: "invalid_token" }, { status: 401 });
+    if (!idToken){
+      console.warn(`[liff-login:${rid}] no_id_token`);
+      return NextResponse.json({ error: "no_id_token" }, { status: 400 });
+    }
 
-    // セッションCookie発行（30日）
-    const res = NextResponse.json({ ok: true });
-    res.cookies.set(SESSION_COOKIE_NAME, userId, {
-      httpOnly: true,
-      sameSite: "lax",
+    const payload = await verifyIdTokenWithLINE(idToken);
+    // aud/iss/exp/sub検証
+    const { userId, exp } = assertLineVerifyClaims(payload);
+
+    const now = Math.floor(Date.now() / 1000);
+    const maxAge = Math.max(0, Math.min(60 * 60 * 24 * 30, exp - now));
+
+    const res = NextResponse.json({
+      ok: true,
+      userIdPreview: `${userId.slice(0, 4)}…${userId.slice(-4)}`,
+    });
+
+    const commonCookie = {
+      httpOnly: true as const,
+      sameSite: "none" as const,
       secure: true,
       path: "/",
-      maxAge: 60 * 60 * 24 * 30,
+      ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
+      maxAge,
+    };
+
+    // IDトークンを Cookie に保存
+    res.cookies.set(ID_TOKEN_COOKIE_PRIMARY, idToken, commonCookie);
+    res.cookies.set(ID_TOKEN_COOKIE_COMPAT, idToken, commonCookie);
+
+    console.info(`[liff-login:${rid}] cookie_set`, {
+      names: [ID_TOKEN_COOKIE_PRIMARY, ID_TOKEN_COOKIE_COMPAT],
+      sameSite: "none",
+      secure: true,
+      domain: COOKIE_DOMAIN || "(host-default)",
+      maxAge,
     });
+
     return res;
   } catch (e) {
-    console.error("[liff-login] error", e);
-    return NextResponse.json({ error: "internal_error" }, { status: 500 });
+    const status = (e as { status?: number }).status ?? 500;
+    console.error(`[liff-login:${rid}] error`, e);
+    return NextResponse.json({ error: "internal_error" }, { status });
   }
 }

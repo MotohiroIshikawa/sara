@@ -73,8 +73,9 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
     fromThreadId: threadId,
     name,
   });
-
+  console.info("[gpts.save] saved", { gptsId: g.id, name: g.name });
   await setBinding(threadOwnerId, g.id, inst.instpack);
+  console.info("[gpts.save] bound", { userId: threadOwnerId, gptsId: g.id });
 
 // 旧threadの破棄->旧threadは破棄しない
 //  try {
@@ -84,6 +85,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
 
   // 一時保存レコードは削除する
   try { await deleteThreadInst(threadOwnerId, threadId); } catch {}
+  console.info("[gpts.save] tempThreadInstDeleted", { threadId });
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!,

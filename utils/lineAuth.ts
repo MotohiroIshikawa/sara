@@ -2,7 +2,7 @@
  * LIFF/LINE Login の IDトークンを検証し、userId (sub) を返す
  * - 取得元: Authorization: Bearer <id_token> / X-ID-Token / Cookie
  * - 検証先: https://api.line.me/oauth2/v2.1/verify (公式)
- * - 必須env: LINE_CHANNEL_ID (= LIFF/LINE LoginのチャネルID)
+ * - 必須env: LINE_LOGIN_CHANNEL_ID  // ★変更: Messaging用の LINE_CHANNEL_ID は廃止
  * - 任意env: LINE_ISSUER (既定: https://access.line.me)
  *
  * 使い方（API Route）:
@@ -15,27 +15,33 @@ import { isNumber, isRecord, isString } from "@/utils/types";
 // ---- 設定 ----
 const LINE_VERIFY_ENDPOINT = "https://api.line.me/oauth2/v2.1/verify";
 const LINE_ISSUER = process.env.LINE_ISSUER ?? "https://access.line.me";
-const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || "";
-const ID_TOKEN_HEADER = "x-id-token";
-const ID_TOKEN_COOKIE_NAMES = ["id_token", "liff_id_token"]; // Cookie名の候補
+// ★変更: 検証に使うのは「LINE Login / LIFF の Channel ID」だけに統一
+const LINE_LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID || ""; // ★変更
+// ★（撲滅）Messaging API 用の LINE_CHANNEL_ID は使用しません
 
-// ---- 簡易キャッシュ（開発/高負荷対策。短時間の再検証を抑制）----
+const ID_TOKEN_HEADER = "x-id-token";
+const ID_TOKEN_COOKIE_NAMES = ["id_token", "liff_id_token"]; // Cookie名の候補（既存互換）
+
+// ---- 簡易キャッシュ ----
 type CacheVal = { userId: string; exp: number };
 const cache = new Map<string, CacheVal>();
 const CACHE_TTL_SEC = 60; // 1分
 
 export class HttpError extends Error {
   status: number;
-  constructor(status: number, message: string) { super(message); this.status = status; }
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
 }
 
-// ---- 公開関数 ----
+// ---- 公開: ルータ向け（共通チェックを使用）----
 export async function requireLineUser(req: Request | NextRequest): Promise<string> {
-
-  // IDトークンを取り出す
   const idToken = extractIdToken(req);
   if (!idToken) throw new HttpError(401, "missing_id_token");
-  if (!LINE_CHANNEL_ID) throw new Error("LINE_CHANNEL_ID is not set");
+
+  // ★変更: 必須envは LINE_LOGIN_CHANNEL_ID のみ
+  if (!LINE_LOGIN_CHANNEL_ID) throw new Error("LINE_LOGIN_CHANNEL_ID is not set");
 
   // 簡易キャッシュ
   const nowSec = Math.floor(Date.now() / 1000);
@@ -44,28 +50,19 @@ export async function requireLineUser(req: Request | NextRequest): Promise<strin
 
   const payload = await verifyIdTokenWithLINE(idToken);
 
-  // 検証
-  if (payload.aud !== LINE_CHANNEL_ID) throw new HttpError(403, "aud_mismatch");
-  if (payload.iss !== LINE_ISSUER) throw new HttpError(403, "iss_mismatch");
+  // 共通チェック関数で aud/iss/exp/sub を一元判定
+  const { userId, exp } = assertLineVerifyClaims(payload);
 
-  const exp = typeof payload.exp === "number" ? payload.exp : 0;
-  if (exp <= nowSec) throw new HttpError(401, "token_expired");
-  if (payload.exp <= nowSec) throw new HttpError(401, "token_expired");
-
-  const userId = payload.sub as string | undefined;
-  if (!userId) throw new HttpError(403, "no_sub");
-
-  //キャッシュ
-  cache.set(idToken, { userId, exp: Math.min(payload.exp, nowSec + CACHE_TTL_SEC) });
-
+  // キャッシュ
+  cache.set(idToken, { userId, exp: Math.min(exp, nowSec + CACHE_TTL_SEC) });
   return userId;
 }
 
-// ---- 内部: 検証処理 ----
-interface LineVerifyResponse {
+// ---- 検証レスポンス型（export）----
+export interface LineVerifyResponse {
   iss: string;        // "https://access.line.me"
   sub: string;        // userId
-  aud: string;        // channelId
+  aud: string;        // channelId (LIFF/LINE Login の Channel ID)
   exp: number;        // epoch seconds
   iat: number;        // epoch seconds
   nonce?: string;
@@ -73,8 +70,9 @@ interface LineVerifyResponse {
   name?: string;
   picture?: string;
   email?: string;
-};
+}
 
+// 型ガード
 function isLineVerifyResponse(x: unknown): x is LineVerifyResponse {
   if (!isRecord(x)) return false;
   return (
@@ -86,10 +84,11 @@ function isLineVerifyResponse(x: unknown): x is LineVerifyResponse {
   );
 }
 
-async function verifyIdTokenWithLINE(idToken: string): Promise<LineVerifyResponse> {
+// ---- 公開: LINE公式verifyでIDトークンを検証 ----
+export async function verifyIdTokenWithLINE(idToken: string): Promise<LineVerifyResponse> {
   const body = new URLSearchParams();
   body.set("id_token", idToken);
-  body.set("client_id", LINE_CHANNEL_ID);
+  body.set("client_id", LINE_LOGIN_CHANNEL_ID); // ★変更: Login/LIFF の Channel ID を送る
 
   const res = await fetch(LINE_VERIFY_ENDPOINT, {
     method: "POST",
@@ -116,6 +115,20 @@ async function verifyIdTokenWithLINE(idToken: string): Promise<LineVerifyRespons
   return parsed;
 }
 
+// 共通クレームチェック（aud/iss/exp/sub を一元化）
+export function assertLineVerifyClaims(
+  payload: LineVerifyResponse
+): { userId: string; exp: number } {
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (payload.aud !== LINE_LOGIN_CHANNEL_ID) throw new HttpError(403, "aud_mismatch");
+  if (payload.iss !== LINE_ISSUER) throw new HttpError(403, "iss_mismatch");
+  if (payload.exp <= nowSec) throw new HttpError(401, "token_expired");
+  const userId = payload.sub;
+  if (!userId) throw new HttpError(403, "no_sub");
+  return { userId, exp: payload.exp };
+}
+
+// ---- ユーティリティ ----
 function safeJson(text: string): unknown {
   try {
     return JSON.parse(text) as unknown;
@@ -126,16 +139,16 @@ function safeJson(text: string): unknown {
 
 // 内部: トークン抽出
 function extractIdToken(req: Request | NextRequest): string | undefined {
-  // 1) Authorization: Bearer
+  // 1. Authorization: Bearer
   const auth = header(req, "authorization");
   if (auth?.toLowerCase().startsWith("bearer ")) {
     return auth.slice(7).trim();
   }
-  // 2) X-ID-Token ヘッダ
+  // 2. X-ID-Token ヘッダ
   const idh = header(req, ID_TOKEN_HEADER);
   if (idh) return idh.trim();
 
-  // 3) Cookie
+  // 3. Cookie
   const cookieHeader = header(req, "cookie");
   if (cookieHeader) {
     const jar = parseCookies(cookieHeader);
