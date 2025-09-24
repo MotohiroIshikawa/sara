@@ -65,3 +65,86 @@ export function toToolCalls(list: unknown): ToolCall[] {
   if (!Array.isArray(list)) return [];
   return list.filter(isToolCallLike);
 }
+
+/** 動的ルートの params（/gpts/[id]） */
+export type GptsIdParam = { id: string };
+
+/** 個別アイテム詳細 */
+export type GptsItemDetail = {
+  id: string;
+  name: string;
+  instpack: string;
+  updatedAt: string; // ISO8601
+};
+
+/** 詳細取得レスポンス */
+export type GptsDetailResponse = {
+  item: GptsItemDetail;
+};
+
+/** 更新リクエスト（POST /api/gpts/[id]） */
+export type GptsUpdateRequest = {
+  name?: string;
+  instpack?: string;
+};
+
+/** 型ガード */
+export function isGptsItemDetail(v: unknown): v is GptsItemDetail {
+  return (
+    isRecord(v) &&
+    isString(v.id) &&
+    isString(v.name) &&
+    isString(v.instpack) &&
+    isString(v.updatedAt)
+  );
+}
+
+export function isGptsDetailResponse(v: unknown): v is GptsDetailResponse {
+  return isRecord(v) && isGptsItemDetail(v.item);
+}
+
+/** 一覧アイテム */
+export type GptsListItem = {
+  id: string;
+  name: string;
+  updatedAt: string; // ISO8601
+};
+
+/** 一覧レスポンス */
+export type GptsListResponse = {
+  items: GptsListItem[];
+};
+
+/** 適用レスポンス（POST /api/gpts/[id]/use） */
+export type GptsApplyResponse = {
+  ok: true;
+  appliedId: string;
+  name: string;
+};
+
+/** 型ガード */
+export function isGptsListItem(v: unknown): v is GptsListItem {
+  return (
+    isRecord(v) &&
+    isString(v.id) &&
+    isString(v.name) &&
+    isString(v.updatedAt)
+  );
+}
+
+export function isGptsListResponse(v: unknown): v is GptsListResponse {
+  return (
+    isRecord(v) &&
+    Array.isArray(v.items) &&
+    v.items.every(isGptsListItem)
+  );
+}
+
+export function isGptsApplyResponse(v: unknown): v is GptsApplyResponse {
+  return (
+    isRecord(v) &&
+    v.ok === true &&
+    isString(v.appliedId) &&
+    isString(v.name)
+  );
+}
