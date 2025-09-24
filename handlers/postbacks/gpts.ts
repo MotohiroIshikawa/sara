@@ -10,6 +10,15 @@ import { describeSource, getRecipientId, getThreadOwnerId } from "@/utils/lineSo
 import { decodePostback } from "@/utils/postback";
 import { setNxEx } from "@/utils/redis";
 
+const TABLE: Record<"gpts", Record<string, Handler>> = {
+  gpts: {
+    save,
+    continue: cont,
+    new: newRule,
+    activate,
+  },
+};
+
 // 保存名のデフォルト生成（metaを参照）
 function defaultTitleFromMeta(meta?: Meta): string {
   const t = meta?.slots?.topic;
@@ -104,6 +113,7 @@ export async function newRule(event: PostbackEvent) {
   // 現在の会話は破棄し、既存の有効化ルールも解除
   try { await resetThread(threadOwnerId); } catch {}
   try { await clearBinding(threadOwnerId); } catch {}
+  try { await purgeAllThreadInstByUser(userId); } catch(() => {});
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!,
@@ -149,15 +159,6 @@ export async function activate(event: PostbackEvent, args: Record<string, string
 }
 
 type Handler = (event: PostbackEvent, args?: Record<string, string>) => Promise<void>;
-
-const TABLE: Record<"gpts", Record<string, Handler>> = {
-  gpts: {
-    save,
-    continue: cont,
-    new: newRule,
-    activate,
-  },
-};
 
 // MAIN router: postback共通ルータ
 export async function handlePostback(event: WebhookEvent): Promise<void> {

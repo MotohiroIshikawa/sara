@@ -7,6 +7,14 @@ export function isRecord<T extends Record<string, unknown> = Record<string, unkn
   return typeof v === "object" && v !== null;
 }
 
+export function isString(x: unknown): x is string {
+  return typeof x === "string";
+}
+
+export function isNumber(x: unknown): x is number {
+  return typeof x === "number" && Number.isFinite(x);
+}
+
 /** createAgent に渡せるツール: そのまま or { definition } ラッパー */
 export type ToolLike = ToolDefinitionUnion | { definition: ToolDefinitionUnion };
 

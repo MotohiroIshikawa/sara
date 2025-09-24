@@ -1,5 +1,5 @@
 import type { ThreadInstDoc } from "@/types/db";
-import { getThreadInstCollection } from "@/utils/mongo";
+import { getCollection, getThreadInstCollection } from "@/utils/mongo";
 
 // TTL日数（既定7日）。必要なら環境変数で上書き: THREAD_INST_TTL_DAYS=14 など
 const TTL_DAYS = Math.max(1, Number.parseInt(process.env.THREAD_INST_TTL_DAYS ?? "7", 10) || 7);
@@ -125,5 +125,12 @@ export async function deleteThreadInst(
   await ensureIndexes();
   const col = await getThreadInstCollection();
   const res = await col.deleteOne({ userId, threadId });
+  return (res?.deletedCount ?? 0) > 0;
+}
+
+// 対象ユーザのThread一括削除
+export async function purgeAllThreadInstByUser(userId: string) {
+  const col = await getThreadInstCollection();
+  const res = await col.deleteMany({ ownerId: userId });
   return (res?.deletedCount ?? 0) > 0;
 }

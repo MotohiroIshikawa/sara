@@ -1,4 +1,4 @@
-import { MongoClient, type Collection, type Document } from "mongodb";
+import { MongoClient, ObjectId, type Collection, type Document, type Filter } from "mongodb";
 import type { 
   UserDoc, 
   UserCycleDoc, 
@@ -74,7 +74,6 @@ export async function getGptsBindingsCollection(): Promise<Collection<GptsBindin
   return getCollection<GptsBindingDoc>(name);
 }
 
-
 //// 任意: 開発時のクリーンアップ
 export async function closeMongoForDev() {
   if (_clientPromise) {
@@ -82,4 +81,18 @@ export async function closeMongoForDev() {
     await client.close();
     _clientPromise = null;
   }
+}
+
+// id検証
+export type MongoId = string | ObjectId;
+export type WithDualId = {
+  id: string;
+  _id?: MongoId;
+};
+export function idMatchers<T extends WithDualId>(gid: string): Filter<T>[] {
+  const ors: Filter<T>[] = [{ id: gid } as Filter<T>, { _id: gid } as Filter<T>];
+  if (ObjectId.isValid(gid)) {
+    ors.push({ _id: new ObjectId(gid) } as Filter<T>);
+  }
+  return ors;
 }
