@@ -8,6 +8,7 @@ import {
   isGptsListResponse,
   isGptsApplyResponse,
 } from "@/utils/types";
+import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
 export default function Client() {
   const [items, setItems] = useState<GptsListItem[]>([]);
@@ -18,6 +19,13 @@ export default function Client() {
   useEffect(() => {
     void (async () => {
       try {
+        const sess = await ensureLiffSession();
+        if (!sess.ok) {
+          if (sess.reason === "login_redirected") return; // ここで終了（復帰後に再実行される）
+          setErr("ログインに失敗しました");
+          return;
+        }
+
         const r = await fetch("/api/gpts/list", { credentials: "include" });
         const j: unknown = await r.json();
         if (!r.ok) {
