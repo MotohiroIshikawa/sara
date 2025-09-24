@@ -15,16 +15,36 @@ export type EnsureLiffSessionResult =
       established: boolean; // 取得できた場合に返す（デバッグ用途）
       idToken?: string; // LIFF の sub。取得できた場合のみ
       userId?: string;
-    }
+}
   | {
       ok: false; // login() を発火したので処理を中断して良い、の合図
       reason: "login_redirected";
-    }
+}
   | {
       ok: false;
       reason: "no_liff_id" | "verify_failed" | "unexpected";
       detail?: string;
-    };
+};
+
+// ログ用
+async function logLiffIds(liff: Liff) {
+  try {
+    const decoded = liff.getDecodedIDToken();
+    const sub = decoded?.sub;
+    let msgUserId: string | undefined;
+    try {
+      if (liff.isLoggedIn()) {
+        const prof = await liff.getProfile();
+        msgUserId = prof?.userId;
+      }
+    } catch (e) {
+      // getProfile は権限や環境で失敗することがある
+    }
+    console.debug("[ensureLiffSession] LIFF IDs", { sub, msgUserId });
+  } catch (e) {
+    console.warn("[ensureLiffSession] logLiffIds failed", e);
+  }
+}
 
 // LIFF を初期化し、必要ならログイン→IDトークンをサーバへ送り Cookie を確立する。
 // すでに Cookie がある場合は established=false のまま ok:true を返す。
@@ -68,6 +88,8 @@ export async function ensureLiffSession(
       console.debug("[ensureLiffSession] already logged in");
     }
 
+    await logLiffIds(liff);
+    
     // IDトークンが取れるなら loginUrl に投げて Cookie を確立
     const idToken = liff.getIDToken();
     console.debug("[ensureLiffSession] idToken", { present: !!idToken });
