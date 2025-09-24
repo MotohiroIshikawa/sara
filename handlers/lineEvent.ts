@@ -1,64 +1,22 @@
-import { 
-  messagingApi, 
-  type WebhookEvent, 
-  type MessageEvent,
-} from "@line/bot-sdk";
-import { connectBing } from "@/utils/connectBing";
-import {
-  sendMessagesReplyThenPush,
-  toTextMessages,
-  buildSaveOrContinueConfirm,
-} from "@/utils/lineSend";
-import { fetchLineUserProfile } from "@/utils/lineProfile";
-import { encodePostback } from "@/utils/postback";
-import { handlePostback } from "@/handlers/postback";
-import { followUser, unfollowUser } from "@/services/users.mongo";
-import { upsertThreadInst } from "@/services/threadInst.mongo";
+import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
+import { handlePostback } from "@/handlers/postbacks/gpts";
 import { getBinding } from "@/services/gptsBindings.mongo";
-import { LINE } from "@/utils/env";
+import { upsertThreadInst } from "@/services/threadInst.mongo";
+import { followUser, unfollowUser } from "@/services/users.mongo";
+import type { MetaForConfirm } from "@/types/gpts";
 import { buildReplyWithUserInstpack } from "@/utils/agentPrompts";
+import { connectBing } from "@/utils/connectBing";
+import { LINE } from "@/utils/env";
+import { fetchLineUserProfile } from "@/utils/lineProfile";
+import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm } from "@/utils/lineSend";
+import { isTrackable } from "@/utils/meta";
+import { encodePostback } from "@/utils/postback";
+import { getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 
 const replyMax = LINE.REPLY_MAX;
 
-function getRecipientId(event: WebhookEvent): string | undefined {
-  switch (event.source.type){
-    case "user": return event.source.userId;
-    case "group": return event.source.groupId;
-    case "room": return event.source.roomId;
-    default: return undefined;
-  }
-}
-
-function getThreadOwnerId(event: WebhookEvent): string | undefined {
-  switch (event.source.type) {
-    case "user": return event.source.userId;
-    case "group": return `group:${event.source.groupId}`;
-    case "room": return `room:${event.source.roomId}`;
-    default: return undefined;
-  }
-}
-
-type Intent = "event" | "news" | "buy" | "generic";
-type MetaForConfirm = { 
-  intent?: Intent; 
-  complete?: boolean; 
-  slots?: { topic?: string; place?: string | null; date_range?: string | null; official_only?: boolean | null };
-};
-function isTrackable(meta?: MetaForConfirm): boolean { // ★追加
-  if (!meta) return false;
-  if (meta.intent && meta.intent !== "generic") return true;
-  const s = meta.slots ?? {};
-  const hasTopic = !!(s.topic && s.topic.trim());
-  const hasPlace = typeof s.place === "string" && s.place.trim().length > 0;
-  const hasDate  = !!(s.date_range && String(s.date_range).trim().length > 0);
-  return (hasTopic && (hasPlace || hasDate));
-}
 // 保存しますか？を出すか判定
-export function shouldShowConfirm(
-  meta: MetaForConfirm | undefined,
-  instpack: string | undefined,
-  threadId?: string
-): boolean {
+export function shouldShowConfirm( meta: MetaForConfirm | undefined, instpack: string | undefined, threadId?: string ): boolean {
   if (!threadId) return false;
   if (!instpack?.trim()) return false;
   if (!meta || meta.complete !== true) return false;

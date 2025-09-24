@@ -1,30 +1,36 @@
-import { type PostbackEvent } from "@line/bot-sdk";
-import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
+import { type PostbackEvent, type WebhookEvent } from "@line/bot-sdk";
+import { CorrContext } from "@/logging/corr";
+import { setBinding, clearBinding } from "@/services/gptsBindings.mongo";
 import { getThreadInst, deleteThreadInst } from "@/services/threadInst.mongo";
-import { createUserGpts } from "@/services/userGpts.mongo";
-import { setBinding } from "@/services/gptsBindings.mongo";
-import { AgentsClient } from "@azure/ai-agents";
-import { DefaultAzureCredential } from "@azure/identity";
+import { resetThread } from "@/services/threadState";
+import { createUserGpts, getUserGptsById } from "@/services/userGpts.mongo";
+import type { Meta } from "@/types/gpts";
+import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
+import { describeSource, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
+import { decodePostback } from "@/utils/postback";
 import { setNxEx } from "@/utils/redis";
-import { AZURE } from "@/utils/env";
 
-const endpoint = AZURE.AI_PRJ_ENDPOINT;
+const TABLE: Record<"gpts", Record<string, Handler>> = {
+  gpts: {
+    save,
+    continue: cont,
+    new: newRule,
+    activate,
+  },
+};
 
-function getRecipientId(event: PostbackEvent): string | undefined {
-  switch (event.source.type) {
-    case "user": return event.source.userId;
-    case "group": return event.source.groupId;
-    case "room": return event.source.roomId;
-    default: return undefined;
-  }
-}
-function getThreadOwnerId(event: PostbackEvent): string | undefined {
-  switch (event.source.type) {
-    case "user": return event.source.userId;
-    case "group": return `group:${event.source.groupId}`;
-    case "room": return `room:${event.source.roomId}`;
-    default: return undefined;
-  }
+// 保存名のデフォルト生成（metaを参照）
+function defaultTitleFromMeta(meta?: Meta): string {
+  const t = meta?.slots?.topic;
+  const p = meta?.slots?.place ?? undefined;
+  const d = meta?.slots?.date_range ?? undefined;
+  const intent = meta?.intent;
+  if (intent === "event" && t) return `イベント: ${t}${p ? ` @${p}` : ""}${d ? ` (${d})` : ""}`;
+  if (intent === "news"  && t) return `ニュース: ${t}${d ? ` (${d})` : ""}`;
+  if (intent === "buy"   && t) return `購入: ${t}${p ? ` @${p}` : ""}`;
+  if (t && p) return `${t} @${p}`;
+  if (t) return t;
+  return "未命名ルール";
 }
 
 // 保存
@@ -34,6 +40,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
   const threadId = args["tid"];
   if (!recipientId || !threadOwnerId || !threadId) return;
 
+  // 重複タップ禁止
   try {
     const dedupKey = `pb:save:${threadOwnerId}:${threadId}`;
     const ok = await setNxEx(dedupKey, "1", 30);
@@ -59,20 +66,23 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
     return;
   }
 
+  const name = defaultTitleFromMeta(inst?.meta as Meta | undefined);
   const g = await createUserGpts({
     userId: threadOwnerId,
     instpack: inst.instpack,
     fromThreadId: threadId,
-    name: "My GPTS",
+    name,
   });
 
   await setBinding(threadOwnerId, g.id, inst.instpack);
 
-  try {
-    const agents = new AgentsClient(endpoint, new DefaultAzureCredential());
-    await agents.threads.delete(threadId);
-  } catch { /* ignore */ }
+// 旧threadの破棄->旧threadは破棄しない
+//  try {
+//    const agents = new AgentsClient(endpoint, new DefaultAzureCredential());
+//    await agents.threads.delete(threadId);
+//  } catch { /* ignore */ }
 
+  // 一時保存レコードは削除する
   try { await deleteThreadInst(threadOwnerId, threadId); } catch {}
 
   await sendMessagesReplyThenPush({
@@ -84,10 +94,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
 
 // 続ける
 export async function cont(event: PostbackEvent) {
-  const recipientId =
-    event.source.type === "user" ? event.source.userId :
-    event.source.type === "group" ? event.source.groupId :
-    event.source.type === "room" ? event.source.roomId : undefined;
+  const recipientId = getRecipientId(event);
   if (!recipientId) return;
 
   await sendMessagesReplyThenPush({
@@ -95,4 +102,108 @@ export async function cont(event: PostbackEvent) {
     to: recipientId,
     messages: toTextMessages(["了解しました。続けましょう！"]),
   });
+}
+
+// 新規作成（既存スレッド破棄＋バインディング解除）
+export async function newRule(event: PostbackEvent) {
+  const recipientId = getRecipientId(event);
+  const threadOwnerId = getThreadOwnerId(event);
+  if (!recipientId || !threadOwnerId) return;
+
+  // 現在の会話は破棄し、既存の有効化ルールも解除
+  try { await resetThread(threadOwnerId); } catch {}
+  try { await clearBinding(threadOwnerId); } catch {}
+  try { await purgeAllThreadInstByUser(userId); } catch(() => {});
+
+  await sendMessagesReplyThenPush({
+    replyToken: event.replyToken!,
+    to: recipientId,
+    messages: toTextMessages([
+      "新しいチャットルールを作りましょう。",
+      "ルールの内容、用途や対象をひと言で教えてください。",
+    ]),
+  });
+}
+
+// 既存チャットルールを有効化
+export async function activate(event: PostbackEvent, args: Record<string, string> = {}) {
+  const recipientId = getRecipientId(event);
+  const threadOwnerId = getThreadOwnerId(event);
+  if (!recipientId || !threadOwnerId) return;
+
+  const gptsId = (args["gptsId"] || "").trim();
+  let instpack = (args["instpack"] || "").trim();
+
+  // instpack未同梱ならDBから取得
+  if (!instpack && gptsId) {
+    const doc = await getUserGptsById(threadOwnerId, gptsId);
+    instpack = doc?.instpack?.trim() ?? "";
+  }
+
+  if (!gptsId || !instpack) {
+    await sendMessagesReplyThenPush({
+      replyToken: event.replyToken!,
+      to: recipientId,
+      messages: toTextMessages(["⚠️有効化できませんでした。対象が見つからないか内容が空です。"]),
+    });
+    return;
+  }
+
+  await setBinding(threadOwnerId, gptsId, instpack);
+
+  await sendMessagesReplyThenPush({
+    replyToken: event.replyToken!,
+    to: recipientId,
+    messages: toTextMessages(["選択したチャットルールを有効化しました。"]),
+  });
+}
+
+type Handler = (event: PostbackEvent, args?: Record<string, string>) => Promise<void>;
+
+// MAIN router: postback共通ルータ
+export async function handlePostback(event: WebhookEvent): Promise<void> {
+  if (event.type !== "postback" || !event.postback?.data) return;
+
+  const pe = event as PostbackEvent;
+  const src = describeSource(pe);
+  const corr = CorrContext.get();
+  const rawData = pe.postback.data;
+  const decoded = decodePostback(rawData);
+
+  const ctx = {
+    requestId: corr?.requestId,
+    threadId: decoded?.args?.tid ?? corr?.threadId,
+    runId: decoded?.args?.rid ?? corr?.runId,
+    userId: src.id,
+  };
+
+  console.info("[postback] received", {
+    src,
+    rawData,
+    params: pe.postback.params ?? null,
+    action: decoded ? `${decoded.ns}/${decoded.fn}` : "unknown",
+    args: decoded?.args ?? null,
+    ctx,
+  });
+
+  if (!decoded) return;
+
+  const mod = TABLE[decoded.ns as keyof typeof TABLE];
+  const fn = mod?.[decoded.fn];
+  if (!fn) {
+    console.warn(`[postback] unknown ns/fn: ${decoded.ns}/${decoded.fn}`, { ctx });
+    return;
+  }
+
+  try {
+    await fn(pe, decoded.args ?? {});
+    console.info("[postback] handled", {
+      action: `${decoded.ns}/${decoded.fn}`,
+      args: decoded.args ?? null,
+      src,
+      ctx,
+    });
+  } catch (e) {
+    console.error(`[postback] handler error: ${decoded.ns}/${decoded.fn}`, e, { ctx });
+  }
 }

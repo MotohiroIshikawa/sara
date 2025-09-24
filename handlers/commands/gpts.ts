@@ -1,7 +1,8 @@
 import { type WebhookEvent } from "@line/bot-sdk";
-import { toTextMessages, sendMessagesReplyThenPush } from "@/utils/lineSend";
 import { listUserGpts, getUserGptsById } from "@/services/userGpts.mongo";
 import { setBinding, clearBinding } from "@/services/gptsBindings.mongo";
+import { toTextMessages, sendMessagesReplyThenPush } from "@/utils/lineSend";
+import { getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 
 // /gpts コマンド群（最小）
 //   /gpts list               : ユーザーの保存済みGPTSを一覧表示
@@ -10,23 +11,6 @@ import { setBinding, clearBinding } from "@/services/gptsBindings.mongo";
 //
 // 返り値: true = このハンドラが処理した（上位は以降の処理をしないでOK）
 //         false = /gpts でない（上位に処理を回す）
-
-function getRecipientId(event: WebhookEvent): string | undefined {
-  switch (event.source.type) {
-    case "user":  return event.source.userId;
-    case "group": return event.source.groupId;
-    case "room":  return event.source.roomId;
-    default:      return undefined;
-  }
-}
-function getThreadOwnerId(event: WebhookEvent): string | undefined {
-  switch (event.source.type) {
-    case "user":  return event.source.userId;
-    case "group": return `group:${event.source.groupId}`;
-    case "room":  return `room:${event.source.roomId}`;
-    default:      return undefined;
-  }
-}
 
 // コマンド文字列を簡易に分解
 function parse(text: string): { cmd: string; args: string[] } {

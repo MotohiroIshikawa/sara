@@ -7,6 +7,14 @@ export function isRecord<T extends Record<string, unknown> = Record<string, unkn
   return typeof v === "object" && v !== null;
 }
 
+export function isString(x: unknown): x is string {
+  return typeof x === "string";
+}
+
+export function isNumber(x: unknown): x is number {
+  return typeof x === "number" && Number.isFinite(x);
+}
+
 /** createAgent に渡せるツール: そのまま or { definition } ラッパー */
 export type ToolLike = ToolDefinitionUnion | { definition: ToolDefinitionUnion };
 
@@ -34,6 +42,10 @@ export function toDefinition(t: ToolLike | unknown): ToolDefinitionUnion {
 export type NonFunctionToolCall = { id: string; type?: Exclude<string, "function"> };
 export type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown } };
 export type ToolCall = FunctionToolCall | NonFunctionToolCall;
+
+export function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
+  return tc?.type === "function";
+}
 
 /** toolCall らしさの判定（id:string は必須。function 型は function オブジェクト必須） */
 export function isToolCallLike(v: unknown): v is ToolCall {

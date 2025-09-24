@@ -1,11 +1,6 @@
 import { randomUUID, createHash } from "crypto";
 import type { UserGptsDoc } from "@/types/db";
-import { getUserGptsCollection } from "@/utils/mongo";
-import { ObjectId, type Filter } from "mongodb";
-
-// 目的:
-//  - ユーザーが「保存」を押した instpack をユーザーの GPTS 保管庫に保存
-//  - 後で一覧/選択できるように最低限のAPIを提供
+import { getUserGptsCollection, idMatchers } from "@/utils/mongo";
 
 let _indexesReady = false;
 async function ensureIndexes(): Promise<void> {
@@ -37,8 +32,7 @@ export async function createUserGpts(input: {
   const now = new Date();
   const hash = sha256(input.instpack);
   
-  const doc: (UserGptsDoc & { _id: string }) = {
-    _id: id,
+  const doc: UserGptsDoc = {
     id,
     userId: input.userId,
     name: input.name,
@@ -78,15 +72,52 @@ export async function getUserGptsById(
   await ensureIndexes();
   const col = await getUserGptsCollection();
 
-  const or: Filter<UserGptsDoc>[] = [
-    { id: gptsId },      // 旧データ互換: id フィールド
-    { _id: gptsId },     // 新データ: _id に文字列を採用
-  ];
-  if (ObjectId.isValid(gptsId)) {
-    or.push({ _id: new ObjectId(gptsId) }); // 念のため ObjectId も許容
-  }
-  const query = { userId, $or: or } satisfies Filter<UserGptsDoc>;
-  return col.findOne(query);
+  return col.findOne(
+    { userId, $or: idMatchers(gptsId) },
+    { projection: { _id: 0 } }
+  );
 }
 
-export {};
+export async function updateUserGpts(input: {
+  userId: string;
+  gptsId: string;
+  name?: string;
+  instpack?: string;
+  tags?: string[];
+}) {
+  const col = await getUserGptsCollection();
+
+  const $set: Partial<UserGptsDoc> = { updatedAt: new Date() };
+  if (input.name !== undefined) $set.name = input.name;
+  if (input.tags !== undefined) $set.tags = input.tags;
+  if (typeof input.instpack === "string") {
+    $set.instpack = input.instpack;
+    $set.hash = sha256(input.instpack);
+  }
+
+  const res = await col.updateOne(
+    { userId: input.userId, $or: idMatchers(input.gptsId) },
+    { $set: {
+      ...(input.name ? { name: input.name } : {}), 
+      ...(input.instpack ? { instpack: input.instpack } : {}), 
+      ...(input.tags ? { tags: input.tags } : {}), 
+      updatedAt: new Date() 
+    }}
+  );
+  return (res.modifiedCount ?? 0) > 0;
+}
+
+export async function hardDeleteUserGpts(userId: string, gptsId: string) {
+  const col = await getUserGptsCollection();
+  const res = await col.deleteOne({ userId, $or: idMatchers(gptsId) });
+  return (res.deletedCount ?? 0) > 0;
+}
+
+export async function softDeleteUserGpts(userId: string, gptsId: string) {
+  const col = await getUserGptsCollection();
+  const res = await col.updateOne(
+    { userId, $or: [{ id: gptsId }, { _id: gptsId }] },
+    { $set: { deletedAt: new Date(), updatedAt: new Date() } },
+  );
+  return (res.modifiedCount ?? 0) > 0;
+}
