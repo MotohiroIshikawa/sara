@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type GptsDetailResponse,
   type GptsUpdateRequest,
@@ -66,40 +66,52 @@ export default function Client({ id }: { id: string }) {
     }
   }
 
+  const counts = useMemo(() => ({
+    name: name.length,
+    inst: inst.length,
+  }), [name, inst]);
+
   if (loading) return <main className="p-4">読み込み中…</main>;
   if (err) return <main className="p-4 text-red-600">{err}</main>;
 
-  return (
-    <main className="p-4 space-y-4">
-      <h1 className="text-lg font-semibold">チャットルールの編集</h1>
+return (
+    <main className="mx-auto max-w-screen-sm p-4 space-y-5">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight">チャットルールの編集</h1>
+        <p className="text-sm text-gray-500">名前とルールを編集します</p>
+      </header>
 
       {!confirming ? (
         <>
-          <label className="block text-sm font-medium">名称</label>
+          <label className="block text-sm font-medium">名前</label>
           <input
-            className="w-full border rounded p-2"
+            className="w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-blue-500"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            placeholder="ルールの名前を入力..."
           />
+          <div className="mt-1 text-right text-[11px] text-gray-500">{counts.name} 文字</div>
 
-          <label className="block text-sm font-medium mt-3">
-            本文（instpack）
-          </label>
+          <label className="mt-4 block text-sm font-medium">ルール</label>
           <textarea
-            className="w-full border rounded p-2 h-64"
+            className="w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-blue-500
+                       min-h-[55vh] md:min-h-[60vh] resize-y" // 高さを画面の過半に
             value={inst}
             onChange={(e) => setInst(e.target.value)}
+            placeholder="チャットルールを入力..."
           />
+          <div className="mt-1 text-right text-[11px] text-gray-500">{counts.inst} 文字</div>
 
-          <div className="flex gap-2 mt-3">
+          {/* フッター操作 */}
+          <div className="sticky bottom-2 z-10 mt-4 flex gap-2">
             <button
-              className="px-4 py-2 bg-gray-200 rounded"
+              className="flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400"
               onClick={() => window.history.back()}
             >
               戻る
             </button>
             <button
-              className="px-4 py-2 bg-blue-600 text-white rounded"
+              className="flex-1 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               onClick={() => setConfirming(true)}
             >
               確認
@@ -107,29 +119,38 @@ export default function Client({ id }: { id: string }) {
           </div>
         </>
       ) : (
-        <div className="space-y-3">
-          <div className="border rounded p-3">
+        // 確認画面
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="text-sm text-gray-500">保存内容の確認</div>
-            <div className="font-medium">名称</div>
-            <div>{name || "(無題)"}</div>
-            <div className="font-medium mt-2">本文</div>
-            <pre className="whitespace-pre-wrap break-words">{inst}</pre>
+
+            <div className="mt-2 text-sm font-medium">名前</div>
+            <div className="mt-1 break-words">{name || "(無題)"}</div>
+
+            <div className="mt-4 text-sm font-medium">ルール</div>
+            <pre
+              className="mt-1 max-h-[60vh] overflow-auto rounded-md bg-gray-50 p-3 text-[14px] leading-relaxed
+                         whitespace-pre-wrap break-words overflow-x-hidden" // ★ 横幅を出さない
+            >
+              {inst}
+            </pre>
           </div>
-          <div className="flex gap-2">
+
+          <div className="sticky bottom-2 z-10 mt-2 flex gap-2">
             <button
-              className="px-4 py-2 bg-gray-200 rounded"
+              className="flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400"
               onClick={() => setConfirming(false)}
             >
               修正する
             </button>
             <button
-              className="px-4 py-2 bg-blue-600 text-white rounded"
+              className="flex-1 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               onClick={() => void onSave()}
             >
               保存
             </button>
           </div>
-        </div>
+        </section>
       )}
     </main>
   );

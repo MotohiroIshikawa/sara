@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type GptsListItem,
   type GptsListResponse,
@@ -15,6 +15,8 @@ export default function Client() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null); // 連打防止
+  const [keyword, setKeyword] = useState(""); // 検索キーワード
+  const [appliedId, setAppliedId] = useState<string | null>(null); // ★ 適用中ハイライト
 
   useEffect(() => {
     void (async () => {
@@ -25,7 +27,6 @@ export default function Client() {
           setErr("ログインに失敗しました");
           return;
         }
-
         const r = await fetch("/api/gpts/list", { credentials: "include" });
         const j: unknown = await r.json();
         if (!r.ok) {
@@ -46,6 +47,17 @@ export default function Client() {
     })();
   }, []);
 
+  // 検索フィルタ（名前・ID・タグ）
+  const filtered = useMemo(() => {
+    if (!keyword.trim()) return items;
+    const k = keyword.trim().toLowerCase();
+    return items.filter((it) => {
+      const pool = [it.name, it.id, ...(it.tags ?? [])];
+      return pool.some((v) => v?.toLowerCase?.().includes(k));
+    });
+  }, [items, keyword]);
+  
+  // 削除
   async function onDelete(id: string) {
     if (!confirm("このチャットルールを削除します。よろしいですか？")) return;
     setBusyId(id);
@@ -59,6 +71,7 @@ export default function Client() {
         return;
       }
       setItems((prev) => prev.filter((x) => x.id !== id));
+      if (appliedId === id) setAppliedId(null); // 適用中の場合は適用中を消す
     } catch {
       alert("削除時にエラーが発生しました");
     } finally {
@@ -66,6 +79,7 @@ export default function Client() {
     }
   }
 
+  // 適用中
   async function onApply(id: string) {
     setBusyId(id);
     try {
@@ -80,6 +94,7 @@ export default function Client() {
       }
       if (isGptsApplyResponse(j)) {
         const data: GptsApplyResponse = j;
+        setAppliedId(id);
         alert(`「${data.name || "選択したルール"}」を適用しました。`);
       } else {
         alert("応答形式が不正です");
@@ -91,36 +106,117 @@ export default function Client() {
     }
   }
 
-  if (loading) return <main className="p-4">読み込み中…</main>;
-  if (err) return <main className="p-4 text-red-600">{err}</main>;
+  // ローディング
+  if (loading) {
+    return (
+      <main className="mx-auto max-w-screen-sm p-4 space-y-4">
+        <Header />
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </main>
+    );
+  }
 
+  // エラー
+  if (err) {
+    return (
+      <main className="mx-auto max-w-screen-sm p-4 space-y-3">
+        <Header />
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+          {err}
+        </div>
+      </main>
+    );
+  }
+
+  // 未登録
   if (items.length === 0) {
     return (
-      <main className="p-4 space-y-3">
-        <h1 className="text-lg font-semibold">チャットルール一覧</h1>
-        <p>作成済みのチャットルールはありません。</p>
+      <main className="mx-auto max-w-screen-sm p-4 space-y-4">
+        <Header />
+        <EmptyCard />
       </main>
     );
   }
 
   return (
-    <main className="p-4 space-y-4">
-      <h1 className="text-lg font-semibold">チャットルール一覧</h1>
+    <main className="mx-auto max-w-screen-sm p-4 space-y-4">
+      <Header appliedId={appliedId} />
+      {/* 検索ボックス */}
+      <div className="relative">
+        <input
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="名前・タグ・IDで絞り込み"
+          className="w-full rounded-xl border px-4 py-3 pr-10 text-[15px] outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        {/* 擬似アイコン（Tailwindのみで） */}
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+          🔎
+        </span>
+      </div>
+
+      {/* リスト */}
       <ul className="space-y-3">
         {items.map((it) => {
           const isBusy = busyId === it.id;
           const href = `/gpts/${encodeURIComponent(it.id)}`;
           return (
-            <li key={it.id} className="border rounded p-3">
-              <div className="font-medium">{it.name}</div>
-              <div className="text-xs text-gray-500">
-                更新: {new Date(it.updatedAt).toLocaleString()}
+            <li
+              key={it.id}
+              className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:scale-[0.995]"
+            >
+              {/* タイトル行（truncate が効くように min-w-0 を親に） */}
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <div className="min-w-0">
+                  {/* タイトルは1行で省略（(ongoing) も文字列の一部のまま） */}
+                  <div className="font-medium max-w-full truncate" title={it.name}>
+                    {it.name}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    更新: {new Date(it.updatedAt).toLocaleString()}
+                  </div>
+
+                  {/* タグ（任意） */}
+                  {it.tags && it.tags.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {it.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="mt-2 flex flex-wrap gap-2">
+
+              {/* ボタン列 */}
+              <div className="mt-3 flex items-center gap-2">
+                {/* 適用 */}
+                <button
+                  className={[
+                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-white",
+                    isBusy ? "bg-green-300" : "bg-green-600 hover:bg-green-700",
+                    "focus:outline-none focus:ring-2 focus:ring-green-500",
+                  ].join(" ")}
+                  disabled={isBusy}
+                  onClick={() => void onApply(it.id)}
+                  title="このチャットで使うルールとして適用します"
+                >
+                  {isBusy ? "適用中…" : "適用"}
+                </button>
+
+                {/* 編集（busy 中は無効化） */}
                 <a
-                  className={`px-3 py-1 rounded text-white ${
-                    isBusy ? "bg-blue-300" : "bg-blue-600"
-                  }`}
+                  className={[
+                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                    isBusy ? "bg-blue-300 text-white" : "bg-blue-600 text-white hover:bg-blue-700",
+                    "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                  ].join(" ")}
                   aria-disabled={isBusy}
                   href={isBusy ? undefined : href}
                   onClick={(e) => {
@@ -129,30 +225,66 @@ export default function Client() {
                 >
                   編集
                 </a>
+
+                {/* 削除 */}
                 <button
-                  className={`px-3 py-1 rounded ${
-                    isBusy ? "bg-gray-300" : "bg-gray-200"
-                  }`}
+                  className={[
+                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                    isBusy ? "bg-gray-300 text-gray-600" : "bg-gray-200 hover:bg-gray-300",
+                    "focus:outline-none focus:ring-2 focus:ring-gray-400",
+                  ].join(" ")}
                   disabled={isBusy}
                   onClick={() => void onDelete(it.id)}
                 >
                   削除
-                </button>
-                <button
-                  className={`px-3 py-1 rounded ${
-                    isBusy ? "bg-green-300 text-white" : "bg-green-600 text-white"
-                  }`}
-                  disabled={isBusy}
-                  onClick={() => void onApply(it.id)}
-                  title="このチャットで使うルールとして適用します"
-                >
-                  適用
                 </button>
               </div>
             </li>
           );
         })}
       </ul>
+
+      {/* フッターノート */}
+      <p className="pt-1 text-center text-[11px] text-gray-500">
+        すべての通信は認証済みセッションで送信されます（credentials: include）。
+      </p>
     </main>
+  );
+}
+
+function Header(props: { appliedId?: string | null }) {
+  return (
+    <header className="flex items-center justify-between">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">チャットルール一覧</h1>
+        <p className="text-[13px] text-gray-500">保存済みのルールを編集・適用できます</p>
+      </div>
+      {props.appliedId ? (
+        <span className="hidden rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 sm:inline-block">
+          適用中: {props.appliedId}
+        </span>
+      ) : null}
+    </header>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="h-4 w-40 animate-pulse rounded bg-gray-200" />
+      <div className="mt-2 h-3 w-24 animate-pulse rounded bg-gray-200" />
+      <div className="mt-3 h-8 w-full animate-pulse rounded bg-gray-200" />
+    </div>
+  );
+}
+
+function EmptyCard() {
+  return (
+    <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-6 text-center">
+      <div className="text-base font-medium">チャットルールは未登録</div>
+      <p className="mt-1 text-sm text-gray-500">
+        まずは LINE で会話し、「保存しますか？」で保存すると表示されます。
+      </p>
+    </div>
   );
 }

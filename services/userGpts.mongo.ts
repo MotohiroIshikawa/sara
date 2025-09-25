@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "crypto";
 import type { UserGptsDoc } from "@/types/db";
-import { getUserGptsCollection, idMatchers } from "@/utils/mongo";
+import { getGptsBindingsCollection, getUserGptsCollection, idMatchers } from "@/utils/mongo";
 
 let _indexesReady = false;
 async function ensureIndexes(): Promise<void> {
@@ -151,8 +151,25 @@ export async function hardDeleteUserGpts(userId: string, gptsId: string) {
 export async function softDeleteUserGpts(userId: string, gptsId: string) {
   const col = await getUserGptsCollection();
   const res = await col.updateOne(
-    { userId, $or: [{ id: gptsId }, { _id: gptsId }] },
+    { userId, $or: idMatchers<UserGptsDoc>(gptsId), deletedAt: { $exists: false }, }, // 既に削除済みなら更新しない
     { $set: { deletedAt: new Date(), updatedAt: new Date() } },
   );
   return (res.modifiedCount ?? 0) > 0;
+}
+
+export async function clearBindingIfMatches(
+  scopedId: string,
+  gptsId: string,
+  ctx?: { rid?: string }
+) {
+  const rid = ctx?.rid ?? crypto.randomUUID().slice(0, 8);
+  const col = await getGptsBindingsCollection();
+  const cur = await col.findOne({ scopedId });
+
+  if (cur?.gptsId !== gptsId) {
+    console.info(`[gpts.unbind:${rid}] skip_not_bound`, { scopedId, gptsId });
+    return;
+  }
+  await col.deleteOne({ scopedId });
+  console.info(`[gpts.unbind:${rid}] cleared_on_delete`, { scopedId, gptsId });
 }
