@@ -15,6 +15,10 @@ export function isNumber(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }
 
+export function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every(isString);
+}
+
 /** createAgent に渡せるツール: そのまま or { definition } ラッパー */
 export type ToolLike = ToolDefinitionUnion | { definition: ToolDefinitionUnion };
 
@@ -49,12 +53,12 @@ export function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
 
 /** toolCall らしさの判定（id:string は必須。function 型は function オブジェクト必須） */
 export function isToolCallLike(v: unknown): v is ToolCall {
-  if (!isRecord(v)) return false;
-  const id = v["id"];
-  if (typeof id !== "string") return false;
-  const type = v["type"];
+   if (!isRecord(v)) return false;
+  const id = (v as Record<string, unknown>)["id"];
+  if (!isString(id)) return false;
+  const type = (v as Record<string, unknown>)["type"];
   if (type === "function") {
-    const fn = v["function"];
+    const fn = (v as Record<string, unknown>)["function"];
     return isRecord(fn);
   }
   return true;
@@ -100,7 +104,7 @@ export function isGptsItemDetail(v: unknown): v is GptsItemDetail {
 }
 
 export function isGptsDetailResponse(v: unknown): v is GptsDetailResponse {
-  return isRecord(v) && isGptsItemDetail(v.item);
+  return isRecord(v) && isGptsItemDetail((v as { item?: unknown }).item);
 }
 
 /** 一覧アイテム */
@@ -108,6 +112,7 @@ export type GptsListItem = {
   id: string;
   name: string;
   updatedAt: string; // ISO8601
+  tags?: string[];
 };
 
 /** 一覧レスポンス */
@@ -128,15 +133,16 @@ export function isGptsListItem(v: unknown): v is GptsListItem {
     isRecord(v) &&
     isString(v.id) &&
     isString(v.name) &&
-    isString(v.updatedAt)
+    isString(v.updatedAt) &&
+    (((v as { tags?: unknown }).tags === undefined) || isStringArray((v as { tags?: unknown }).tags))
   );
 }
 
 export function isGptsListResponse(v: unknown): v is GptsListResponse {
   return (
     isRecord(v) &&
-    Array.isArray(v.items) &&
-    v.items.every(isGptsListItem)
+    Array.isArray((v as { items?: unknown }).items) &&
+    (v as { items: unknown[] }).items.every(isGptsListItem)
   );
 }
 
@@ -144,7 +150,7 @@ export function isGptsApplyResponse(v: unknown): v is GptsApplyResponse {
   return (
     isRecord(v) &&
     v.ok === true &&
-    isString(v.appliedId) &&
-    isString(v.name)
+    isString((v as { appliedId?: unknown }).appliedId) &&
+    isString((v as { name?: unknown }).name)
   );
 }

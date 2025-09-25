@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { listUserGptsByUpdatedDesc } from "@/services/userGpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 
 export async function GET(request: Request) {
-  const rid = crypto.randomUUID().slice(0, 8);
+  const rid = randomUUID().slice(0, 8);
   try {
-    const sub = await requireLineUser(request);
-    const msgUserIdHdr = request.headers.get("x-line-msg-user-id") || undefined;
-    console.info(`[gpts.list:${rid}] auth ids`, { subPreview: `${sub.slice(0,4)}…${sub.slice(-4)}`, msgUserIdHdr });
-
-    const items = await listUserGptsByUpdatedDesc(sub);
+    const userId = await requireLineUser(request);
+    console.info(`[gpts.list:${rid}] auth sub=${userId.slice(0,4)}…${userId.slice(-4)}`);
+    const items = await listUserGptsByUpdatedDesc(userId);
     return NextResponse.json({ items });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;

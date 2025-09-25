@@ -10,6 +10,7 @@ type WithSource = { source: Source };
 export type LineEvent = WebhookEvent | PostbackEvent | MessageEvent | WithSource;
 
 export type SourceKind = "user" | "group" | "room" | "unknown";
+export type ScopeTag = "user" | "group" | "room";
 
 function srcOf(e: LineEvent): Source | undefined {
   const s = (e as WithSource).source as Source | undefined;
@@ -58,4 +59,31 @@ export function describeSource(e: LineEvent): { type: SourceKind; id?: string } 
   if (s.type === "group") return { type: "group", id: s.groupId };
   if (s.type === "room")  return { type: "room",  id: s.roomId };
   return { type: "unknown" };
+}
+
+// 任意のIDを "<scope>:<id>" に正規化
+export function toScopedId(scope: ScopeTag, id: string): string {
+  if (!id) throw new Error("id is empty");
+  const prefix = `${scope}:`;
+  return id.startsWith(prefix) ? id : `${prefix}${id}`;
+}
+
+// プレーンな LINE userId (U...) → "user:U..." へ
+export function toScopedUserId(userId: string): string {
+  if (!userId) throw new Error("userId is empty");
+  return toScopedId("user", userId);
+}
+
+// 文字列が "<scope>:<id>" 形式か判定
+export function isScopedId(v: string): boolean {
+  return /^[a-z]+:.+$/i.test(v);
+}
+
+// "<scope>:<id>" を分解
+export function parseScopedId(scoped: string): { scope: ScopeTag; id: string } {
+  const idx = scoped.indexOf(":");
+  if (idx <= 0) throw new Error("invalid scopedId");
+  const scope = scoped.slice(0, idx) as ScopeTag;
+  const id = scoped.slice(idx + 1);
+  return { scope, id };
 }
