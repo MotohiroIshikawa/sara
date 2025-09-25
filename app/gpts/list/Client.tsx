@@ -38,6 +38,19 @@ export default function Client() {
         if (isGptsListResponse(j)) {
           const data: GptsListResponse = j;
           setItems(data.items);
+          try {
+            const r2 = await fetch("/api/gpts/binding", { credentials: "include" });
+            if (r2.ok) {
+              const b: unknown = await r2.json();
+              if (b && typeof b === "object" && "gptsId" in b) {
+                const g = (b as { gptsId: unknown }).gptsId;
+                if (typeof g === "string" && g.length > 0) setAppliedId(g);
+                else setAppliedId(null);
+              }
+            }
+          } catch {
+            // binding が取れなくても致命ではないので黙って続行
+          }
         } else {
           setErr("予期しない応答形式です");
         }
