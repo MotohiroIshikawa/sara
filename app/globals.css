@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* 任意の共通スタイル */
+body {
+  @apply text-gray-800 leading-relaxed;
+}
+
+a {
+  @apply text-blue-600 hover:underline;
+}
