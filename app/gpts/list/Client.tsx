@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   type GptsListItem,
   type GptsListResponse,
@@ -11,12 +12,13 @@ import {
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
 export default function Client() {
+  const router = useRouter();
   const [items, setItems] = useState<GptsListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null); // 連打防止
   const [keyword, setKeyword] = useState(""); // 検索キーワード
-  const [appliedId, setAppliedId] = useState<string | null>(null); // ★ 適用中ハイライト
+  const [appliedId, setAppliedId] = useState<string | null>(null); // 適用中ハイライト
 
   useEffect(() => {
     void (async () => {
@@ -151,7 +153,6 @@ export default function Client() {
           placeholder="名前・タグ・IDで絞り込み"
           className="w-full rounded-xl border px-4 py-3 pr-10 text-[15px] outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {/* 擬似アイコン（Tailwindのみで） */}
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
           🔎
         </span>
@@ -159,18 +160,21 @@ export default function Client() {
 
       {/* リスト */}
       <ul className="space-y-3">
-        {items.map((it) => {
+        {filtered.map((it) => {
           const isBusy = busyId === it.id;
           const href = `/gpts/${encodeURIComponent(it.id)}`;
+          const applied = appliedId === it.id;
           return (
             <li
               key={it.id}
-              className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:scale-[0.995]"
+              className={[
+                "rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:scale-[0.995]",
+                applied ? "border-green-500 ring-1 ring-green-200" : "border-gray-200",
+              ].join(" ")}
             >
-              {/* タイトル行（truncate が効くように min-w-0 を親に） */}
+              {/* タイトル行 */}
               <div className="flex items-start justify-between gap-3 min-w-0">
                 <div className="min-w-0">
-                  {/* タイトルは1行で省略（(ongoing) も文字列の一部のまま） */}
                   <div className="font-medium max-w-full truncate" title={it.name}>
                     {it.name}
                   </div>
@@ -192,6 +196,12 @@ export default function Client() {
                     </div>
                   )}
                 </div>
+                {/* 適用中バッジ */}
+                {applied && (
+                  <span className="shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+                    適用中
+                  </span>
+                )}
               </div>
 
               {/* ボタン列 */}
@@ -210,21 +220,19 @@ export default function Client() {
                   {isBusy ? "適用中…" : "適用"}
                 </button>
 
-                {/* 編集（busy 中は無効化） */}
-                <a
+                {/* 編集 */}
+                <button
                   className={[
                     "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
                     isBusy ? "bg-blue-300 text-white" : "bg-blue-600 text-white hover:bg-blue-700",
                     "focus:outline-none focus:ring-2 focus:ring-blue-500",
                   ].join(" ")}
-                  aria-disabled={isBusy}
-                  href={isBusy ? undefined : href}
-                  onClick={(e) => {
-                    if (isBusy) e.preventDefault();
-                  }}
+                  disabled={isBusy}
+                  onClick={() => { if (!isBusy) router.push(href); }}
+                  title="ルールを編集します"
                 >
                   編集
-                </a>
+                </button>
 
                 {/* 削除 */}
                 <button
@@ -243,11 +251,6 @@ export default function Client() {
           );
         })}
       </ul>
-
-      {/* フッターノート */}
-      <p className="pt-1 text-center text-[11px] text-gray-500">
-        すべての通信は認証済みセッションで送信されます（credentials: include）。
-      </p>
     </main>
   );
 }
@@ -283,7 +286,7 @@ function EmptyCard() {
     <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-6 text-center">
       <div className="text-base font-medium">チャットルールは未登録</div>
       <p className="mt-1 text-sm text-gray-500">
-        まずは LINE で会話し、「保存しますか？」で保存すると表示されます。
+        LINEで会話して「保存しますか？」で保存するとチャットルールが表示されます。
       </p>
     </div>
   );
