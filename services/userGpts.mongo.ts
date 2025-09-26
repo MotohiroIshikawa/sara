@@ -8,13 +8,11 @@ async function ensureIndexes(): Promise<void> {
   if (_indexesReady) return;
   const col = await getUserGptsCollection();
 
-  // gptsId（または userId + gptsId）
   await col.createIndex({ gptsId: 1 }, { name: "uniq_gptsId", unique: true }).catch(() => {});
-  // userId 絞り込み + updatedAt 降順ソート用
-  await col.createIndex({ userId: 1, updatedAt: -1 }, { name: "idx_user_updated_desc" }).catch(() => {});
-  // 作成順で使う場合
   await col.createIndex({ userId: 1, createdAt: -1 }, { name: "idx_user_created_desc" }).catch(() => {});
-  
+  await col.createIndex({ userId: 1, updatedAt: 1 },  { name: "idx_user_updated_asc"  }).catch(() => {});
+  await col.createIndex({ userId: 1, updatedAt: -1 }, { name: "idx_user_updated_desc" }).catch(() => {});
+
   _indexesReady = true;
 }
 
@@ -121,4 +119,31 @@ export async function softDeleteUserGpts(input: { userId: string; gptsId: string
     update
   );
   return (r.modifiedCount ?? 0) > 0;
+}
+
+export async function listUserGptsByUpdatedDesc(
+  userId: string
+): Promise<Array<{ gptsId: string; name: string; updatedAt: Date; tags?: string[] }>> {
+  await ensureIndexes();
+  const col = await getUserGptsCollection();
+
+  // ★ Cosmos の ORDER BY 400 を避けるため、find だけ（ソートなし）
+  const cur = col.find(
+    { userId, deletedAt: { $exists: false } },
+    { projection: { _id: 0, gptsId: 1, name: 1, updatedAt: 1, tags: 1 } }
+  );
+
+  const out: Array<{ gptsId: string; name: string; updatedAt: Date; tags?: string[] }> = [];
+  for await (const d of cur) {
+    out.push({
+      gptsId: d.gptsId,
+      name: d.name,
+      updatedAt: new Date(d.updatedAt),
+      tags: d.tags,
+    });
+  }
+
+  // ★ アプリ側で降順ソート
+  out.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  return out;
 }
