@@ -8,11 +8,13 @@ async function ensureIndexes(): Promise<void> {
   if (_indexesReady) return;
   const col = await getUserGptsCollection();
 
-  // userId + gptsId でユニーク
-  await col.createIndex({ userId: 1, gptsId: 1 }, { name: "uniq_user_gpts", unique: true }).catch(() => {});
-  // 一覧・監査用
-  await col.createIndex({ userId: 1, deletedAt: 1, updatedAt: -1 }, { name: "idx_user_deleted_updated" }).catch(() => {});
-
+  // gptsId（または userId + gptsId）
+  await col.createIndex({ gptsId: 1 }, { name: "uniq_gptsId", unique: true }).catch(() => {});
+  // userId 絞り込み + updatedAt 降順ソート用
+  await col.createIndex({ userId: 1, updatedAt: -1 }, { name: "idx_user_updated_desc" }).catch(() => {});
+  // 作成順で使う場合
+  await col.createIndex({ userId: 1, createdAt: -1 }, { name: "idx_user_created_desc" }).catch(() => {});
+  
   _indexesReady = true;
 }
 
