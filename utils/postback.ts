@@ -3,7 +3,7 @@
 
 const PB_PREFIX = "pb?";
 
-export type PostbackEnvelope = {
+type PostbackEnvelope = {
   v?: number;                       // バージョン(将来の互換用)
   ns: string;                       // 名前空間 (例: "gpts")
   fn: string;                       // 関数名   (例: "save" / "continue")

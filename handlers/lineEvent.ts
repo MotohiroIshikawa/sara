@@ -9,14 +9,14 @@ import { connectBing } from "@/utils/connectBing";
 import { LINE } from "@/utils/env";
 import { fetchLineUserProfile } from "@/utils/lineProfile";
 import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm } from "@/utils/lineSend";
+import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
-import { getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 
 const replyMax = LINE.REPLY_MAX;
 
 // 保存しますか？を出すか判定
-export function shouldShowConfirm( meta: MetaForConfirm | undefined, instpack: string | undefined, threadId?: string ): boolean {
+function shouldShowConfirm( meta: MetaForConfirm | undefined, instpack: string | undefined, threadId?: string ): boolean {
   if (!threadId) return false;
   if (!instpack?.trim()) return false;
   if (!meta || meta.complete !== true) return false;
@@ -24,13 +24,7 @@ export function shouldShowConfirm( meta: MetaForConfirm | undefined, instpack: s
   return true;
 }
 
-/**
- * finalCheckBeforeConfirm: 確認ダイアログ前の最終チェック
- * 
- * @param meta 
- * @param instpack 
- * @returns 
- */
+/** finalCheckBeforeConfirm: 確認ダイアログ前の最終チェック */
 function finalCheckBeforeConfirm(meta: MetaForConfirm | undefined, instpack: string | undefined): { ok: boolean; reason?: string } {
   if (!meta) return { ok: false, reason: "meta:undefined" };
   if (!isTrackable(meta)) return { ok: false, reason: "meta:not_trackable" };
@@ -47,18 +41,15 @@ const ellipsize = (s: string, max = 300) =>
   typeof s === "string" && s.length > max ? `${s.slice(0, max)}…` : s;
 const shortId = (id?: string) =>
   id ? `${id.slice(0, 4)}…${id.slice(-4)}` : undefined;
-// 
+
 /**
  * LINE Webhookをログ向けに要約
  *   常に出す: type / source / timestamp
  *   message: type と id、text のときだけ text（長文は省略）
  *   postback: data と params（data は省略表示）
  *   replyToken は漏洩リスクがあるので true/false のみ
- * 
- * @param e 
- * @returns 
  */
-export function buildLineEventLog(e: WebhookEvent) {
+function buildLineEventLog(e: WebhookEvent) {
   const base: Record<string, unknown> = {
     type: e.type,
     source: e.source?.type,
@@ -129,18 +120,14 @@ export function buildLineEventLog(e: WebhookEvent) {
   }
 }
 
-/**
- * MAIN
- * 
- * @param event 
- * @returns 
- */
+/** MAIN */
 export async function lineEvent(event: WebhookEvent) {
   console.info("[LINE webhook]", buildLineEventLog(event));
 
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
-  if (!recipientId || !threadOwnerId) return;
+  const bindingTarget = getBindingTarget(event);
+  if (!recipientId || !threadOwnerId || !bindingTarget) return;
 
   //　postback を共通ルータへ
   if (event.type === "postback") {
@@ -185,8 +172,7 @@ export async function lineEvent(event: WebhookEvent) {
       }
 
       // Azure OpenAI (Grounding with Bing Search) への問い合わせ
-      const binding = await getBinding(threadOwnerId); 
-      let confirmMsg: messagingApi.TemplateMessage | null = null;
+      const binding = await getBinding(bindingTarget); 
 
       const replyOverride = binding?.instpack
         ? buildReplyWithUserInstpack(binding.instpack)
@@ -208,6 +194,7 @@ export async function lineEvent(event: WebhookEvent) {
         console.info("[lineEvent] confirm skipped by finalCheck:", { tid: res.threadId, reason: guard.reason });
       }
 
+      let confirmMsg: messagingApi.TemplateMessage | null = null;
       if (show && guard.ok) { 
         confirmMsg = buildSaveOrContinueConfirm({
           text: "この内容で保存しますか？",

@@ -1,5 +1,6 @@
 import type { ThreadInstDoc } from "@/types/db";
-import { getCollection, getThreadInstCollection } from "@/utils/mongo";
+import type { Meta } from "@/types/gpts";
+import { getThreadInstCollection } from "@/utils/mongo";
 
 // TTL日数（既定7日）。必要なら環境変数で上書き: THREAD_INST_TTL_DAYS=14 など
 const TTL_DAYS = Math.max(1, Number.parseInt(process.env.THREAD_INST_TTL_DAYS ?? "7", 10) || 7);
@@ -9,8 +10,8 @@ const TTL_DAYS = Math.max(1, Number.parseInt(process.env.THREAD_INST_TTL_DAYS ??
 //  - 保存ボタン押下時にここから読み出して user_gpts へ昇格
 
 let _indexesReady = false;
-// コレクションのインデックスを一度だけ作成
 
+// Cosmos 互換向けユーティリティ
 type MaybeMongoError = { code?: number; codeName?: string; message?: string };
 
 // エラーチェック（重複で unique index を作れないケース）
@@ -89,25 +90,28 @@ export async function upsertThreadInst(input: {
   userId: string;
   threadId: string;
   instpack: string;
-  meta?: unknown;
+  meta?: Meta | null;
   updatedAt?: Date;
 }): Promise<void> {
   await ensureIndexes();
   const col = await getThreadInstCollection();
+  const now = input.updatedAt ?? new Date();
+
   await col.updateOne(
     { userId: input.userId, threadId: input.threadId },
     {
       $set: {
         instpack: input.instpack,
         meta: input.meta ?? null,
-        updatedAt: input.updatedAt ?? new Date(),
+        updatedAt: now,
       },
+      $setOnInsert: { createdAt: now },
     },
     { upsert: true }
   );
 }
 
-// 取得（無ければ null）
+/**  取得（無ければ null） */
 export async function getThreadInst(
   userId: string,
   threadId: string
@@ -117,7 +121,7 @@ export async function getThreadInst(
   return col.findOne({ userId, threadId });
 }
 
-// 削除（true=削除された / false=該当なし）
+/** 削除（true=削除された / false=該当なし） */
 export async function deleteThreadInst(
   userId: string,
   threadId: string
@@ -130,7 +134,8 @@ export async function deleteThreadInst(
 
 // 対象ユーザのThread一括削除
 export async function purgeAllThreadInstByUser(userId: string) {
+  await ensureIndexes();
   const col = await getThreadInstCollection();
-  const res = await col.deleteMany({ ownerId: userId });
+  const res = await col.deleteMany({ userId });
   return (res?.deletedCount ?? 0) > 0;
 }

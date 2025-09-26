@@ -1,12 +1,12 @@
 import { type PostbackEvent, type WebhookEvent } from "@line/bot-sdk";
 import { CorrContext } from "@/logging/corr";
+import { createGpts, getGptsById } from "@/services/gpts.mongo";
 import { setBinding, clearBinding } from "@/services/gptsBindings.mongo";
 import { getThreadInst, deleteThreadInst, purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
-import { createUserGpts, getUserGptsById } from "@/services/userGpts.mongo";
 import type { Meta } from "@/types/gpts";
 import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { describeSource, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
+import { describeSource, getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 import { decodePostback } from "@/utils/postback";
 import { setNxEx } from "@/utils/redis";
 
@@ -34,14 +34,15 @@ function defaultTitleFromMeta(meta?: Meta): string {
 }
 
 // 保存
-export async function save(event: PostbackEvent, args: Record<string, string> = {}) {
+async function save(event: PostbackEvent, args: Record<string, string> = {}) {
   const recipientId = getRecipientId(event);
   const userId = getThreadOwnerId(event, "plain");
   const scopedId = getThreadOwnerId(event, "scoped");
+  const bindingTarget = getBindingTarget(event);
   const threadId = args["tid"];
-  if (!recipientId || !userId || !scopedId || !threadId) return;
+  if (!recipientId || !userId || !scopedId || !bindingTarget || !threadId) return;
 
-  if (!userId.startsWith("U")) { // ★追加: 念のため
+  if (!userId.startsWith("U")) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!,
       to: recipientId,
@@ -77,22 +78,15 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
   }
 
   const name = defaultTitleFromMeta(inst?.meta as Meta | undefined);
-  const g = await createUserGpts({
+  const g = await createGpts({
     userId,
-    instpack: inst.instpack,
-    fromThreadId: threadId,
     name,
+    instpack: inst.instpack,
   });
-  console.info("[gpts.save] saved", { gptsId: g.id, name: g.name });
+  console.info("[gpts.save] saved", { gptsId: g.gptsId, name: g.name });
 
-  await setBinding(scopedId, g.id, inst.instpack);
-  console.info("[gpts.save] bound", { scopedId, gptsId: g.id });
-
-// 旧threadの破棄->旧threadは破棄しない
-//  try {
-//    const agents = new AgentsClient(endpoint, new DefaultAzureCredential());
-//    await agents.threads.delete(threadId);
-//  } catch { /* ignore */ }
+  await setBinding(bindingTarget, g.gptsId, inst.instpack);
+  console.info("[gpts.save] bound", { target: bindingTarget, gptsId: g.gptsId });
 
   // 一時保存レコードは削除する
   try { await deleteThreadInst(scopedId, threadId); } catch {}
@@ -106,7 +100,7 @@ export async function save(event: PostbackEvent, args: Record<string, string> = 
 }
 
 // 続ける
-export async function cont(event: PostbackEvent) {
+async function cont(event: PostbackEvent) {
   const recipientId = getRecipientId(event);
   if (!recipientId) return;
 
@@ -118,14 +112,15 @@ export async function cont(event: PostbackEvent) {
 }
 
 // 新規作成（既存スレッド破棄＋バインディング解除）
-export async function newRule(event: PostbackEvent) {
+async function newRule(event: PostbackEvent) {
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
-  if (!recipientId || !threadOwnerId) return;
+  const bindingTarget = getBindingTarget(event);
+  if (!recipientId || !threadOwnerId || !bindingTarget) return;
 
   // 現在の会話は破棄し、既存の有効化ルールも解除
   try { await resetThread(threadOwnerId); } catch {}
-  try { await clearBinding(threadOwnerId); } catch {}
+  try { await clearBinding(bindingTarget); } catch {}
   try { await purgeAllThreadInstByUser(recipientId); } catch{};
 
   await sendMessagesReplyThenPush({
@@ -139,17 +134,18 @@ export async function newRule(event: PostbackEvent) {
 }
 
 // 既存チャットルールを有効化
-export async function activate(event: PostbackEvent, args: Record<string, string> = {}) {
+async function activate(event: PostbackEvent, args: Record<string, string> = {}) {
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
-  if (!recipientId || !threadOwnerId) return;
+  const bindingTarget = getBindingTarget(event);
+  if (!recipientId || !threadOwnerId || !bindingTarget) return;
 
   const gptsId = (args["gptsId"] || "").trim();
   let instpack = (args["instpack"] || "").trim();
 
   // instpack未同梱ならDBから取得
   if (!instpack && gptsId) {
-    const doc = await getUserGptsById(threadOwnerId, gptsId);
+    const doc = await getGptsById(gptsId);
     instpack = doc?.instpack?.trim() ?? "";
   }
 
@@ -162,7 +158,7 @@ export async function activate(event: PostbackEvent, args: Record<string, string
     return;
   }
 
-  await setBinding(threadOwnerId, gptsId, instpack);
+  await setBinding(bindingTarget, gptsId, instpack);
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!,

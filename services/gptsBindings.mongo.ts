@@ -1,46 +1,75 @@
-import type { GptsBindingDoc } from "@/types/db";
+import type { GptsBindingDoc, BindingTarget } from "@/types/db";
 import { getGptsBindingsCollection } from "@/utils/mongo";
 
-let indexesReady = false;
 // コレクションのインデックスを1回だけ作成
+let indexesReady = false;
 async function ensureIndexes() {
   if (indexesReady) return;
   const col = await getGptsBindingsCollection();
-  try {
-    await col.createIndex(
-      { updatedAt: 1 },
-      { expireAfterSeconds: 60 * 60 * 24 * 90, name: "ttl_updatedAt_90d" }
-    );
-  } catch {
-    /* 既存あり等は無視 */
-  }
+
+  await col.createIndex(
+    { targetType: 1, targetId: 1 }, { unique: true, name: "uniq_target" }
+  ).catch(() => {});
+
+  await col.createIndex(
+    { gptsId: 1 }, { name: "gptsId_1" }
+  ).catch(() => {});
+
+  await col.createIndex(
+    { updatedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 90, name: "ttl_updatedAt_90d" }
+  ).catch(() => {});
+
   indexesReady = true;
 }
 
-// 紐づけ作成
-export async function setBinding(userId: string, gptsId: string, instpack: string) {
+/** 適用（新規 or 更新） */
+export async function setBinding(target: BindingTarget, gptsId: string, instpack: string): Promise<void> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
-  const doc: GptsBindingDoc = { userId, gptsId, instpack, updatedAt: new Date() };
-  try {
-    await col.updateOne({ userId }, { $set: doc }, { upsert: true });
-  } catch (e) {
-    console.error("[gptsBindings.setBinding] updateOne failed:", e);
-    throw e;
-  }
+  const now = new Date();
+
+const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
+    targetType: target.type,
+    targetId: target.targetId,
+    gptsId,
+    instpack,
+    updatedAt: now,
+  };
+
+  await col.updateOne(
+    { targetType: target.type, targetId: target.targetId },
+    { $set, $setOnInsert: { createdAt: now } },
+    { upsert: true }
+  );
 }
 
-// 紐づけ取得
-export async function getBinding(userId: string): Promise<GptsBindingDoc | null> {
+/** 取得（存在しなければ null） */
+export async function getBinding(target: BindingTarget): Promise<GptsBindingDoc | null> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
-  return col.findOne({ userId }, { projection: { _id: 0 } });
+  return col.findOne({ targetType: target.type, targetId: target.targetId });
 }
 
-// 紐づけ削除
-export async function clearBinding(userId: string): Promise<boolean> {
+/** 解除（削除） */
+export async function clearBinding(target: BindingTarget): Promise<boolean> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
-  const res = await col.deleteOne({ userId });
-  return (res?.deletedCount ?? 0) > 0;
+  const r = await col.deleteOne({ targetType: target.type, targetId: target.targetId });
+  return (r?.deletedCount ?? 0) > 0;
+}
+
+/** 指定 gptsId が適用中のときだけ解除（安全解除） */
+export async function clearBindingIfMatches(target: BindingTarget, gptsId: string): Promise<boolean> {  await ensureIndexes();
+  await ensureIndexes();
+  const col = await getGptsBindingsCollection();
+
+  const cur = await col.findOne(
+    { targetType: target.type, targetId: target.targetId },
+    { projection: { _id: 1, gptsId: 1 } }
+  );
+
+  if (!cur || cur.gptsId !== gptsId) return false;
+
+  const r = await col.deleteOne({ _id: cur._id });
+  return (r?.deletedCount ?? 0) > 0;
 }

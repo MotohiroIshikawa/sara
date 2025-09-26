@@ -9,7 +9,7 @@ const credential = new DefaultAzureCredential();
 const client = new AgentsClient(endpoint, credential);
 
  // ThreadのKey作成用
-export function threadKey(userId: string) {
+function threadKey(userId: string) {
   // ENDPOINT毎
   const ns = Buffer.from(endpoint).toString("base64url");
   return `thread:${ns}:${userId}`;

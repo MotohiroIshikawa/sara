@@ -3,7 +3,7 @@ import Redlock from "redlock";
 import { REDIS } from "@/utils/env";
 
 let _redis: Redis | null = null;
-export function getRedis(): Redis {
+function getRedis(): Redis {
   if (!_redis) {
     _redis = new Redis({
       host: REDIS.HOST,
@@ -23,7 +23,7 @@ export function getRedis(): Redis {
 
 export const redis = getRedis();
 
-export const redlock = new Redlock([redis], {
+const redlock = new Redlock([redis], {
   retryCount: 6,
   retryDelay: 250,
   retryJitter: 150,

@@ -1,7 +1,7 @@
-export type Intent = "event" | "news" | "buy" | "generic";
+type Intent = "event" | "news" | "buy" | "generic";
 
 // Meta.slotsの中身
-export type MetaSlots = {
+type MetaSlots = {
   topic?: string;
   place?: string | null;
   date_range?: string | null;

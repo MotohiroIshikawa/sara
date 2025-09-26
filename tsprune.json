@@ -1,0 +1,8 @@
+{
+  "exported": true,
+  "includeDeclarationFiles": false,
+  "ignore": [
+    "(^|.*)([\\\\/])(\\.next|node_modules)([\\\\/])",
+    "next\\.config\\.ts$"
+  ]
+}

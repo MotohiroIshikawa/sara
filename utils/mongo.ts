@@ -4,7 +4,8 @@ import type {
   UserCycleDoc, 
   ThreadInstDoc, 
   UserGptsDoc, 
-  GptsBindingDoc
+  GptsBindingDoc,
+  GptsDoc,
 } from "@/types/db";
 
 let _clientPromise: Promise<MongoClient> | null = null;
@@ -49,6 +50,8 @@ export async function getCollection<T extends Document = Document>( name: string
   return client.db(dbName).collection<T>(name);
 }
 
+/* === Collections === */
+
 export async function getUsersCollection(): Promise<Collection<UserDoc>> {
   const name = process.env.MONGODB_USERS_COLLECTION ?? "users";
   return getCollection<UserDoc>(name);
@@ -64,6 +67,11 @@ export async function getThreadInstCollection(): Promise<Collection<ThreadInstDo
   return getCollection<ThreadInstDoc>(name);
 }
 
+export async function getGptsCollection(): Promise<Collection<GptsDoc>> {
+  const name = process.env.MONGODB_GPTS_COLLECTION ?? "gpts";
+  return getCollection<GptsDoc>(name);
+}
+
 export async function getUserGptsCollection(): Promise<Collection<UserGptsDoc>> {
   const name = process.env.MONGODB_USER_GPTS_COLLECTION ?? "user_gpts";
   return getCollection<UserGptsDoc>(name);
@@ -74,6 +82,32 @@ export async function getGptsBindingsCollection(): Promise<Collection<GptsBindin
   return getCollection<GptsBindingDoc>(name);
 }
 
+/* === Common helpers === */
+
+export const toObjectId = (v: string | ObjectId): ObjectId =>
+  v instanceof ObjectId ? v : new ObjectId(v);
+
+/*
+export const isObjectIdString = (v: string): boolean =>
+  /^[0-9a-fA-F]{24}$/.test(v);
+*/
+
+export const withTimestampsForCreate = <T extends Record<string, unknown>>(doc: T) => ({
+  ...doc,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+});
+
+export const touchForUpdate = <T extends Record<string, unknown>>(patch: T) => ({
+  ...patch,
+  updatedAt: new Date(),
+});
+
+/*
+export const filterByObjectId = <T extends { _id: ObjectId }>(id: string | ObjectId): Filter<T> =>
+  ({ _id: toObjectId(id) } as Filter<T>);
+*/
+
 //// 任意: 開発時のクリーンアップ
 export async function closeMongoForDev() {
   if (_clientPromise) {
@@ -83,12 +117,16 @@ export async function closeMongoForDev() {
   }
 }
 
+/*
 // id検証
 export type MongoId = string | ObjectId;
 export type WithDualId = {
   id: string;
   _id?: MongoId;
 };
+*/
+
+/*
 export function idMatchers<T extends WithDualId>(gid: string): Filter<T>[] {
   const ors: Filter<T>[] = [{ id: gid } as Filter<T>, { _id: gid } as Filter<T>];
   if (ObjectId.isValid(gid)) {
@@ -96,3 +134,4 @@ export function idMatchers<T extends WithDualId>(gid: string): Filter<T>[] {
   }
   return ors;
 }
+*/

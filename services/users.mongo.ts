@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import { ObjectId } from "mongodb";
+import type { UserCycleDoc, UserDoc } from "@/types/db";
 import { getUsersCollection, getUserCyclesCollection } from "@/utils/mongo";
 
 export type ProfileInput = {
@@ -6,29 +8,6 @@ export type ProfileInput = {
   pictureUrl?: string;
   statusMessage?: string;
   language?: string;
-};
-
-export type UserDoc = {
-  _id: string;            // = userId
-  userId: string;
-  entityType: "user";
-  isBlocked: boolean;
-  displayName?: string;
-  pictureUrl?: string;
-  statusMessage?: string;
-  language?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
-  lastFollowedAt?: Date | null;
-  lastUnfollowedAt?: Date | null;
-};
-
-export type UserCycleDoc = {
-  _id: string;            // = cycleId
-  userId: string;
-  cycleId: string;        // = _id と同じでもOK
-  startAt: Date;
-  endAt?: Date | null;    // unfollow 時にセット
 };
 
 function swallow(e: unknown) {
@@ -42,7 +21,7 @@ export async function ensureUserIndexes() {
   if (_indexesEnsured) return;
   const users = await getUsersCollection();
   const cycles = await getUserCyclesCollection();
-  await users.createIndex({ userId: 1 }).catch(swallow);
+  await users.createIndex({ userId: 1 }, { unique: true }).catch(swallow);
   await cycles.createIndex({ userId: 1, startAt: -1 }).catch(swallow);
   await cycles.createIndex({ userId: 1, endAt: 1 }).catch(swallow);
   await cycles.createIndex({ userId: 1, cycleId: 1 }).catch(swallow);
@@ -72,11 +51,10 @@ export async function followUser(params: {
 
   // users（現在状態）を upsert（削除はしない）
   await users.updateOne(
-    { _id: userId },
+    { userId },
     {
       $set: {
         userId,
-        entityType: "user",
         isBlocked: false,
         displayName: profile?.displayName,
         pictureUrl: profile?.pictureUrl,
@@ -84,21 +62,25 @@ export async function followUser(params: {
         language: profile?.language,
         lastFollowedAt: now,
       },
-      $setOnInsert: { createdAt: now },
+      $setOnInsert: <Partial<UserDoc>>{
+        _id: new ObjectId(),
+        createdAt: now,
+      },
       $currentDate: { updatedAt: true },
     },
     { upsert: true }
   );
 
-  // 履歴に新しい cycle を追加（userId + cycleId で連結 unique）
+  // 履歴に新しい cycle を追加
   const cycleId = randomUUID();
-  await cycles.insertOne({
-    _id: cycleId,
+  const cycleDoc: UserCycleDoc = {
+    _id: new ObjectId(), // ★DB設計変更: _id は ObjectId
     userId,
-    cycleId,
+    cycleId,             // 文字列の識別子は別フィールドとして保持（運用ログなどで便利）
     startAt: now,
     endAt: null,
-  });
+  };
+  await cycles.insertOne(cycleDoc);
 
   return { cycleId };
 }
@@ -114,10 +96,18 @@ export async function unfollowUser(params: { userId: string; now?: Date }) {
   ]);
 
   await users.updateOne(
-    { _id: userId },
+    { userId },
     {
-      $set: { userId, entityType: "user", isBlocked: true, lastUnfollowedAt: now },
-      $setOnInsert: { createdAt: now, lastFollowedAt: null },
+      $set: <Partial<UserDoc>>{
+        userId,
+        isBlocked: true,
+        lastUnfollowedAt: now,
+      },
+      $setOnInsert: <Partial<UserDoc>>{
+        _id: new ObjectId(),
+        createdAt: now,
+        lastFollowedAt: null,
+      },
       $currentDate: { updatedAt: true },
     },
     { upsert: true }
