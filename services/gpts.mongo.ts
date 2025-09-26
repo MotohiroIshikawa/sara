@@ -123,19 +123,3 @@ export async function copyGpts(params: {
   return { ...(cloned as GptsDoc), _id: res.insertedId };
 }
 */
-
-/** 一覧：ユーザが保持している gpts */
-export async function listUserGptsByUpdatedDesc(userId: string): Promise<GptsDoc[]> {
-  const colGpts = await getGptsCollection();
-  const colUserGpts = await getUserGptsCollection();
-
-  const links = await colUserGpts
-    .find({ userId, deletedAt: { $exists: false } })
-    .project<{ gptsId: string }>({ gptsId: 1, _id: 0 })
-    .toArray();
-
-  const ids = links.map(l => l.gptsId);
-  if (ids.length === 0) return [];
-
-  return colGpts.find({ gptsId: { $in: ids } }).sort({ updatedAt: -1 }).toArray();
-}

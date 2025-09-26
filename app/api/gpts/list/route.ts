@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { listUserGptsByUpdatedDesc } from "@/services/gpts.mongo";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { getBinding } from "@/services/gptsBindings.mongo";
+import { listUserGptsByUpdatedDesc } from "@/services/userGpts.mongo";
+import { requireLineUser, HttpError } from "@/utils/lineAuth";
 
 export async function GET(request: Request) {
   const rid = randomUUID().slice(0, 8);
