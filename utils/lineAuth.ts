@@ -59,7 +59,7 @@ export async function requireLineUser(req: Request | NextRequest): Promise<strin
 }
 
 // ---- 検証レスポンス型（export）----
-export interface LineVerifyResponse {
+interface LineVerifyResponse {
   iss: string;        // "https://access.line.me"
   sub: string;        // userId
   aud: string;        // channelId (LIFF/LINE Login の Channel ID)

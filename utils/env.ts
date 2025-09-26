@@ -11,32 +11,18 @@ export function envInt(
   return Math.floor(Math.min(max, Math.max(min, n)));
 }
 
-export function envFloat(
-  name: string,
-  def: number,
-  opts: { min?: number; max?: number } = {}
-): number {
-  const raw = process.env[name];
-  const n = raw == null ? def : Number(raw);
-  if (!Number.isFinite(n)) return def;
-  const min = opts.min ?? Number.NEGATIVE_INFINITY;
-  const max = opts.max ?? Number.POSITIVE_INFINITY;
-  const v = Math.min(max, Math.max(min, n));
-  return v;
-}
-
-export function envBool(name: string, def: boolean): boolean {
+function envBool(name: string, def: boolean): boolean {
   const raw = (process.env[name] ?? "").trim().toLowerCase();
   if (!raw) return def;
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
-export function envStr(name: string, def: string): string {
+function envStr(name: string, def: string): string {
   const v = process.env[name];
   return v == null || v === "" ? def : v;
 }
 
-export function envReqStr(name: string): string {
+function envReqStr(name: string): string {
   const v = process.env[name];
   if (v == null || v === "") throw new Error(`ENV ${name} is required`);
   return v;
@@ -89,19 +75,7 @@ export const MAIN_TIMERS = {
   POLL_TIMEOUT:   envInt("MAIN_POLL_TIMEOUT_MS",  60000, { min: 1000 }),
 };
 
-/** 機能トグル */
-export const TOGGLES = {
-  CONFIRM_FORCE_PUSH: envBool("CONFIRM_FORCE_PUSH", false),  // Confirmを常にPUSHで送る
-};
-
 /** デバッグ系 */
 export const DEBUG = {
   BING: envBool("DEBUG_BING", false),
 };
-
-export type MainTimers = Readonly<{
-  createTimeout: number;
-  getTimeout: number;
-  pollSleep: number;
-  pollTimeout: number;
-}>;

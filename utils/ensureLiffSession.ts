@@ -3,13 +3,13 @@ import type { Liff } from "@line/liff";
 
 const loginUrl = process.env.NEXT_PUBLIC_LIFF_LOGIN_URL ?? "/api/line/liff-login";
 
-export type EnsureLiffSessionOptions = {
+type EnsureLiffSessionOptions = {
   liffId?: string;
   loginIfNeeded?: boolean;  // 未ログイン時に login() へ飛ばすか（既定: true）
     redirectUri?: string; // login リダイレクト先（既定: 現在のURL）
 };
 
-export type EnsureLiffSessionResult =
+type EnsureLiffSessionResult =
   | {
       ok: true; // この呼び出しで新たに Cookie を確立できたか（idToken を使ったか）
       established: boolean; // 取得できた場合に返す（デバッグ用途）

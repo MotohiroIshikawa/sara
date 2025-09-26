@@ -1,5 +1,5 @@
 // thenableを安全にPromiseに包むヘルパー
-export function asPromise<T>(p: PromiseLike<T>): Promise<T> {
+function asPromise<T>(p: PromiseLike<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => p.then(resolve, reject));
 }
 

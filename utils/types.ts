@@ -15,7 +15,7 @@ export function isNumber(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }
 
-export function isStringArray(v: unknown): v is string[] {
+function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(isString);
 }
 
@@ -23,13 +23,13 @@ export function isStringArray(v: unknown): v is string[] {
 export type ToolLike = ToolDefinitionUnion | { definition: ToolDefinitionUnion };
 
 /** ToolDefinitionUnion らしさの判定（function ツール or type ベースツール） */
-export function isToolDefinition(x: unknown): x is ToolDefinitionUnion {
+function isToolDefinition(x: unknown): x is ToolDefinitionUnion {
   if (!isRecord(x)) return false;
   return "function" in x || "type" in x;
 }
 
 /** { definition } ラッパーの判定 */
-export function hasDefinition(x: unknown): x is { definition: ToolDefinitionUnion } {
+function hasDefinition(x: unknown): x is { definition: ToolDefinitionUnion } {
   if (!isRecord(x)) return false;
   const d = (x as { definition?: unknown }).definition;
   return isToolDefinition(d);
@@ -43,8 +43,8 @@ export function toDefinition(t: ToolLike | unknown): ToolDefinitionUnion {
 }
 
 /** Run の toolCalls 取り回し用の最小型 */
-export type NonFunctionToolCall = { id: string; type?: Exclude<string, "function"> };
-export type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown } };
+type NonFunctionToolCall = { id: string; type?: Exclude<string, "function"> };
+type FunctionToolCall = { id: string; type: "function"; function: { name?: string; arguments?: unknown } };
 export type ToolCall = FunctionToolCall | NonFunctionToolCall;
 
 export function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
@@ -52,7 +52,7 @@ export function isFunctionToolCall(tc: ToolCall): tc is FunctionToolCall {
 }
 
 /** toolCall らしさの判定（id:string は必須。function 型は function オブジェクト必須） */
-export function isToolCallLike(v: unknown): v is ToolCall {
+function isToolCallLike(v: unknown): v is ToolCall {
    if (!isRecord(v)) return false;
   const id = (v as Record<string, unknown>)["id"];
   if (!isString(id)) return false;
@@ -74,8 +74,8 @@ export function toToolCalls(list: unknown): ToolCall[] {
 export type GptsIdParam = { id: string };
 
 /** 個別アイテム詳細 */
-export type GptsItemDetail = {
-  id: string;
+type GptsItemDetail = {
+  gptsId: string;
   name: string;
   instpack: string;
   updatedAt: string; // ISO8601
@@ -93,10 +93,10 @@ export type GptsUpdateRequest = {
 };
 
 /** 型ガード */
-export function isGptsItemDetail(v: unknown): v is GptsItemDetail {
+function isGptsItemDetail(v: unknown): v is GptsItemDetail {
   return (
     isRecord(v) &&
-    isString(v.id) &&
+    isString(v.gptsId) &&
     isString(v.name) &&
     isString(v.instpack) &&
     isString(v.updatedAt)
@@ -118,6 +118,7 @@ export type GptsListItem = {
 /** 一覧レスポンス */
 export type GptsListResponse = {
   items: GptsListItem[];
+  appliedId?: string | null;
 };
 
 /** 適用レスポンス（POST /api/gpts/[id]/use） */
@@ -128,7 +129,7 @@ export type GptsApplyResponse = {
 };
 
 /** 型ガード */
-export function isGptsListItem(v: unknown): v is GptsListItem {
+function isGptsListItem(v: unknown): v is GptsListItem {
   return (
     isRecord(v) &&
     isString(v.id) &&
@@ -139,11 +140,15 @@ export function isGptsListItem(v: unknown): v is GptsListItem {
 }
 
 export function isGptsListResponse(v: unknown): v is GptsListResponse {
-  return (
-    isRecord(v) &&
-    Array.isArray((v as { items?: unknown }).items) &&
-    (v as { items: unknown[] }).items.every(isGptsListItem)
-  );
+  if (!isRecord(v)) return false;
+  const items = (v as { items?: unknown }).items;
+  const appliedId = (v as { appliedId?: unknown }).appliedId;
+
+  const okItems = Array.isArray(items) && items.every(isGptsListItem);
+  const okApplied =
+    appliedId === undefined || appliedId === null || isString(appliedId);
+
+  return okItems && okApplied;
 }
 
 export function isGptsApplyResponse(v: unknown): v is GptsApplyResponse {

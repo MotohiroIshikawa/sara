@@ -38,14 +38,14 @@ const isFiller = (s: string) => {
 };
 
 // 段落分割結果（原文中の位置範囲つき）
-export type Section = {
+type Section = {
   context: string;     // マーカー除去後の本文
   startIndex: number;  // 元テキスト内の開始位置
   endIndex: number;    // 元テキスト内の終了位置（end-exclusive）
 };
 
 // splitByHrWithRanges: テキストを段落に分割して原文中の文字数の範囲も保持。Section型を利用
-export function splitByHrWithRanges(text: string): Section[] {
+function splitByHrWithRanges(text: string): Section[] {
   const out: Section[] = [];
   let last = 0;
   // 段落区切り
@@ -72,7 +72,7 @@ export function splitByHrWithRanges(text: string): Section[] {
 }
 
 // LINEの文字数制限に合わせて段落をさらに分割
-export function chunkForLine(text: string, limit: number): string[] {
+function chunkForLine(text: string, limit: number): string[] {
   if (text.length <= limit) return [text];
   const out: string[] = [];
   let rest = text;
@@ -89,7 +89,7 @@ export function chunkForLine(text: string, limit: number): string[] {
 }
 
 // 返却されたテキストをLINEにあったテキスト(配列)に分割する
-export function toLineTextsFromTextPart(
+function toLineTextsFromTextPart(
   part: MessageTextContent,
   opts: { maxUrls?: number; showTitles?: boolean } = {}
 ): string[] {
