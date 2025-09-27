@@ -1,6 +1,7 @@
 import type { UpdateFilter } from "mongodb";
 import type { UserGptsDoc } from "@/types/db";
 import { getUserGptsCollection } from "@/utils/mongo";
+import { isNonEmptyString } from "@/utils/types";
 
 let _indexesReady = false;
 
@@ -123,27 +124,40 @@ export async function softDeleteUserGpts(input: { userId: string; gptsId: string
 
 export async function listUserGptsByUpdatedDesc(
   userId: string
-): Promise<Array<{ gptsId: string; name: string; updatedAt: Date; tags?: string[] }>> {
+): Promise<Array<{ gptsId: string; name: string; updatedAt: Date }>> {
   await ensureIndexes();
-  const col = await getUserGptsCollection();
+  const userCol = await getUserGptsCollection();
 
-  // ★ Cosmos の ORDER BY 400 を避けるため、find だけ（ソートなし）
-  const cur = col.find(
-    { userId, deletedAt: { $exists: false } },
-    { projection: { _id: 0, gptsId: 1, name: 1, updatedAt: 1, tags: 1 } }
-  );
+  type AggOut = Pick<UserGptsDoc, "gptsId" | "updatedAt"> & { name: string };
 
-  const out: Array<{ gptsId: string; name: string; updatedAt: Date; tags?: string[] }> = [];
-  for await (const d of cur) {
-    out.push({
-      gptsId: d.gptsId,
-      name: d.name,
-      updatedAt: new Date(d.updatedAt),
-      tags: d.tags,
-    });
-  }
+  const pipeline: object[] = [
+    { $match: { userId, deletedAt: { $exists: false } } },
+    {
+      $lookup: {
+        from: "gpts",
+        localField: "gptsId",
+        foreignField: "gptsId",
+        as: "gpts",
+        pipeline: [
+          { $project: { _id: 0, gptsId: 1, name: 1 } },
+        ],
+      },
+    },
+    { $unwind: "$gpts" },
+    { $project: { _id: 0, gptsId: 1, updatedAt: 1, name: "$gpts.name" } },
+    { $match: { name: { $type: "string" } } },
+  ];
 
-  // ★ アプリ側で降順ソート
+  const docs = await userCol.aggregate<AggOut>(pipeline).toArray();
+  type Listed = { gptsId: string; name: string; updatedAt: Date };
+  const out: Listed[] = docs.map((d) => {
+    if (!isNonEmptyString(d.name)) {
+      throw new Error(`[listUserGptsByUpdatedDesc] gpts.name missing (gptsId=${d.gptsId})`);
+    }
+    const updatedAt = d.updatedAt instanceof Date ? d.updatedAt : new Date(d.updatedAt);
+    return { gptsId: d.gptsId, name: d.name, updatedAt };
+  });
+
   out.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   return out;
 }
