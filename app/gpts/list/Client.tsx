@@ -31,6 +31,9 @@ export default function Client() {
           return;
         }
         const r = await fetch("/api/gpts/list", { credentials: "include" });
+//// for debug
+        console.warn("list fetch x-rid:", r.headers.get("x-rid"));
+//// ここまで
         const j: unknown = await r.json();
         if (!r.ok) {
           setErr("読み込みに失敗しました");
