@@ -55,7 +55,7 @@ export default function Client() {
     if (!keyword.trim()) return items;
     const k = keyword.trim().toLowerCase();
     return items.filter((it) => {
-      const pool = [it.name, it.id, ...(it.tags ?? [])];
+      const pool = [it.name, it.id];
       return pool.some((v) => v?.toLowerCase?.().includes(k));
     });
   }, [items, keyword]);
@@ -151,7 +151,7 @@ export default function Client() {
         <input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="名前・タグ・IDで絞り込み"
+          placeholder="名前・IDで絞り込み"
           className="w-full rounded-xl border px-4 py-3 pr-10 text-[15px] outline-none focus:ring-2 focus:ring-blue-500"
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
@@ -182,20 +182,6 @@ export default function Client() {
                   <div className="mt-1 text-xs text-gray-500">
                     更新: {new Date(it.updatedAt).toLocaleString()}
                   </div>
-
-                  {/* タグ（任意） */}
-                  {it.tags && it.tags.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {it.tags.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
                 {/* 適用中バッジ */}
                 {applied && (
