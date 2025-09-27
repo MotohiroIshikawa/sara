@@ -8,6 +8,7 @@ import {
   type GptsApplyResponse,
   isGptsListResponse,
   isGptsApplyResponse,
+  isRecord,
 } from "@/utils/types";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
@@ -35,6 +36,21 @@ export default function Client() {
           setErr("読み込みに失敗しました");
           return;
         }
+
+//// for debug
+if (!isGptsListResponse(j)) {
+  if (isRecord(j)) {
+    const rec = j as Record<string, unknown>;
+    console.warn("guard-fail@list", {
+      itemsIsArray: Array.isArray(rec.items),
+      appliedIdType: rec.appliedId === null ? "null" : typeof rec.appliedId,
+      firstItem: Array.isArray(rec.items) ? (rec.items[0] as Record<string, unknown>) : null,
+    });
+  } else {
+    console.warn("guard-fail@list non-object", { type: typeof j, value: j });
+  }
+}
+//// ここまで
         if (isGptsListResponse(j)) {
           const data: GptsListResponse = j;
           setItems(data.items);
