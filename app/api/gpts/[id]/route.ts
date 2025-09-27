@@ -6,22 +6,37 @@ import { hasUserGptsLink, softDeleteUserGpts } from "@/services/userGpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const rid = randomUUID().slice(0, 8);
   try {
     const userId = await requireLineUser(request);
-    const { id } = await params;
+    const { id:gptsId } = await params;
+    console.info(`[gpts.get:${rid}] start`, { userId, gptsId });
 
-    const linked = await hasUserGptsLink(userId, id);
-    if (!linked) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    const linked = await hasUserGptsLink(userId, gptsId);
+    if (!linked){
+      console.warn(`[gpts.get:${rid}] not_linked`, { userId, gptsId });
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
 
-    const item = await getGptsById(id);
-    if (!item) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    const g = await getGptsById(gptsId);
+    if (!g){
+      console.warn(`[gpts.get:${rid}] gpts_missing`, { userId, gptsId });
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+
+    console.info(`[gpts.get:${rid}] done`, {
+      userId,
+      gptsId: g.gptsId,
+      name: g.name ?? "",
+      inst_len: g.instpack.length,
+    });
 
     return NextResponse.json({
       item: {
-        gptsId: item.gptsId,
-        name: item.name,
-        instpack: item.instpack,
-        updatedAt: new Date(item.updatedAt).toISOString(),
+        gptsId: g.gptsId,
+        name: g.name,
+        instpack: g.instpack,
+        updatedAt: new Date(g.updatedAt).toISOString(),
       },
     });
   } catch (e) {
