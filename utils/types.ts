@@ -11,12 +11,12 @@ export function isString(x: unknown): x is string {
   return typeof x === "string";
 }
 
-export function isNumber(x: unknown): x is number {
-  return typeof x === "number" && Number.isFinite(x);
+export function isNonEmptyString(x: unknown): x is string {
+  return typeof x === "string" && x.trim().length > 0;
 }
 
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every(isString);
+export function isNumber(x: unknown): x is number {
+  return typeof x === "number" && Number.isFinite(x);
 }
 
 /** createAgent に渡せるツール: そのまま or { definition } ラッパー */
@@ -112,7 +112,6 @@ export type GptsListItem = {
   id: string;
   name: string;
   updatedAt: string; // ISO8601
-  tags?: string[];
 };
 
 /** 一覧レスポンス */
