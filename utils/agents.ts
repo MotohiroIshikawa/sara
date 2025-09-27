@@ -5,7 +5,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { emitInstpackTool } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool } from "@/services/tools/emitMeta.tool";
 import { buildInstpackInstructions, buildMetaInstructions, buildReplyWithUserInstpack } from "@/utils/agentPrompts";
-import { AZURE } from "@/utils/env";
+import { AZURE, envInt } from "@/utils/env";
 import { redis } from "@/utils/redis";
 import { toDefinition, type ToolLike } from "@/utils/types";
 
@@ -67,11 +67,14 @@ export async function getOrCreateAgentIdWithTools(
     instructions,
     tools: tools.map(toDefinition),
   });
-  await redis.set(key, agent.id);
+
+  const ttlDays = envInt("AGENT_CACHE_TTL_DAYS", 14, { min: 1, max: 365 });
+  const ttlSec = ttlDays * 24 * 60 * 60;
+  await redis.setex(key, ttlSec, agent.id);
   return agent.id;
 }
 
-/** instpack に紐づく reply/meta/inst 用 Agent を「キャッシュにある分だけ」削除 */
+// instpack に紐づく reply/meta/inst 用 Agent を「キャッシュにある分だけ」削除
 export async function delete3AgentsForInstpack(instpack: string): Promise<{
   deletedReply?: string | null;
   deletedMeta?: string | null;
@@ -105,7 +108,6 @@ export async function delete3AgentsForInstpack(instpack: string): Promise<{
       continue;
     }
     try {
-      // SDK によっては agentsClient.agents.delete(agentId) の形式の場合あり
       await agentsClient.deleteAgent(agentId);
     } catch {
       // 404 等は無視
