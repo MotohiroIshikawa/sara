@@ -22,6 +22,13 @@ export async function GET(request: Request) {
       updatedAt: it.updatedAt.toISOString(),
     }));
     
+    console.info(`[gpts.list:${rid}] done`, {
+      userId,
+      count: itemsCompat.length,
+      appliedId,
+      firstId: itemsCompat[0]?.id ?? null,
+    });
+    
     return NextResponse.json({ items: itemsCompat, appliedId });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
