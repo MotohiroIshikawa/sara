@@ -73,10 +73,13 @@ export async function updateGpts(params: {
   }
 
   const res = await colGpts.findOneAndUpdate(
-    { gptsId: params.gptsId, userId: params.userId }, // ★DB設計変更: 所有者制約
+    { gptsId: params.gptsId, userId: params.userId },
     { $set: touchForUpdate($set) },
     { returnDocument: "after" }
   );
+  //// for debug
+  console.info("[gpts.update] raw result", res);
+  //// ここまで
   return res?.value;
 }
 
