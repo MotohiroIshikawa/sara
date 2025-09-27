@@ -118,7 +118,7 @@ export type GptsListItem = {
 /** 一覧レスポンス */
 export type GptsListResponse = {
   items: GptsListItem[];
-  appliedId?: string | null;
+  appliedId: string | null;
 };
 
 /** 適用レスポンス（POST /api/gpts/[id]/use） */
@@ -132,10 +132,9 @@ export type GptsApplyResponse = {
 function isGptsListItem(v: unknown): v is GptsListItem {
   return (
     isRecord(v) &&
-    isString(v.id) &&
-    isString(v.name) &&
-    isString(v.updatedAt) &&
-    (((v as { tags?: unknown }).tags === undefined) || isStringArray((v as { tags?: unknown }).tags))
+    isString((v as Record<string, unknown>).id) &&
+    isString((v as Record<string, unknown>).name) &&
+    isString((v as Record<string, unknown>).updatedAt)
   );
 }
 
@@ -145,8 +144,7 @@ export function isGptsListResponse(v: unknown): v is GptsListResponse {
   const appliedId = (v as { appliedId?: unknown }).appliedId;
 
   const okItems = Array.isArray(items) && items.every(isGptsListItem);
-  const okApplied =
-    appliedId === undefined || appliedId === null || isString(appliedId);
+  const okApplied = appliedId === null || isString(appliedId);
 
   return okItems && okApplied;
 }
