@@ -159,3 +159,20 @@ export async function listUserGptsByUpdatedDesc(
   out.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   return out;
 }
+
+// 論理削除（ユーザのすべてのリンク）
+export async function softDeleteAllUserGptsByUser(userId: string): Promise<number> {
+  await ensureIndexes();
+  const col = await getUserGptsCollection();
+
+  const now = new Date();
+  const update: UpdateFilter<UserGptsDoc> = {
+    $set: {
+      deletedAt: now,
+      updatedAt: now,
+    } as Pick<UserGptsDoc, "deletedAt" | "updatedAt">,
+  };
+
+  const r = await col.updateMany({ userId, deletedAt: { $exists: false } }, update);
+  return r?.modifiedCount ?? 0;
+}

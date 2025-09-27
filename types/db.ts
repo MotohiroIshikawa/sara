@@ -49,6 +49,7 @@ export interface GptsDoc extends Document {
   updatedAt: Date;
   originalGptsId?: string;      // コピー元の gptsId（機能拡張用）
   authorUserId?: string;        // コピー元の作者ユーザID（機能拡張用）
+  deletedAt?: Date;
 }
 
 // ユーザが保存しているチャットルールのテーブル
