@@ -35,6 +35,7 @@ export async function GET(request: Request) {
 
 //// for debug
     const body = { items: itemsCompat, appliedId };
+    console.info(`[gpts.list:${rid}] body`, body);
     const res = NextResponse.json(body);
     res.headers.set("x-rid", rid);
     return res;
