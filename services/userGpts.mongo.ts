@@ -1,6 +1,6 @@
 import type { UpdateFilter } from "mongodb";
 import type { UserGptsDoc } from "@/types/db";
-import { getUserGptsCollection } from "@/utils/mongo";
+import { getGptsCollection, getUserGptsCollection } from "@/utils/mongo";
 import { isNonEmptyString } from "@/utils/types";
 
 let _indexesReady = false;
@@ -137,18 +137,16 @@ export async function listUserGptsByUpdatedDesc(
         from: "gpts",
         localField: "gptsId",
         foreignField: "gptsId",
-        as: "gpts",
-        pipeline: [
-          { $project: { _id: 0, gptsId: 1, name: 1 } },
-        ],
+        as: "gpts"
       },
     },
     { $unwind: "$gpts" },
     { $project: { _id: 0, gptsId: 1, updatedAt: 1, name: "$gpts.name" } },
-    { $match: { name: { $type: "string" } } },
+    { $match: { name: { $type: "string", $ne: "" } } },
   ];
 
   const docs = await userCol.aggregate<AggOut>(pipeline).toArray();
+
   type Listed = { gptsId: string; name: string; updatedAt: Date };
   const out: Listed[] = docs.map((d) => {
     if (!isNonEmptyString(d.name)) {
