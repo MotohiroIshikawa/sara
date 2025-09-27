@@ -9,7 +9,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const rid = randomUUID().slice(0, 8);
   try {
     const userId = await requireLineUser(request);
-    const { id:gptsId } = await params;
+    const { id: gptsId } = await params;
     console.info(`[gpts.get:${rid}] start`, { userId, gptsId });
 
     const linked = await hasUserGptsLink(userId, gptsId);
@@ -49,10 +49,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const rid = randomUUID().slice(0, 8);
   try {
     const userId = await requireLineUser(request);
-    const { id } = await params;
+    const { id: gptsId } = await params;
     const body: unknown = await request.json();
+
+    //// for debug
+    console.info(`[gpts.update:${rid}] pre-check`, {
+      userIdPreview: `${userId.slice(0, 4)}…${userId.slice(-4)}`,
+      gptsId: gptsId,
+    });
+    ////
 
     const name = 
       typeof (body as { name?: unknown }).name === "string" 
@@ -64,12 +72,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       : undefined;
 
     if (name === undefined && instpack === undefined) {
+      console.warn(`[gpts.update:${rid}] no_fields`, { userId, gptsId });
       return NextResponse.json({ error: "no_fields" }, { status: 400 });
     }
 
-    const updated = await updateGpts({ gptsId: id, userId, name, instpack });
+    const updated = await updateGpts({ gptsId, userId, name, instpack });
     if (!updated) {
       // 所有者でない / もしくは存在しない
+      console.warn(`[gpts.update:${rid}] forbidden_or_not_found`, { userId, gptsId });
       return NextResponse.json({ error: "forbidden_or_not_found" }, { status: 403 });
     }
     return NextResponse.json({ ok: true });
