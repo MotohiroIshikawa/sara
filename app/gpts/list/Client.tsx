@@ -8,7 +8,6 @@ import {
   type GptsApplyResponse,
   isGptsListResponse,
   isGptsApplyResponse,
-  isRecord,
 } from "@/utils/types";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 

@@ -57,7 +57,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     //// for debug
     console.info(`[gpts.update:${rid}] pre-check`, {
-      userIdPreview: `${userId.slice(0, 4)}…${userId.slice(-4)}`,
+      userId: userId,
       gptsId: gptsId,
     });
     ////

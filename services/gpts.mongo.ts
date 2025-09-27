@@ -72,28 +72,12 @@ export async function updateGpts(params: {
     return colGpts.findOne({ gptsId: params.gptsId, userId: params.userId });
   }
 
-  //// for debug
-  let res;
-  try{  
-    res = await colGpts.findOneAndUpdate(
-      { gptsId: params.gptsId, userId: params.userId },
-      { $set: touchForUpdate($set) },
-      { returnDocument: "after" }
-    );
-    console.info("[gpts.update] raw result", res);
-  }catch(e){
-    console.info("[gpts.update] error ", e);
-  }
-  return res?.value;
-  //// ここまで
-/*
   const res = await colGpts.findOneAndUpdate(
     { gptsId: params.gptsId, userId: params.userId },
     { $set: touchForUpdate($set) },
     { returnDocument: "after" }
   );
-  return res?.value;
-*/
+  return res;
 }
 
 /** コピー：正本を複製し、originalGptsId / autherUserId を付与。user_gpts にリンク作成 */
