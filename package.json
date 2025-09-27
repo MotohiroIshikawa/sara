@@ -8,6 +8,8 @@
     "stg": "next dev --experimental-https --experimental-https-key ./certificates/lineai-dev-mi10490jp-com-key.pem --experimental-https-cert ./certificates/lineai-dev-mi10490jp-com-fullchain.pem",
     "build": "next build",
     "start": "next start",
+    "stg:build": "next build",
+    "stg:start": "node server.mjs",
     "lint": "next lint",
     "ts-prune": "ts-prune -c tsprune.json"
   },
