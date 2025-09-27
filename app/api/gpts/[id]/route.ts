@@ -55,13 +55,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id: gptsId } = await params;
     const body: unknown = await request.json();
 
-    //// for debug
-    console.info(`[gpts.update:${rid}] pre-check`, {
-      userId: userId,
-      gptsId: gptsId,
-    });
-    ////
-
     const name = 
       typeof (body as { name?: unknown }).name === "string" 
       ? (body as { name: string }).name 
