@@ -20,6 +20,16 @@ export default function Client() {
   const [keyword, setKeyword] = useState(""); // 検索キーワード
   const [appliedId, setAppliedId] = useState<string | null>(null); // 選択中ハイライト
 
+  // 成功表示用のトースト
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastOpen, setToastOpen] = useState(false);
+  function openToast(msg: string) {
+    setToastMsg(msg);
+    setToastOpen(true);
+    // 自動で閉じたい場合は以下を有効化
+    // setTimeout(() => setToastOpen(false), 1800);
+  }
+
   useEffect(() => {
     void (async () => {
       try {
@@ -98,7 +108,7 @@ export default function Client() {
       if (isGptsApplyResponse(j)) {
         const data: GptsApplyResponse = j;
         setAppliedId(id);
-        alert(`「${data.name || "選択したルール"}」を選択しました。`);
+        openToast(`「${data.name || "選択したルール"}」を選択しました。`);
       } else {
         alert("応答形式が不正です");
       }
@@ -204,7 +214,7 @@ export default function Client() {
                           ? "bg-green-300 text-white"
                           : "bg-green-600 text-white hover:bg-green-700"),
                     "focus:outline-none",
-                    applied ? "" : "focus:ring-2 focus:ring-green-500", // ★ 無効時はフォーカス装飾も外す
+                    applied ? "" : "focus:ring-2 focus:ring-green-500", // 無効時はフォーカス装飾も外す
                   ].join(" ")}
                   // 動作：選択中 or ビジーで無効化
                   disabled={applied || isBusy}
@@ -251,6 +261,24 @@ export default function Client() {
           );
         })}
       </ul>
+
+      {/* 成功時のみ表示するトースト（下部固定） */}
+      {toastOpen && toastMsg && (
+        <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+          <div className="max-w-screen-sm w-full rounded-2xl bg-black/85 text-white shadow-lg backdrop-blur-sm">
+            <div className="p-4 text-sm leading-relaxed">{toastMsg}</div>
+            <div className="flex justify-end gap-2 px-4 pb-3">
+              <button
+                className="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20 active:scale-95"
+                onClick={() => { setToastOpen(false); setToastMsg(null); }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ここまでトースト */}
     </main>
   );
 }
