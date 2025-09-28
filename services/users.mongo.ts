@@ -89,159 +89,65 @@ export async function followUser(params: {
   return { cycleId }; 
 }
 
-/** unfollow：現在状態を削除し、アクティブな cycle を終了（無ければ即終了サイクルを作成） */
+/** unfollow：usersは削除、cyclesは確実にクローズ */
 export async function unfollowUser(params: { userId: string; now?: Date }) {
   const { userId, now = new Date() } = params;
-  console.info("[unfollowUser] start", { userId, now: now.toISOString() });
-
-  type UnfollowSummary = {
-    gotCollections: boolean;
-    prevLastFollowedAt: Date | null;
-    startAtCandidate: Date | null;
-    cyclesUpdate?: {
-      acknowledged: boolean;
-      matchedCount: number;
-      modifiedCount: number;
-      upsertedId: ObjectId | null;
-      upsertedCount: number;
-    };
-    cyclesFallbackInsertId?: ObjectId | null;
-    usersDeletedCount: number | null;
-    errors: Array<{ where: string; err: string }>;
-  };
-
-  const summary: UnfollowSummary = {
-    gotCollections: false,
-    prevLastFollowedAt: null,
-    startAtCandidate: null,
-    usersDeletedCount: null,
-    errors: [],
-  };
-
-  try {
-    await ensureUserIndexes();
-  } catch (e) {
-    summary.errors.push({ where: "ensureUserIndexes", err: String(e) });
-    console.error("[unfollowUser] ensureUserIndexes error", e);
-    // 続行（多くの環境で index 無くても動作はする）
-  }
+  await ensureUserIndexes();
 
   const [users, cycles] = await Promise.all([
     getUsersCollection(),
     getUserCyclesCollection(),
-  ]).catch((e) => {
-    summary.errors.push({ where: "getCollections", err: String(e) });
-    console.error("[unfollowUser] getCollections error", e);
-    return [undefined, undefined] as const;
-  });
+  ]);
 
-  if (!users || !cycles) {
-    console.info("[unfollowUser] summary", summary);
-    return;
-  }
-  summary.gotCollections = true;
-  console.info("[unfollowUser] got collections");
+  // 直近の follow 時刻を取得（無ければ now を使用）
+  const prev = await users.findOne(
+    { userId },
+    { projection: { lastFollowedAt: 1 } }
+  );
+  const startAt = prev?.lastFollowedAt instanceof Date ? prev.lastFollowedAt : now;
 
-  // 直近の follow 情報（startAt 候補として使う）
-  try {
-    const prev = await users.findOne(
-      { userId },
-      { projection: { lastFollowedAt: 1 } }
-    );
-    const last =
-      prev && prev.lastFollowedAt instanceof Date ? prev.lastFollowedAt : null;
-    summary.prevLastFollowedAt = last;
-    summary.startAtCandidate = last ?? now;
-    console.info("[unfollowUser] prevUser", {
-      lastFollowedAt: summary.prevLastFollowedAt,
-      startAtCandidate: summary.startAtCandidate,
-    });
-  } catch (e) {
-    summary.errors.push({ where: "users.findOne", err: String(e) });
-    console.error("[unfollowUser] users.findOne error", e);
-    summary.startAtCandidate = now; // フォールバック
-  }
-
-  const startAt = summary.startAtCandidate ?? now;
-
-  // 未終了サイクルがあれば endAt をセット。
-  // 無ければ startAt を候補で作って、同時に endAt も now にして“即終了サイクル”を upsert で作る。
-  try {
-    const filter = { userId, endAt: null as Date | null };
-    const update = {
+  // アクティブ cycle を終了。無ければ「即終了サイクル」を upsert。
+  const newCycleId = randomUUID();
+  const r = await cycles.updateOne(
+    { userId, endAt: null },
+    {
       $set: { endAt: now },
       $setOnInsert: {
         _id: new ObjectId(),
         userId,
-        cycleId: randomUUID(),
+        cycleId: newCycleId,
         startAt,
-        endAt: now,
       } as Partial<UserCycleDoc>,
-    };
-    console.info("[unfollowUser] cycles.updateOne.filter/update", { filter, update });
+    },
+    { upsert: true }
+  );
 
-    const r = await cycles.updateOne(filter, update, { upsert: true });
-    const upsertedId: ObjectId | null =
-      (r as { upsertedId?: ObjectId }).upsertedId ?? null;
-    const upsertedCount = upsertedId ? 1 : 0;
+  const upsertedId = (r as { upsertedId?: ObjectId }).upsertedId ?? null;
 
-    summary.cyclesUpdate = {
-      acknowledged: r.acknowledged,
-      matchedCount: r.matchedCount,
-      modifiedCount: r.modifiedCount,
-      upsertedId,
-      upsertedCount,
-    };
-    console.info("[unfollowUser] cycles.updateOne.result", summary.cyclesUpdate);
-
-    // まれに matched 0 かつ upsertedId も無い場合に備えて保険
-    if (r.matchedCount === 0 && !upsertedId) {
-      const ins = await cycles.insertOne({
-        _id: new ObjectId(),
-        userId,
-        cycleId: randomUUID(),
-        startAt,
-        endAt: now,
-      });
-      summary.cyclesFallbackInsertId = ins.insertedId;
-      console.warn("[unfollowUser] fallback inserted ended cycle", {
-        insertedId: ins.insertedId,
-      });
-    }
-  } catch (e) {
-    summary.errors.push({ where: "cycles.updateOne", err: String(e) });
-    console.error("[unfollowUser] cycles.updateOne error", e);
-    // 最低限のフォールバック
-    try {
-      const ins = await cycles.insertOne({
-        _id: new ObjectId(),
-        userId,
-        cycleId: randomUUID(),
-        startAt,
-        endAt: now,
-      });
-      summary.cyclesFallbackInsertId = ins.insertedId;
-      console.warn(
-        "[unfollowUser] fallback inserted ended cycle (after update error)",
-        { insertedId: ins.insertedId }
-      );
-    } catch (ee) {
-      summary.errors.push({ where: "cycles.insertOne.fallback", err: String(ee) });
-      console.error("[unfollowUser] cycles.insertOne fallback error", ee);
-    }
-  }
-
-  // 現在状態(users)は削除（履歴は cycles に残す）
-  try {
-    const del = await users.deleteOne({ userId });
-    summary.usersDeletedCount = del.deletedCount ?? 0;
-    console.info("[unfollowUser] users.deleteOne", {
-      deletedCount: del.deletedCount,
+  if (r.matchedCount > 0) {
+    console.info("[unfollowUser] cycle closed (existing active found)", {
+      userId, matchedCount: r.matchedCount, modifiedCount: r.modifiedCount, endAt: now.toISOString()
     });
-  } catch (e) {
-    summary.errors.push({ where: "users.deleteOne", err: String(e) });
-    console.error("[unfollowUser] users.deleteOne error", e);
+  } else if (upsertedId) {
+    console.info("[unfollowUser] cycle created-and-closed (no active found)", {
+      userId, upsertedId, cycleId: newCycleId, startAt: startAt.toISOString(), endAt: now.toISOString()
+    });
+  } else {
+    // まれに matched=0 かつ upsertedId 無しのケースに備えて保険の insert
+    const ins = await cycles.insertOne({
+      _id: new ObjectId(),
+      userId,
+      cycleId: newCycleId,
+      startAt,
+      endAt: now,
+    });
+    console.warn("[unfollowUser] fallback inserted ended cycle", {
+      userId, insertedId: ins.insertedId, cycleId: newCycleId
+    });
   }
 
-  console.info("[unfollowUser] summary", summary);
+  // 現在状態(users)は物理削除
+  const del = await users.deleteOne({ userId });
+  console.info("[unfollowUser] users.deleteOne", { userId, deletedCount: del.deletedCount ?? 0 });
 }
+
