@@ -1,7 +1,7 @@
 import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
 import { handlePostback } from "@/handlers/postbacks/gpts";
-import { getBinding } from "@/services/gptsBindings.mongo";
-import { upsertThreadInst } from "@/services/threadInst.mongo";
+import { clearBinding, getBinding } from "@/services/gptsBindings.mongo";
+import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
 import type { MetaForConfirm } from "@/types/gpts";
 import { buildReplyWithUserInstpack } from "@/utils/agentPrompts";
@@ -12,6 +12,10 @@ import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm }
 import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
+import { resetThread } from "@/services/threadState";
+import { delete3AgentsForInstpack } from "@/utils/agents";
+import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
+import { softDeleteAllGptsByUser } from "@/services/gpts.mongo";
 
 const replyMax = LINE.REPLY_MAX;
 
@@ -24,7 +28,7 @@ function shouldShowConfirm( meta: MetaForConfirm | undefined, instpack: string |
   return true;
 }
 
-/** finalCheckBeforeConfirm: 確認ダイアログ前の最終チェック */
+// 確認ダイアログ前の最終チェック
 function finalCheckBeforeConfirm(meta: MetaForConfirm | undefined, instpack: string | undefined): { ok: boolean; reason?: string } {
   if (!meta) return { ok: false, reason: "meta:undefined" };
   if (!isTrackable(meta)) return { ok: false, reason: "meta:not_trackable" };
@@ -42,13 +46,7 @@ const ellipsize = (s: string, max = 300) =>
 const shortId = (id?: string) =>
   id ? `${id.slice(0, 4)}…${id.slice(-4)}` : undefined;
 
-/**
- * LINE Webhookをログ向けに要約
- *   常に出す: type / source / timestamp
- *   message: type と id、text のときだけ text（長文は省略）
- *   postback: data と params（data は省略表示）
- *   replyToken は漏洩リスクがあるので true/false のみ
- */
+// LINE Webhookをログ向けに要約
 function buildLineEventLog(e: WebhookEvent) {
   const base: Record<string, unknown> = {
     type: e.type,
@@ -120,7 +118,7 @@ function buildLineEventLog(e: WebhookEvent) {
   }
 }
 
-/** MAIN */
+// MAIN
 export async function lineEvent(event: WebhookEvent) {
   console.info("[LINE webhook]", buildLineEventLog(event));
 
@@ -153,6 +151,54 @@ export async function lineEvent(event: WebhookEvent) {
   // unfollowイベント
   if (event.type === "unfollow" && event.source.type === "user" && event.source.userId) {
     const uid = event.source.userId;
+    try {
+      // Redisのthread,Agentを削除
+      const binding = await getBinding({ type: "user", targetId: uid }).catch(() => null);
+      const instpack = binding?.instpack ?? null;
+
+      await resetThread(threadOwnerId).catch((e) => {
+        console.warn("[unfollow] resetThread failed", { uid, err: String(e) });
+      });
+
+      if (instpack) {
+        await delete3AgentsForInstpack(instpack).catch((e) => {
+          console.warn("[unfollow] delete3AgentsForInstpack failed", { uid, err: String(e) });
+        });
+      } else {
+        console.info("[unfollow] no binding/instpack => skip agent deletion", { uid });
+      }
+
+      // thread_inst から該当ユーザのレコードを削除
+      await purgeAllThreadInstByUser(threadOwnerId).catch((e) => {
+        console.warn("[unfollow] purgeAllThreadInstByUser failed", { uid, err: String(e) });
+      });
+
+      // gpts_bindings から該当ユーザのレコードを削除
+      await clearBinding({ type: "user", targetId: uid }).catch((e) => {
+        console.warn("[unfollow] clearBinding failed", { uid, err: String(e) });
+      });
+
+      // user_gpts から該当ユーザのレコードを削除
+      try {
+        const n = await softDeleteAllUserGptsByUser(uid);
+        console.info("[unfollow] user_gpts soft-deleted", { uid, count: n });
+      } catch (e) {
+        console.warn("[unfollow] softDeleteAllUserGptsByUser failed", { uid, err: String(e) });
+      }
+
+      // gpts から該当ユーザのレコードを削除
+      try {
+        const n = await softDeleteAllGptsByUser(uid);
+        console.info("[unfollow] gpts soft-deleted", { uid, count: n });
+      } catch (e) {
+        console.warn("[unfollow] softDeleteAllGptsByUser failed", { uid, err: String(e) });
+      }
+
+      console.info("[unfollow] cleanup done", { uid });
+    } catch (e) {
+      console.error("[unfollow] cleanup error", { uid, err: e });
+    }
+
     await unfollowUser({ userId: uid });
     return;
   }

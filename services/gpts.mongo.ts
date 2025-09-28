@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from "crypto";
+import type { UpdateFilter } from "mongodb";
 import type { GptsDoc, UserGptsDoc } from "@/types/db";
 import { 
   getGptsCollection, 
@@ -13,7 +14,7 @@ function newGptsId() {
   return "gpts_" + randomUUID().replace(/-/g, "");
 }
 
-/** 作成 */
+// 作成
 export async function createGpts(input: {
   userId: string;
   name: string;
@@ -47,13 +48,13 @@ export async function createGpts(input: {
   return { ...(doc as GptsDoc), _id: res.insertedId };
 }
 
-/** 単一取得（存在しなければ null） */
+// 単一取得（存在しなければ null）
 export async function getGptsById(gptsId: string): Promise<GptsDoc | null> {
   const colGpts = await getGptsCollection();
   return colGpts.findOne({ gptsId });
 }
 
-/** 更新 */
+// 更新
 export async function updateGpts(params: {
   gptsId: string;
   userId: string; // 所有者
@@ -78,6 +79,23 @@ export async function updateGpts(params: {
     { returnDocument: "after" }
   );
   return res;
+}
+
+// 指定ユーザのgptsをすべて論理削除
+export async function softDeleteAllGptsByUser(userId: string): Promise<number> {
+  const col = await getGptsCollection();
+  const now = new Date();
+  const update: UpdateFilter<GptsDoc> = {
+    $set: {
+      deletedAt: now,
+      updatedAt: now,
+    } as Pick<GptsDoc, "deletedAt" | "updatedAt">,
+  };
+  const r = await col.updateMany(
+    { userId, deletedAt: { $exists: false } },
+    update
+  );
+  return r?.modifiedCount ?? 0;
 }
 
 /** コピー：正本を複製し、originalGptsId / autherUserId を付与。user_gpts にリンク作成 */
