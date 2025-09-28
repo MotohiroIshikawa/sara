@@ -47,6 +47,18 @@ export function getThreadOwnerId(
   return undefined;
 }
 
+// plain ID から scoped ownerId を作るユーティリティ
+export function toScopedOwnerIdFromPlainId(
+  type: "user" | "group" | "room",
+  id: string
+): string {
+  if (type === "user")  return `user:${id}`;
+  if (type === "group") return `group:${id}`;
+  if (type === "room")  return `room:${id}`;
+  // 将来の拡張も考えて既定は user 扱いにしておく
+  return `user:${id}`;
+}
+
 export function describeSource(e: LineEvent): { type: SourceKind; id?: string } {
   const s = srcOf(e);
   if (!s) return { type: "unknown" };

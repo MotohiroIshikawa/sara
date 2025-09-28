@@ -82,6 +82,8 @@ export async function followUser(params: {
   };
   await cycles.insertOne(cycleDoc);
 
+  console.info("[followUser] cycle started", { userId, cycleId, startAt: now.toISOString() });
+
   return { cycleId };
 }
 
@@ -95,27 +97,30 @@ export async function unfollowUser(params: { userId: string; now?: Date }) {
     getUserCyclesCollection(),
   ]);
 
-  await users.updateOne(
+  // 直近の follow 情報（startAt 候補として使う）
+  const prev = await users.findOne(
     { userId },
+    { projection: { lastFollowedAt: 1 } }
+  );
+  const startAtCandidate = prev?.lastFollowedAt ?? now;
+
+  // 未終了サイクルがあれば endAt をセット。
+  // 無ければ startAt を候補で作って、同時に endAt も now にして“即終了サイクル”を upsert で作る。
+  await cycles.updateOne(
+    { userId, endAt: null },
     {
-      $set: <Partial<UserDoc>>{
-        userId,
-        isBlocked: true,
-        lastUnfollowedAt: now,
-      },
-      $setOnInsert: <Partial<UserDoc>>{
+      $set: { endAt: now },
+      $setOnInsert: {
         _id: new ObjectId(),
-        createdAt: now,
-        lastFollowedAt: null,
-      },
-      $currentDate: { updatedAt: true },
+        userId,
+        cycleId: randomUUID(),
+        startAt: startAtCandidate,
+        endAt: now,
+      } as Partial<UserCycleDoc>,
     },
     { upsert: true }
   );
 
-  await cycles.findOneAndUpdate(
-    { userId, endAt: null },
-    { $set: { endAt: now } },
-    { sort: { startAt: -1 } }
-  );
+  // 現在状態のレコードは削除（履歴は cycles に残る運用）
+  await users.deleteOne({ userId });
 }

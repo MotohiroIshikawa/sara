@@ -13,7 +13,7 @@ import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/line
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
 import { resetThread } from "@/services/threadState";
-import { delete3AgentsForInstpack } from "@/utils/agents";
+import { delete3AgentsForInstpack, deleteBaseReplyAgent } from "@/utils/agents";
 import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
 import { softDeleteAllGptsByUser } from "@/services/gpts.mongo";
 
@@ -160,6 +160,7 @@ export async function lineEvent(event: WebhookEvent) {
         console.warn("[unfollow] resetThread failed", { uid, err: String(e) });
       });
 
+      // agent削除
       if (instpack) {
         await delete3AgentsForInstpack(instpack).catch((e) => {
           console.warn("[unfollow] delete3AgentsForInstpack failed", { uid, err: String(e) });
@@ -168,6 +169,11 @@ export async function lineEvent(event: WebhookEvent) {
         console.info("[unfollow] no binding/instpack => skip agent deletion", { uid });
       }
 
+      // BASEのreplyAgentを消す
+      await deleteBaseReplyAgent().catch((e) => {
+        console.warn("[unfollow] deleteBaseReplyAgent failed", { uid, err: String(e) });
+      });
+      
       // thread_inst から該当ユーザのレコードを削除
       await purgeAllThreadInstByUser(threadOwnerId).catch((e) => {
         console.warn("[unfollow] purgeAllThreadInstByUser failed", { uid, err: String(e) });
