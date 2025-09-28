@@ -10,14 +10,27 @@ import { describeSource, getBindingTarget, getRecipientId, getThreadOwnerId } fr
 import { decodePostback } from "@/utils/postback";
 import { setNxEx } from "@/utils/redis";
 
-const TABLE: Record<"gpts", Record<string, Handler>> = {
+// 共通テーブル定義
+type Handler = (event: PostbackEvent, args?: Record<string, string>) => Promise<void>;
+type Namespace = "gpts" | "chat";
+
+const TABLE: Record<Namespace, Record<string, Handler>> = {
+  // チャットルールを保存しますか？ confirm戻り
   gpts: {
     save,
     continue: cont,
     new: newRule,
     activate,
   },
+  // チャットルール新規作成リッチメニュー
+  chat: { 
+    new: newRule,
+  },
 };
+
+function isNs(x: string): x is Namespace {
+  return x === "gpts" || x === "chat";
+}
 
 // 保存名のデフォルト生成（metaを参照）
 function defaultTitleFromMeta(meta?: Meta): string {
@@ -33,7 +46,7 @@ function defaultTitleFromMeta(meta?: Meta): string {
   return "未命名ルール";
 }
 
-// 保存
+// GPTS保存
 async function save(event: PostbackEvent, args: Record<string, string> = {}) {
   const recipientId = getRecipientId(event);
   const userId = getThreadOwnerId(event, "plain");
@@ -99,7 +112,7 @@ async function save(event: PostbackEvent, args: Record<string, string> = {}) {
   });
 }
 
-// 続ける
+// GPTS保存せずに続ける
 async function cont(event: PostbackEvent) {
   const recipientId = getRecipientId(event);
   if (!recipientId) return;
@@ -118,10 +131,25 @@ async function newRule(event: PostbackEvent) {
   const bindingTarget = getBindingTarget(event);
   if (!recipientId || !threadOwnerId || !bindingTarget) return;
 
+  // 二重タップ防止（軽め）
+  try {
+    const ok = await setNxEx(`pb:new:${threadOwnerId}`, "1", 10);
+    if (!ok) {
+      await sendMessagesReplyThenPush({
+        replyToken: event.replyToken!,
+        to: recipientId,
+        messages: toTextMessages(["少し待ってからもう一度お試しください。"]),
+      });
+      return;
+    }
+  } catch {
+    // 失敗は握りつぶし
+  }
+
   // 現在の会話は破棄し、既存の有効化ルールも解除
   try { await resetThread(threadOwnerId); } catch {}
+  try { await purgeAllThreadInstByUser(threadOwnerId); } catch {}
   try { await clearBinding(bindingTarget); } catch {}
-  try { await purgeAllThreadInstByUser(recipientId); } catch{};
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!,
@@ -134,7 +162,7 @@ async function newRule(event: PostbackEvent) {
 }
 
 // 既存チャットルールを有効化
-async function activate(event: PostbackEvent, args: Record<string, string> = {}) {
+async function activate(event: PostbackEvent, args: Record<string, string> = {}): Promise<void> {
   const recipientId = getRecipientId(event);
   const threadOwnerId = getThreadOwnerId(event);
   const bindingTarget = getBindingTarget(event);
@@ -167,8 +195,6 @@ async function activate(event: PostbackEvent, args: Record<string, string> = {})
   });
 }
 
-type Handler = (event: PostbackEvent, args?: Record<string, string>) => Promise<void>;
-
 // MAIN router: postback共通ルータ
 export async function handlePostback(event: WebhookEvent): Promise<void> {
   if (event.type !== "postback" || !event.postback?.data) return;
@@ -197,8 +223,13 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
 
   if (!decoded) return;
 
-  const mod = TABLE[decoded.ns as keyof typeof TABLE];
-  const fn = mod?.[decoded.fn];
+  if (!isNs(decoded.ns)) {
+    console.warn(`[postback] unknown ns: ${decoded.ns}`, { ctx });
+    return;
+  }
+  
+  const mod = TABLE[decoded.ns];
+  const fn: Handler | undefined = mod?.[decoded.fn];
   if (!fn) {
     console.warn(`[postback] unknown ns/fn: ${decoded.ns}/${decoded.fn}`, { ctx });
     return;
