@@ -18,7 +18,17 @@ export default function Client() {
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null); // 連打防止
   const [keyword, setKeyword] = useState(""); // 検索キーワード
-  const [appliedId, setAppliedId] = useState<string | null>(null); // 適用中ハイライト
+  const [appliedId, setAppliedId] = useState<string | null>(null); // 選択中ハイライト
+
+  // 成功表示用のトースト
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastOpen, setToastOpen] = useState(false);
+  function openToast(msg: string) {
+    setToastMsg(msg);
+    setToastOpen(true);
+    // 自動で閉じたい場合は以下を有効化
+    // setTimeout(() => setToastOpen(false), 1800);
+  }
 
   useEffect(() => {
     void (async () => {
@@ -74,7 +84,7 @@ export default function Client() {
         return;
       }
       setItems((prev) => prev.filter((x) => x.id !== id));
-      if (appliedId === id) setAppliedId(null); // 適用中の場合は適用中を消す
+      if (appliedId === id) setAppliedId(null); // 選択中の場合は選択中を消す
     } catch {
       alert("削除時にエラーが発生しました");
     } finally {
@@ -82,7 +92,7 @@ export default function Client() {
     }
   }
 
-  // 適用中
+  // 選択中
   async function onApply(id: string) {
     setBusyId(id);
     try {
@@ -92,18 +102,18 @@ export default function Client() {
       });
       const j: unknown = await r.json();
       if (!r.ok) {
-        alert("適用に失敗しました");
+        alert("選択に失敗しました");
         return;
       }
       if (isGptsApplyResponse(j)) {
         const data: GptsApplyResponse = j;
         setAppliedId(id);
-        alert(`「${data.name || "選択したルール"}」を適用しました。`);
+        openToast(`「${data.name || "選択したルール"}」を選択しました。`);
       } else {
         alert("応答形式が不正です");
       }
     } catch {
-      alert("適用時にエラーが発生しました");
+      alert("選択時にエラーが発生しました");
     } finally {
       setBusyId((prev) => (prev === id ? null : prev));
     }
@@ -183,28 +193,41 @@ export default function Client() {
                     更新: {new Date(it.updatedAt).toLocaleString()}
                   </div>
                 </div>
-                {/* 適用中バッジ */}
+                {/* 選択中バッジ */}
                 {applied && (
                   <span className="shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
-                    適用中
+                    選択中
                   </span>
                 )}
               </div>
 
               {/* ボタン列 */}
               <div className="mt-3 flex items-center gap-2">
-                {/* 適用 */}
+                {/* 選択ボタンは「選択中」のとき無効化してグレー表示 */}
                 <button
                   className={[
-                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-white",
-                    isBusy ? "bg-green-300" : "bg-green-600 hover:bg-green-700",
-                    "focus:outline-none focus:ring-2 focus:ring-green-500",
+                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                    // 見た目：選択中=グレー&無効, それ以外=グリーン
+                    applied
+                      ? "bg-gray-200 text-gray-500 cursor-not-allowed opacity-70"
+                      : (isBusy
+                          ? "bg-green-300 text-white"
+                          : "bg-green-600 text-white hover:bg-green-700"),
+                    "focus:outline-none",
+                    applied ? "" : "focus:ring-2 focus:ring-green-500", // 無効時はフォーカス装飾も外す
                   ].join(" ")}
-                  disabled={isBusy}
-                  onClick={() => void onApply(it.id)}
-                  title="このチャットで使うルールとして適用します"
+                  // 動作：選択中 or ビジーで無効化
+                  disabled={applied || isBusy}
+                  aria-disabled={applied || isBusy} // アクセシビリティ
+                  onClick={() => {
+                    // ガード：念のためクリック無効化
+                    if (applied || isBusy) return;
+                    void onApply(it.id);
+                  }}
+                  title={applied ? "このルールは選択中です" : "このチャットで使うルールとして選択します"}
                 >
-                  {isBusy ? "適用中…" : "適用"}
+                  {/* ラベル：選択中は「選択中」表示 */}
+                  {applied ? "選択中" : isBusy ? "選択中…" : "選択"}
                 </button>
 
                 {/* 編集 */}
@@ -238,6 +261,24 @@ export default function Client() {
           );
         })}
       </ul>
+
+      {/* 成功時のみ表示するトースト（下部固定） */}
+      {toastOpen && toastMsg && (
+        <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+          <div className="max-w-screen-sm w-full rounded-2xl bg-black/85 text-white shadow-lg backdrop-blur-sm">
+            <div className="p-4 text-sm leading-relaxed">{toastMsg}</div>
+            <div className="flex justify-end gap-2 px-4 pb-3">
+              <button
+                className="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20 active:scale-95"
+                onClick={() => { setToastOpen(false); setToastMsg(null); }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ここまでトースト */}
     </main>
   );
 }
@@ -247,11 +288,11 @@ function Header(props: { appliedId?: string | null }) {
     <header className="flex items-center justify-between">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">チャットルール一覧</h1>
-        <p className="text-[13px] text-gray-500">保存済みのルールを編集・適用できます</p>
+        <p className="text-[13px] text-gray-500">保存済みのルールを編集・選択できます</p>
       </div>
       {props.appliedId ? (
         <span className="hidden rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 sm:inline-block">
-          適用中: {props.appliedId}
+          選択中: {props.appliedId}
         </span>
       ) : null}
     </header>
