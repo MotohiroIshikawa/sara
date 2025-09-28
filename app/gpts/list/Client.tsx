@@ -26,8 +26,10 @@ export default function Client() {
   function openToast(msg: string) {
     setToastMsg(msg);
     setToastOpen(true);
-    // 自動で閉じたい場合は以下を有効化
-    // setTimeout(() => setToastOpen(false), 1800);
+    setTimeout(() => {
+      setToastOpen(false);
+      setToastMsg(null);
+    }, 1600);
   }
 
   useEffect(() => {
@@ -265,16 +267,10 @@ export default function Client() {
       {/* 成功時のみ表示するトースト（下部固定） */}
       {toastOpen && toastMsg && (
         <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-          <div className="max-w-screen-sm w-full rounded-2xl bg-black/85 text-white shadow-lg backdrop-blur-sm">
+          <div role="status" aria-live="polite"
+            className="max-w-screen-sm w-full rounded-2xl bg-black/85 text-white shadow-lg backdrop-blur-sm"
+            onClick={() => { setToastOpen(false); setToastMsg(null); }} >
             <div className="p-4 text-sm leading-relaxed">{toastMsg}</div>
-            <div className="flex justify-end gap-2 px-4 pb-3">
-              <button
-                className="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20 active:scale-95"
-                onClick={() => { setToastOpen(false); setToastMsg(null); }}
-              >
-                OK
-              </button>
-            </div>
           </div>
         </div>
       )}
