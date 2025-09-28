@@ -1,5 +1,5 @@
 import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
-import { handlePostback } from "@/handlers/postbacks/gpts";
+import { handlePostback } from "@/handlers/postbacks/router";
 import { clearBinding, getBinding } from "@/services/gptsBindings.mongo";
 import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
