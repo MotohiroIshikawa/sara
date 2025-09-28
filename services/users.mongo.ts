@@ -29,79 +29,64 @@ export async function ensureUserIndexes() {
   console.info("[users.ensureUserIndexes] ensured"); //★
 }
 
-/** follow：現在状態を upsert ＋ 新しいフォロー期間（cycle）を開始 */
-export async function followUser(params: {
+/** follow：現在状態を upsert ＋ 新しいフォロー期間（cycle）を開始 */ 
+export async function followUser(params: { 
   userId: string;
-  profile?: ProfileInput;   // 任意（取得できない/しない時は省略でOK）
-  now?: Date;               // テスト等で上書きしたい時だけ
-}) {
-  const { userId, profile, now = new Date() } = params;
-  console.info("[followUser] start", { userId, now: now.toISOString() }); //★
-  await ensureUserIndexes();
+  profile?: ProfileInput;
+  now?: Date;
+}) { 
+  const { userId, profile, now = new Date() } = params; 
+  await ensureUserIndexes(); 
 
-  const [users, cycles] = await Promise.all([
-    getUsersCollection(),
-    getUserCyclesCollection(),
-  ]);
-  console.info("[followUser] got collections"); //★
+  const [users, cycles] = await Promise.all([ 
+    getUsersCollection(), 
+    getUserCyclesCollection(), 
+  ]); 
+  
+  // 念のため、未終了の古い cycle があれば閉じる（整合性担保） 
+  await cycles.findOneAndUpdate( { 
+    userId, 
+    endAt: null 
+  }, { 
+    $set: { 
+      endAt: new Date(now.getTime() - 1) 
+    } 
+  }, { 
+    sort: { startAt: -1 } 
+  } ); 
 
-  // 念のため、未終了の古い cycle があれば閉じる（整合性担保）
-  try { //★
-    const closed = await cycles.findOneAndUpdate( //★
-      { userId, endAt: null },
-      { $set: { endAt: new Date(now.getTime() - 1) } },
-      { sort: { startAt: -1 }, returnDocument: "after" } //★
-    );
-    console.info("[followUser] closedPreviousIfAny", { //★
-      matched: (closed as any)?.lastErrorObject?.n ?? undefined,
-      value: closed?.value ? { _id: closed.value._id, startAt: closed.value.startAt, endAt: closed.value.endAt } : null,
-    });
-  } catch (e) {
-    console.warn("[followUser] closePrevious failed (ignored)", String(e)); //★
-  }
+  // users（現在状態）を upsert（削除はしない） 
+  await users.updateOne( 
+    { userId }, { 
+    $set: { 
+      userId, 
+      isBlocked: false, 
+      displayName: profile?.displayName, 
+      pictureUrl: profile?.pictureUrl, 
+      statusMessage: profile?.statusMessage, 
+      language: profile?.language, 
+      lastFollowedAt: now, 
+    }, 
+    $setOnInsert: <Partial<UserDoc>>{ 
+      _id: new ObjectId(), 
+      createdAt: now, 
+    }, 
+    $currentDate: { updatedAt: true },
+  }, { upsert: true } ); 
 
-  // users（現在状態）を upsert（削除はしない）
-  const up = await users.updateOne(
-    { userId },
-    {
-      $set: {
-        userId,
-        isBlocked: false,
-        displayName: profile?.displayName,
-        pictureUrl: profile?.pictureUrl,
-        statusMessage: profile?.statusMessage,
-        language: profile?.language,
-        lastFollowedAt: now,
-      },
-      $setOnInsert: <Partial<UserDoc>>{
-        _id: new ObjectId(),
-        createdAt: now,
-      },
-      $currentDate: { updatedAt: true },
-    },
-    { upsert: true }
-  );
-  console.info("[followUser] users.updateOne", { //★
-    acknowledged: up.acknowledged,
-    matchedCount: up.matchedCount,
-    modifiedCount: up.modifiedCount,
-    upsertedId: (up as any).upsertedId ?? null,
-  });
+  // 履歴に新しい cycle を追加 
+  const cycleId = randomUUID(); 
+  const cycleDoc: UserCycleDoc = { 
+    _id: new ObjectId(),
+    userId, 
+    cycleId,
+    startAt: now, 
+    endAt: null, 
+  }; 
+  await cycles.insertOne(cycleDoc); 
 
-  // 履歴に新しい cycle を追加
-  const cycleId = randomUUID();
-  const cycleDoc: UserCycleDoc = {
-    _id: new ObjectId(), // ★DB設計変更: _id は ObjectId
-    userId,
-    cycleId,             // 文字列の識別子は別フィールドとして保持（運用ログなどで便利）
-    startAt: now,
-    endAt: null,
-  };
-  const ins = await cycles.insertOne(cycleDoc); //★
-  console.info("[followUser] cycles.insertOne", { insertedId: ins.insertedId?.toString?.() ?? String(ins.insertedId) }); //★
-
-  console.info("[followUser] cycle started", { userId, cycleId, startAt: now.toISOString() });
-  return { cycleId };
+  console.info("[followUser] cycle started", { userId, cycleId, startAt: now.toISOString() }); 
+  return { cycleId }; 
 }
 
 /** unfollow：現在状態を削除し、アクティブな cycle を終了（無ければ即終了サイクルを作成） */
