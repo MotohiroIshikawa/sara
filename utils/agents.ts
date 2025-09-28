@@ -4,7 +4,7 @@ import { AgentsClient, ToolUtility } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 import { emitInstpackTool } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool } from "@/services/tools/emitMeta.tool";
-import { buildInstpackInstructions, buildMetaInstructions, buildReplyWithUserInstpack } from "@/utils/agentPrompts";
+import { buildInstpackInstructions, buildMetaInstructions, buildReplyInstructions, buildReplyWithUserInstpack } from "@/utils/agentPrompts";
 import { AZURE, envInt } from "@/utils/env";
 import { redis } from "@/utils/redis";
 import { toDefinition, type ToolLike } from "@/utils/types";
@@ -72,6 +72,37 @@ export async function getOrCreateAgentIdWithTools(
   const ttlSec = ttlDays * 24 * 60 * 60;
   await redis.setex(key, ttlSec, agent.id);
   return agent.id;
+}
+
+// BASE+REPLY（instpack未注入）の reply Agent を「キャッシュにある分だけ」削除
+export async function deleteBaseReplyAgent(): Promise<string | null> {
+  const bingTool = ToolUtility.createBingGroundingTool([
+    { connectionId: AZURE.BING_CONNECTION_ID, market: "ja-JP", setLang: "ja", count: 5, freshness: "week" },
+  ]);
+  const baseReplyIns = buildReplyInstructions().trim();
+  const sig = (function computeAgentSigLocal() {
+    return createHash("sha256")
+      .update(JSON.stringify({ modelDeployment, endpoint, instructions: baseReplyIns, toolSig: (function toolSigLocal() {
+        const defsNorm = [toDefinition(bingTool)];
+        return createHash("sha256").update(JSON.stringify(defsNorm)).digest("base64url").slice(0, 12);
+      })() }))
+      .digest("base64url")
+      .slice(0, 12);
+  })();
+
+  const ns = Buffer.from(endpoint).toString("base64url");
+  const key = `agent:id:${ns}:${sig}`;
+
+  const agentId = await redis.get(key);
+  if (!agentId) return null;
+
+  try {
+    await agentsClient.deleteAgent(agentId);
+  } catch {
+    // 404等は無視
+  }
+  await redis.del(key);
+  return agentId;
 }
 
 // instpack に紐づく reply/meta/inst 用 Agent を「キャッシュにある分だけ」削除

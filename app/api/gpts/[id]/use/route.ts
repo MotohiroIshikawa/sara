@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { setBinding } from "@/services/gptsBindings.mongo";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { hasUserGptsLink } from "@/services/userGpts.mongo";
 import { getGptsById } from "@/services/gpts.mongo";
 import { purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
+import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { toScopedOwnerIdFromPlainId } from "@/utils/lineSource";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const rid = randomUUID().slice(0, 8);
@@ -28,13 +29,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
 
+    const scopedOwnerId = toScopedOwnerIdFromPlainId("user", userId);
+
     // thread_inst（ユーザの作成中レコード）を削除
-    await purgeAllThreadInstByUser(userId).catch((e) => {
+    await purgeAllThreadInstByUser(scopedOwnerId).catch((e) => {
       console.warn(`[gpts.use:${rid}] clear_thread_inst_failed`, { userId, err: String(e) });
     });
 
     // Redisに登録されている利用中のthreadを削除
-    await resetThread(userId).catch((e) => {
+    await resetThread(scopedOwnerId).catch((e) => {
       console.warn(`[gpts.use:${rid}] reset_thread_failed`, { userId, err: String(e) });
     });
 
