@@ -6,6 +6,7 @@ import type {
   UserGptsDoc, 
   GptsBindingDoc,
   GptsDoc,
+  GptsScheduleDoc,
 } from "@/types/db";
 
 let _clientPromise: Promise<MongoClient> | null = null;
@@ -80,6 +81,11 @@ export async function getUserGptsCollection(): Promise<Collection<UserGptsDoc>> 
 export async function getGptsBindingsCollection(): Promise<Collection<GptsBindingDoc>> {
   const name = process.env.MONGODB_GPTS_BINDINGS_COLLECTION ?? "gpts_bindings";
   return getCollection<GptsBindingDoc>(name);
+}
+
+export async function getGptsSchedulesCollection(): Promise<Collection<GptsScheduleDoc>> {
+  const name = process.env.MONGODB_GPTS_SCHEDULES_COLLECTION ?? "gpts_schedules";
+  return getCollection<GptsScheduleDoc>(name);
 }
 
 /* === Common helpers === */

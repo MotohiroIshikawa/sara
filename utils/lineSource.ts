@@ -10,7 +10,7 @@ type WithSource = { source: Source };
 
 type LineEvent = WebhookEvent | PostbackEvent | MessageEvent | WithSource;
 
-type SourceKind = "user" | "group" | "room" | "unknown";
+export type SourceKind = "user" | "group" | "room" | "unknown";
 
 function srcOf(e: LineEvent): Source | undefined {
   const s = (e as WithSource).source as Source | undefined;
