@@ -226,6 +226,18 @@ export async function connectBing(
     // Thread の確保 group/roomも同様にplain idを渡す
     const threadId = await getOrCreateThreadId(scopedOwnerId);
 
+    // 今回の run に投入する reply instructionsをログ
+    if (debugBing) {
+      const origin: "base" | "binding" | "override" =
+        (opts?.instructionsOverride?.trim()?.length ? "override"
+        : (appliedInstpack ? "binding" : "base"));
+      const sha = sha12(replyInstructions);
+      console.info(
+        `[reply:ins] origin=${origin} scope=${sourceType} owner=${scopedOwnerId} tid=${threadId} len=${replyInstructions.length} sha=${sha}`
+      );
+      console.info(preview(replyInstructions, 1600));
+    }
+
     // ユーザーの質問をスレッドへ投入
     await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
 
