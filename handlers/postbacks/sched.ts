@@ -51,7 +51,7 @@ const fmt = (k: MsgKey, vars: Record<string, string | number>): string => {
 };
 
 // ユーティリティ
-function roundMinutes(min: number, step = Number(process.env.SCHEDULE_ROUND_MIN ?? 15)): number {
+function roundMinutes(min: number, step = Number(process.env.SCHEDULE_ROUND_MIN ?? 5)): number {
   const r = Math.round(min / step) * step;
   return Math.max(0, Math.min(59, r));
 }
@@ -175,7 +175,7 @@ const pickDate: Handler = async (event, args = {}) => {
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
     { userId, gptsId, deletedAt: null, enabled: false },
-    { sort: { createdAt: -1 } }
+    { sort: { _id: -1 } }
   );
   if (!draft) {
     await sendMessagesReplyThenPush({
@@ -220,7 +220,7 @@ const wdayToggle: Handler = async (event, args = {}) => {
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
     { userId, gptsId, deletedAt: null, enabled: false },
-    { sort: { createdAt: -1 } }
+    { sort: { _id: -1 } }
   );
   if (!draft) return;
 
@@ -251,7 +251,7 @@ const wdayPreset: Handler = async (event, args = {}) => {
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
     { userId, gptsId, deletedAt: null, enabled: false },
-    { sort: { createdAt: -1 } }
+    { sort: { _id: -1 } }
   );
   if (!draft) return;
 
@@ -278,7 +278,7 @@ const wdayNext: Handler = async (event, args = {}) => {
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
     { userId, gptsId, deletedAt: null, enabled: false },
-    { sort: { createdAt: -1 } }
+    { sort: { _id: -1 } }
   );
   const days = draft?.byWeekday ?? [];
 
@@ -355,7 +355,7 @@ const timeOk: Handler = async (event, args = {}) => {
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
     { userId, gptsId, deletedAt: null, enabled: false },
-    { sort: { createdAt: -1 } }
+    { sort: { _id: -1 } }
   );
   if (!draft) {
     await sendMessagesReplyThenPush({
@@ -395,7 +395,7 @@ const enable: Handler = async (event, args = {}) => {
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
     { userId, gptsId, deletedAt: null, enabled: false },
-    { sort: { createdAt: -1 } }
+    { sort: { _id: -1 } }
   );
   if (!draft) {
     await sendMessagesReplyThenPush({
