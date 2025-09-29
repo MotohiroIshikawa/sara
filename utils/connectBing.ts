@@ -197,15 +197,23 @@ export async function connectBing(
 
   // ソース種別と scopedOwnerId を決定
   const sourceType: SourceType = opts?.sourceType ?? "user";
-  const scopedOwnerId = toScopedOwnerIdFromPlainId(sourceType, userId); // user:xxx / group:xxx / room:xxx
-  if (debugBing) console.info(`[scope] type=${sourceType} plain=${userId} scoped=${scopedOwnerId}`);
+  let plainId = userId;
+  const prefix = `${sourceType}:`;
+  // 誤ってscopedIdが来た場合plainIdにする
+  if (plainId.startsWith(prefix)) {
+    if (debugBing) console.warn(`[connectBing] got scoped userId; normalize -> plain: ${plainId}`);
+    plainId = plainId.slice(prefix.length);
+  }
+  // 改めてscopedにする
+  const scopedOwnerId = toScopedOwnerIdFromPlainId(sourceType, plainId);
+  if (debugBing) console.info(`[scope] type=${sourceType} plain=${plainId} scoped=${scopedOwnerId}`);
 
   // binding は発話元スコープで取得（user/group/room）
   const binding = await getBinding({ type: sourceType, targetId: userId }).catch(() => null);
   const appliedInstpack = (binding?.instpack || "").trim();
   if (debugBing) {
     const sha = appliedInstpack ? createHash("sha256").update(appliedInstpack).digest("base64url").slice(0,12) : "-";
-    console.info(`[binding] type=${sourceType} id=${userId} instpack.sha=${sha}`);
+    console.info(`[binding] type=${sourceType} id=${plainId} instpack.sha=${sha}`);
   }
 
   // 段階別instructionsを生成
@@ -223,7 +231,7 @@ export async function connectBing(
 
   // scopedOwnerId を使う（現状は plain のまま）
   return await withLock(`owner:${scopedOwnerId}`, 90_000, async () => {
-    // Thread の確保 group/roomも同様にplain idを渡す
+    // Thread の確保（Azure Thread は1つ／スコープ、Redisキーもスコープで管理）
     const threadId = await getOrCreateThreadId(scopedOwnerId);
 
     // 今回の run に投入する reply instructionsをログ
@@ -407,6 +415,7 @@ export async function connectBing(
       // ログ＆保存
       logInstpack("instpack", { threadId, runId: instpackRun.id }, mergedInst);
       if (mergedMeta || mergedInst) {
+        // 保存系でスコープキーを使う想定なら scopedOwnerId を渡す
         await opts?.onRepair?.({ userId, threadId, meta: mergedMeta, instpack: mergedInst });
       }
     }
