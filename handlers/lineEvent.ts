@@ -4,7 +4,6 @@ import { clearBinding, getBinding } from "@/services/gptsBindings.mongo";
 import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
 import type { MetaForConfirm } from "@/types/gpts";
-import { buildReplyWithUserInstpack } from "@/utils/agentPrompts";
 import { connectBing } from "@/utils/connectBing";
 import { LINE } from "@/utils/env";
 import { fetchLineUserProfile } from "@/utils/lineProfile";
@@ -223,15 +222,8 @@ export async function lineEvent(event: WebhookEvent) {
         return;
       }
 
-      // Azure OpenAI (Grounding with Bing Search) への問い合わせ
-      const binding = await getBinding(bindingTarget); 
-
-      const replyOverride = binding?.instpack
-        ? buildReplyWithUserInstpack(binding.instpack)
-        : undefined;
-
       const res = await connectBing(threadOwnerId, question, {
-        instructionsOverride: replyOverride,
+        sourceType: event.source.type,
       });
 
       console.log("#### BING REPLY (TEXTS) ####", res.texts);
