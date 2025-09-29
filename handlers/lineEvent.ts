@@ -13,7 +13,7 @@ import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/line
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
 import { resetThread } from "@/services/threadState";
-import { delete3AgentsForInstpack, deleteBaseReplyAgent } from "@/utils/agents";
+import { delete3AgentsForInstpack } from "@/utils/agents";
 import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
 import { softDeleteAllGptsByUser } from "@/services/gpts.mongo";
 
@@ -170,9 +170,9 @@ export async function lineEvent(event: WebhookEvent) {
       }
 
       // BASEのreplyAgentを消す
-      await deleteBaseReplyAgent().catch((e) => {
-        console.warn("[unfollow] deleteBaseReplyAgent failed", { uid, err: String(e) });
-      });
+      //await deleteBaseReplyAgent().catch((e) => {
+      //  console.warn("[unfollow] deleteBaseReplyAgent failed", { uid, err: String(e) });
+      //});
       
       // thread_inst から該当ユーザのレコードを削除
       await purgeAllThreadInstByUser(threadOwnerId).catch((e) => {

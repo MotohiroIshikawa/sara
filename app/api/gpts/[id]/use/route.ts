@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { setBinding } from "@/services/gptsBindings.mongo";
+import { getBinding, setBinding } from "@/services/gptsBindings.mongo";
 import { hasUserGptsLink } from "@/services/userGpts.mongo";
 import { getGptsById } from "@/services/gpts.mongo";
 import { purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { toScopedOwnerIdFromPlainId } from "@/utils/lineSource";
+import { delete3AgentsForInstpack } from "@/utils/agents";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const rid = randomUUID().slice(0, 8);
@@ -31,6 +32,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const scopedOwnerId = toScopedOwnerIdFromPlainId("user", userId);
 
+    // 現在の binding を取得（旧Agent掃除のため保持）
+    const prev = await getBinding({ type: "user", targetId: userId }).catch(() => null);
+
     // thread_inst（ユーザの作成中レコード）を削除
     await purgeAllThreadInstByUser(scopedOwnerId).catch((e) => {
       console.warn(`[gpts.use:${rid}] clear_thread_inst_failed`, { userId, err: String(e) });
@@ -43,6 +47,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
      // gpts_bindings を上書き
     await setBinding({ type: "user", targetId: userId }, g.gptsId, g.instpack);
+
+    // 旧 binding と違う場合は、旧 instpack に紐づく reply/meta/inst Agent を削除（上限3体維持）
+    if (prev?.instpack && prev?.gptsId !== g.gptsId) {
+      try {
+        const del = await delete3AgentsForInstpack(prev.instpack);
+        console.info(`[gpts.use:${rid}] deleted_prev_agents`, del);
+      } catch (e) {
+        console.warn(`[gpts.use:${rid}] delete_prev_agents_failed`, { err: String(e) });
+      }
+    }
 
     console.info(`[gpts.use:${rid}] done`, {
       userId,

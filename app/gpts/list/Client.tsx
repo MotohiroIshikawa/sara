@@ -229,7 +229,7 @@ export default function Client() {
                   title={applied ? "このルールは選択中です" : "このチャットで使うルールとして選択します"}
                 >
                   {/* ラベル：選択中は「選択中」表示 */}
-                  {applied ? "選択中" : isBusy ? "選択中…" : "選択"}
+                  {applied ? "選択" : isBusy ? "選択中…" : "選択"}
                 </button>
 
                 {/* 編集 */}

@@ -1,19 +1,23 @@
 import { createHash } from "crypto";
 import { ToolUtility, type MessageContentUnion } from "@azure/ai-agents";
 import type { AgentsClient as AzureAgentsClient } from "@azure/ai-agents";
+import { getBinding } from "@/services/gptsBindings.mongo";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 import type { Meta, ConnectBingResult } from "@/types/gpts";
 import { agentsClient as client, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
-import { buildReplyInstructions, buildMetaInstructions, buildInstpackInstructions } from "@/utils/agentPrompts";
+import { buildReplyInstructions, buildMetaInstructions, buildInstpackInstructions, buildReplyWithUserInstpack } from "@/utils/agentPrompts";
 import { withTimeout } from "@/utils/async";
 import { LINE, DEBUG, AZURE, MAIN_TIMERS } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/fence";
+import { toScopedOwnerIdFromPlainId } from "@/utils/lineSource";
 import { toLineTextsFromMessage } from "@/utils/lineMessage";
 import { buildFollowup, looksLikeFollowup, normalizeMeta, shouldSave, type EmitMetaPayload } from "@/utils/meta";
 import { withLock } from "@/utils/redis";
 import { toToolCalls, type ToolCall, isFunctionToolCall } from "@/utils/types";
+
+type SourceType = "user" | "group" | "room";
 
 // 環境変数
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
@@ -162,8 +166,8 @@ function applyAndLogEmitMeta(
  * connectBing: メイン関数
  *  1. Agent/Threadの確保
  *  2. 質問を投入しrun実行
- *  3. requires_actionでツール出力をsubmit（emit_metaのpayloadを回収）
- *  4. 応答本文から内部ブロック除去、必要ならrepair runで meta/instpack回収
+ *  3. requires_actionでツール出力をsubmit（emit_metaのpayloadを回収） = userのみ
+ *  4. 応答本文から内部ブロック除去、必要ならrepair runで meta/instpack回収 = userのみ
  *  5. LINE用に本文整形して返却
  * 
  * @param userId 
@@ -180,6 +184,8 @@ export async function connectBing(
     onRepair?: (p: { userId: string; threadId: string; meta?: Meta; instpack?: string; }) => Promise<void>;
     // metaの再試行回数
     maxMetaRetry?: number;
+    // 発話元の種別（デフォルト "user"）。group/room のときは meta/instpack を実行しない。
+    sourceType?: SourceType;
   }
 ): Promise<ConnectBingResult> {
   const q = question.trim();
@@ -189,17 +195,36 @@ export async function connectBing(
   // 認証・認証チェック
   await preflightAuth();
 
+  // ソース種別と scopedOwnerId を決定
+  const sourceType: SourceType = opts?.sourceType ?? "user";
+  const scopedOwnerId = toScopedOwnerIdFromPlainId(sourceType, userId); // user:xxx / group:xxx / room:xxx
+  if (debugBing) console.info(`[scope] type=${sourceType} plain=${userId} scoped=${scopedOwnerId}`);
+
+  // binding は発話元スコープで取得（user/group/room）
+  const binding = await getBinding({ type: sourceType, targetId: userId }).catch(() => null);
+  const appliedInstpack = (binding?.instpack || "").trim();
+  if (debugBing) {
+    const sha = appliedInstpack ? createHash("sha256").update(appliedInstpack).digest("base64url").slice(0,12) : "-";
+    console.info(`[binding] type=${sourceType} id=${userId} instpack.sha=${sha}`);
+  }
+
   // 段階別instructionsを生成
-  const replyInstructions = (opts?.instructionsOverride?.trim()?.length
+  const replyInstructions = (
+    opts?.instructionsOverride?.trim()?.length
     ? opts!.instructionsOverride!
-    : buildReplyInstructions()
+    : (appliedInstpack 
+        ? buildReplyWithUserInstpack(appliedInstpack)
+        : buildReplyInstructions())
   ).trim();
+
+  // meta/inst の instructions は固定。group/room ではrun自体をスキップ
   const metaInstructions = buildMetaInstructions().trim();
   const instInstructions = buildInstpackInstructions().trim();
 
-  return await withLock(`user:${userId}`, 90_000, async () => {
-    // Thread の確保
-    const threadId = await getOrCreateThreadId(userId);
+  // scopedOwnerId を使う（現状は plain のまま）
+  return await withLock(`owner:${scopedOwnerId}`, 90_000, async () => {
+    // Thread の確保 group/roomも同様にplain idを渡す
+    const threadId = await getOrCreateThreadId(scopedOwnerId);
 
     // ユーザーの質問をスレッドへ投入
     await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
@@ -251,59 +276,65 @@ export async function connectBing(
     let texts = toLineTextsFromMessage(replyContent, { maxUrls: LINE.MAX_URLS_PER_BLOCK, showTitles: false });
     const replyTextJoined = texts.join("\n\n");
 
-    // run2. meta（テキスト禁止・emit_meta 一発）用
-    const metaTools = [emitMetaTool];
-    const metaAgentId = await getOrCreateAgentIdWithTools(metaInstructions, metaTools);
-    const getMetaOnce = async (): Promise<Meta | undefined> => {
-      const metaRun = await withTimeout(
-        client.runs.create(threadId, metaAgentId, {
-          temperature: 0.0,
-          parallelToolCalls: false,
-          toolChoice: { type: "function", function: { name: EMIT_META_FN } },
-        }),
-        MAIN_TIMERS.CREATE_TIMEOUT,
-        "meta:create"
-      );
+    // meta,instpack生成はuserのときだけ実行。group/room はスキップ
+    const isUserSource = (sourceType === "user");
 
-      let captured: Meta | undefined;
-      while (true) {
-        const cur = await withTimeout(
-          client.runs.get(threadId, metaRun.id),
-          MAIN_TIMERS.GET_TIMEOUT,
-          "meta:get"
-        ) as RunState;
+    // run2. meta（テキスト禁止・emit_meta 一発）用 = userのみ
+    let mergedMeta: Meta | undefined = undefined;
+    if (isUserSource) {
+      const metaTools = [emitMetaTool];
+      const metaAgentId = await getOrCreateAgentIdWithTools(metaInstructions, metaTools);
+      const getMetaOnce = async (): Promise<Meta | undefined> => {
+        const metaRun = await withTimeout(
+          client.runs.create(threadId, metaAgentId, {
+            temperature: 0.0,
+            parallelToolCalls: false,
+            toolChoice: { type: "function", function: { name: EMIT_META_FN } },
+          }),
+          MAIN_TIMERS.CREATE_TIMEOUT,
+          "meta:create"
+        );
 
-        if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
-          const calls = toToolCalls(cur.requiredAction?.submitToolOutputs?.toolCalls);
-          const outs = calls.map((c): { toolCallId: string; output: string } => {
-            if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
-              const payload = parseEmitMeta(c.function?.arguments);
-              if (payload?.meta) captured = payload.meta;
-              // ログ
-              applyAndLogEmitMeta(payload, "meta", { threadId, runId: metaRun.id }, {
-                setMeta: () => {}, setInstpack: () => {}
-              });
-              return { toolCallId: c.id, output: "ok" };
-            }
-            return { toolCallId: c.id, output: "" };
-          });
-          await client.runs.submitToolOutputs(threadId, metaRun.id, outs);
-        } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
-          break;
-        } else {
-          await new Promise(r => setTimeout(r, MAIN_TIMERS.POLL_SLEEP));
+        let captured: Meta | undefined;
+        while (true) {
+          const cur = await withTimeout(
+            client.runs.get(threadId, metaRun.id),
+            MAIN_TIMERS.GET_TIMEOUT,
+            "meta:get"
+          ) as RunState;
+
+          if (cur.status === "requires_action" && cur.requiredAction?.type === "submit_tool_outputs") {
+            const calls = toToolCalls(cur.requiredAction?.submitToolOutputs?.toolCalls);
+            const outs = calls.map((c): { toolCallId: string; output: string } => {
+              if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
+                const payload = parseEmitMeta(c.function?.arguments);
+                if (payload?.meta) captured = payload.meta;
+                // ログ
+                applyAndLogEmitMeta(payload, "meta", { threadId, runId: metaRun.id }, {
+                  setMeta: () => {}, setInstpack: () => {}
+                });
+                return { toolCallId: c.id, output: "ok" };
+              }
+              return { toolCallId: c.id, output: "" };
+            });
+            await client.runs.submitToolOutputs(threadId, metaRun.id, outs);
+          } else if (["completed","failed","cancelled","expired"].includes(cur.status ?? "")) {
+            break;
+          } else {
+            await new Promise(r => setTimeout(r, MAIN_TIMERS.POLL_SLEEP));
+          }
         }
-      }
-      return normalizeMeta(captured);
-    };
+        return normalizeMeta(captured);
+      };
 
-    let mergedMeta: Meta | undefined = await getMetaOnce();
-    for (let i = 1; !mergedMeta && i <= (opts?.maxMetaRetry ?? 2); i++) {
       mergedMeta = await getMetaOnce();
+      for (let i = 1; !mergedMeta && i <= (opts?.maxMetaRetry ?? 2); i++) {
+        mergedMeta = await getMetaOnce();
+      }
     }
 
-    // meta 不足なら最後に1行の確認を付与
-    if (mergedMeta?.complete === false) {
+    // meta 不足なら最後に1行の確認を付与 = userのみ
+    if (isUserSource && mergedMeta?.complete === false) {
       const ask = buildFollowup(mergedMeta);
       const last = texts[texts.length - 1] ?? "";
       const already =
@@ -313,9 +344,9 @@ export async function connectBing(
     }
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
-    // run3. instpack（保存条件を満たす場合のみ）用
+    // run3. instpack（保存条件を満たす場合のみ）用 = userのみ
     let mergedInst: string | undefined = undefined;
-    if (shouldSave(mergedMeta, replyTextJoined)) {
+    if (isUserSource && shouldSave(mergedMeta, replyTextJoined)) {
       const instTools = [emitInstpackTool];
       const instAgentId = await getOrCreateAgentIdWithTools(instInstructions, instTools);
       const instpackRun = await withTimeout(
