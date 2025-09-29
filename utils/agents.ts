@@ -4,7 +4,7 @@ import { AgentsClient, ToolUtility } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 import { emitInstpackTool } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool } from "@/services/tools/emitMeta.tool";
-import { buildInstpackInstructions, buildMetaInstructions, buildReplyInstructions, buildReplyWithUserInstpack } from "@/utils/agentPrompts";
+import { getBaseReplyInstruction, getInstructionsWithInstpack } from "@/utils/agentPrompts";
 import { AZURE, envInt } from "@/utils/env";
 import { redis } from "@/utils/redis";
 import { toDefinition, type ToolLike } from "@/utils/types";
@@ -79,20 +79,9 @@ export async function deleteBaseReplyAgent(): Promise<string | null> {
   const bingTool = ToolUtility.createBingGroundingTool([
     { connectionId: AZURE.BING_CONNECTION_ID, market: "ja-JP", setLang: "ja", count: 5, freshness: "week" },
   ]);
-  const baseReplyIns = buildReplyInstructions().trim();
-  const sig = (function computeAgentSigLocal() {
-    return createHash("sha256")
-      .update(JSON.stringify({ modelDeployment, endpoint, instructions: baseReplyIns, toolSig: (function toolSigLocal() {
-        const defsNorm = [toDefinition(bingTool)];
-        return createHash("sha256").update(JSON.stringify(defsNorm)).digest("base64url").slice(0, 12);
-      })() }))
-      .digest("base64url")
-      .slice(0, 12);
-  })();
-
-  const ns = Buffer.from(endpoint).toString("base64url");
-  const key = `agent:id:${ns}:${sig}`;
-
+  const baseReplyIns = getBaseReplyInstruction();
+  const sig = computeAgentSig(baseReplyIns, [bingTool]);
+  const key = agentCacheKeyFromSig(sig);
   const agentId = await redis.get(key);
   if (!agentId) return null;
 
@@ -116,14 +105,12 @@ export async function delete3AgentsForInstpack(instpack: string): Promise<{
     { connectionId: AZURE.BING_CONNECTION_ID, market: "ja-JP", setLang: "ja", count: 5, freshness: "week" },
   ]);
 
-  const replyIns = buildReplyWithUserInstpack(instpack).trim();
-  const metaIns  = buildMetaInstructions().trim();
-  const instIns  = buildInstpackInstructions().trim();
+  const { reply, meta, inst } = getInstructionsWithInstpack(instpack);
 
   const pairs: Array<{ label: "reply" | "meta" | "inst"; ins: string; tools: ReadonlyArray<ToolLike | unknown> }> = [
-    { label: "reply", ins: replyIns, tools: [bingTool] },
-    { label: "meta",  ins: metaIns,  tools: [emitMetaTool] },
-    { label: "inst",  ins: instIns,  tools: [emitInstpackTool] },
+    { label: "reply", ins: reply, tools: [bingTool] },
+    { label: "meta",  ins: meta,  tools: [emitMetaTool] },
+    { label: "inst",  ins: inst,  tools: [emitInstpackTool] },
   ];
 
   const result: { deletedReply?: string | null; deletedMeta?: string | null; deletedInst?: string | null } = {};

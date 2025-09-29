@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { getBinding, setBinding } from "@/services/gptsBindings.mongo";
 import { hasUserGptsLink } from "@/services/userGpts.mongo";
 import { getGptsById } from "@/services/gpts.mongo";
@@ -50,13 +50,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     // 旧 binding と違う場合は、旧 instpack に紐づく reply/meta/inst Agent を削除（上限3体維持）
     if (prev?.instpack && prev?.gptsId !== g.gptsId) {
-      try {
-        const del = await delete3AgentsForInstpack(prev.instpack);
-        console.info(`[gpts.use:${rid}] deleted_prev_agents`, del);
-      } catch (e) {
-        console.warn(`[gpts.use:${rid}] delete_prev_agents_failed`, { err: String(e) });
+      const prevSha = createHash("sha256").update(prev.instpack).digest("base64url").slice(0, 12);
+      const nextSha = createHash("sha256").update(g.instpack).digest("base64url").slice(0, 12);
+      const changed = (prev.gptsId !== g.gptsId) || (prevSha !== nextSha);
+      if (changed) {
+        try {
+          const del = await delete3AgentsForInstpack(prev.instpack);
+          console.info(`[gpts.use:${rid}] deleted_prev_agents`, del);
+        } catch (e) {
+          console.warn(`[gpts.use:${rid}] delete_prev_agents_failed`, { err: String(e) });
+        }
+      } else {
+        console.info(`[gpts.use:${rid}] agent_delete_skipped_same_instpack`, { prevSha, nextSha }); // ★
       }
     }
+
 
     console.info(`[gpts.use:${rid}] done`, {
       userId,

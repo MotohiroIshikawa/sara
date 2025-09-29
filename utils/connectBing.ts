@@ -1,13 +1,12 @@
 import { createHash } from "crypto";
 import { ToolUtility, type MessageContentUnion } from "@azure/ai-agents";
 import type { AgentsClient as AzureAgentsClient } from "@azure/ai-agents";
-import { getBinding } from "@/services/gptsBindings.mongo";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 import type { Meta, ConnectBingResult } from "@/types/gpts";
 import { agentsClient as client, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
-import { buildReplyInstructions, buildMetaInstructions, buildInstpackInstructions, buildReplyWithUserInstpack } from "@/utils/agentPrompts";
+import { getInstructions, type ReplyInsOrigin } from "@/utils/agentPrompts";
 import { withTimeout } from "@/utils/async";
 import { LINE, DEBUG, AZURE, MAIN_TIMERS } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/fence";
@@ -17,13 +16,11 @@ import { buildFollowup, looksLikeFollowup, normalizeMeta, shouldSave, type EmitM
 import { withLock } from "@/utils/redis";
 import { toToolCalls, type ToolCall, isFunctionToolCall } from "@/utils/types";
 
-type SourceType = "user" | "group" | "room";
-
-// 環境変数
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const debugBing = DEBUG.BING;
 
-//// run状態の簡易型（SDKの抜粋）
+type SourceType = "user" | "group" | "room";
+//// run状態
 type RunState = {
   status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
   requiredAction?: SubmitToolOutputsAction;
@@ -51,13 +48,7 @@ type AssistantMsg = {
   content: MessageContentUnion[];
 };
 
-/**
- * getAssistantMessageForRun: 指定したrunIdのassistantメッセージを優先取得
- * 
- * @param threadId 
- * @param runId 
- * @returns 
- */
+// getAssistantMessageForRun: 指定したrunIdのassistantメッセージを優先取得
 async function getAssistantMessageForRun(
   threadId: string, 
   runId: string
@@ -92,7 +83,7 @@ function looksLikeInstpack(s?: string): boolean {
   return true;
 }
 
-// instpackログ出力
+// ログ用
 type PhaseTag = "main" | "repair" | "fence" | "instpack" | "meta";
 const sha12 = (s: string) => createHash("sha256").update(s).digest("base64url").slice(0, 12);
 const preview = (s: string, n = 1200) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -107,13 +98,10 @@ function logInstpack(
   );
 }
 
-// emit_metaのログ出力
+// emit_metaのログ用
 function logEmitMetaSnapshot(
   phase: PhaseTag, 
-  ctx: {
-    threadId: string;
-    runId?: string;
-  }, 
+  ctx: { threadId: string; runId?: string }, 
   payload: { meta?: Meta; instpack?: string }
 ) {
   const { meta, instpack } = payload;
@@ -161,6 +149,14 @@ function applyAndLogEmitMeta(
   logInstpack(phase, ctx, payload.instpack);
 }
 
+// 入力ID（plain or scoped）を正規化
+function normalizeOwnerIds(inputId: string, type: SourceType): { scopedOwnerId: string; plainId: string } {
+  const m = /^(user|group|room):(.+)$/.exec(inputId);
+  if (m) {
+    return { scopedOwnerId: inputId, plainId: m[2] };
+  }
+  return { scopedOwnerId: toScopedOwnerIdFromPlainId(type, inputId), plainId: inputId };
+}
 
 /**
  * connectBing: メイン関数
@@ -179,13 +175,12 @@ export async function connectBing(
   userId: string, 
   question: string,
   opts?: {
-    instructionsOverride?: string;
     // 修復runの回収結果を保存するためのコールバック
     onRepair?: (p: { userId: string; threadId: string; meta?: Meta; instpack?: string; }) => Promise<void>;
     // metaの再試行回数
     maxMetaRetry?: number;
     // 発話元の種別（デフォルト "user"）。group/room のときは meta/instpack を実行しない。
-    sourceType?: SourceType;
+    sourceType?: SourceType; // 既定: "user"
   }
 ): Promise<ConnectBingResult> {
   const q = question.trim();
@@ -197,61 +192,30 @@ export async function connectBing(
 
   // ソース種別と scopedOwnerId を決定
   const sourceType: SourceType = opts?.sourceType ?? "user";
-  let plainId = userId;
-  const prefix = `${sourceType}:`;
-  // 誤ってscopedIdが来た場合plainIdにする
-  if (plainId.startsWith(prefix)) {
-    if (debugBing) console.warn(`[connectBing] got scoped userId; normalize -> plain: ${plainId}`);
-    plainId = plainId.slice(prefix.length);
-  }
-  // 改めてscopedにする
-  const scopedOwnerId = toScopedOwnerIdFromPlainId(sourceType, plainId);
+  const { scopedOwnerId, plainId } = normalizeOwnerIds(userId, sourceType);
   if (debugBing) console.info(`[scope] type=${sourceType} plain=${plainId} scoped=${scopedOwnerId}`);
 
-  // binding は発話元スコープで取得（user/group/room）
-  const binding = await getBinding({ type: sourceType, targetId: userId }).catch(() => null);
-  const appliedInstpack = (binding?.instpack || "").trim();
+  const ins = await getInstructions({ type: sourceType, targetId: plainId});
   if (debugBing) {
-    const sha = appliedInstpack ? createHash("sha256").update(appliedInstpack).digest("base64url").slice(0,12) : "-";
-    console.info(`[binding] type=${sourceType} id=${plainId} instpack.sha=${sha}`);
+    const origin: ReplyInsOrigin = ins.origin;
+    const sha = sha12(ins.reply);
+    console.info(
+      `[reply:ins] origin=${origin} scope=${sourceType} owner=${scopedOwnerId} len=${ins.reply.length} sha=${sha}`
+    );
+    console.info(preview(ins.reply, 1600));
   }
-
-  // 段階別instructionsを生成
-  const replyInstructions = (
-    opts?.instructionsOverride?.trim()?.length
-    ? opts!.instructionsOverride!
-    : (appliedInstpack 
-        ? buildReplyWithUserInstpack(appliedInstpack)
-        : buildReplyInstructions())
-  ).trim();
-
-  // meta/inst の instructions は固定。group/room ではrun自体をスキップ
-  const metaInstructions = buildMetaInstructions().trim();
-  const instInstructions = buildInstpackInstructions().trim();
-
+  
   // scopedOwnerId を使う（現状は plain のまま）
   return await withLock(`owner:${scopedOwnerId}`, 90_000, async () => {
     // Thread の確保（Azure Thread は1つ／スコープ、Redisキーもスコープで管理）
     const threadId = await getOrCreateThreadId(scopedOwnerId);
-
-    // 今回の run に投入する reply instructionsをログ
-    if (debugBing) {
-      const origin: "base" | "binding" | "override" =
-        (opts?.instructionsOverride?.trim()?.length ? "override"
-        : (appliedInstpack ? "binding" : "base"));
-      const sha = sha12(replyInstructions);
-      console.info(
-        `[reply:ins] origin=${origin} scope=${sourceType} owner=${scopedOwnerId} tid=${threadId} len=${replyInstructions.length} sha=${sha}`
-      );
-      console.info(preview(replyInstructions, 1600));
-    }
 
     // ユーザーの質問をスレッドへ投入
     await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
 
     // run1. 返信用
     const replyTools = [bingTool];
-    const replyAgentId = await getOrCreateAgentIdWithTools(replyInstructions, replyTools);
+    const replyAgentId = await getOrCreateAgentIdWithTools(ins.reply, replyTools);
     const replyRun = await withTimeout(
       client.runs.create(threadId, replyAgentId, {
         temperature: 0.2,
@@ -303,7 +267,7 @@ export async function connectBing(
     let mergedMeta: Meta | undefined = undefined;
     if (isUserSource) {
       const metaTools = [emitMetaTool];
-      const metaAgentId = await getOrCreateAgentIdWithTools(metaInstructions, metaTools);
+      const metaAgentId = await getOrCreateAgentIdWithTools(ins.meta, metaTools);
       const getMetaOnce = async (): Promise<Meta | undefined> => {
         const metaRun = await withTimeout(
           client.runs.create(threadId, metaAgentId, {
@@ -368,7 +332,7 @@ export async function connectBing(
     let mergedInst: string | undefined = undefined;
     if (isUserSource && shouldSave(mergedMeta, replyTextJoined)) {
       const instTools = [emitInstpackTool];
-      const instAgentId = await getOrCreateAgentIdWithTools(instInstructions, instTools);
+      const instAgentId = await getOrCreateAgentIdWithTools(ins.instpack, instTools);
       const instpackRun = await withTimeout(
         client.runs.create(threadId, instAgentId, {
           temperature: 0.0,
