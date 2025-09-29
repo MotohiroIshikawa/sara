@@ -238,7 +238,7 @@ export async function lineEvent(event: WebhookEvent) {
         console.info("[lineEvent] confirm skipped by finalCheck:", { tid: res.threadId, reason: guard.reason });
       }
 
-      let confirmMsg: messagingApi.TemplateMessage | null = null;
+      let confirmMsg: messagingApi.Message | null = null;
       if (show && guard.ok) { 
         confirmMsg = buildSaveOrContinueConfirm({
           text: "この内容で保存しますか？",

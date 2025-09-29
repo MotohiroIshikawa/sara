@@ -1,25 +1,23 @@
 import { messagingApi } from "@line/bot-sdk";
 import { LINE } from "@/utils/env";
+import type { LineMessage, LineTextMessage } from "@/types/line";
 
 const pushMax = LINE.PUSH_MAX;
 const replyMax = LINE.REPLY_MAX;
 const textLimit = LINE.TEXT_LIMIT;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type Message = messagingApi.Message;
-type TextMessage = messagingApi.TextMessage;
-type TemplateMessage = messagingApi.TemplateMessage;
-
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN!,
 });
 
 // 文字列配列 → LINE TextMessage[]（空/空白は除去、各要素2000字に丸め）
-export function toTextMessages(blocks: string[], limit = textLimit): TextMessage[] {
-  return blocks
+export function toTextMessages(blocks: string[], limit = textLimit): LineMessage[] {
+  const msgs: LineTextMessage[] = blocks
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
-    .map((t) => ({ type: "text", text: t.slice(0, limit) }));
+    .map<LineTextMessage>((t) => ({ type: "text", text: t.slice(0, limit) }));
+  return msgs;
 }
 
 // 「保存|続ける」のConfirm作成
@@ -35,8 +33,8 @@ export function buildSaveOrContinueConfirm({
   continueData: string;   // 例: `gpts:continue:<threadId>`
   saveLabel?: string;
   continueLabel?: string;
-}): TemplateMessage {
-  return {
+}): LineMessage {
+  const msg: messagingApi.TemplateMessage = {
     type: "template",
     altText: "保存/続ける",
     template: {
@@ -48,6 +46,7 @@ export function buildSaveOrContinueConfirm({
       ],
     },
   };
+  return msg;
 }
 
 
@@ -66,7 +65,7 @@ function isInvalidReplyToken(err: unknown): boolean {
   const status = e?.status ?? e?.response?.status;
   return (
     status === 400 &&
-    ( msg.includes("invalid reply token") || msg.includes("may not be empty") ) // ★追加
+    (msg.includes("invalid reply token") || msg.includes("may not be empty"))
   );
 }
 
@@ -84,12 +83,12 @@ export async function sendMessagesReplyThenPush({
 }: {
   replyToken?: string | null;
   to: string;
-  messages: Message[];
+  messages: LineMessage[];
   delayMs?: number;
   log?: Pick<typeof console, "info" | "warn" | "error">;
 }): Promise<void> {
   if (!messages?.length) {
-    const fallback: TextMessage = { type: "text", text: "何か途中で失敗しました。もう一度お願いします" };
+    const fallback: LineMessage = { type: "text", text: "何か途中で失敗しました。もう一度お願いします" };
     if (to) {
       try {
         await client.pushMessage({ to, messages: [fallback] });

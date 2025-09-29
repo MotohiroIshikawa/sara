@@ -63,6 +63,7 @@ export interface UserGptsDoc extends Document {
 }
 
 type BindingTargetType = "user" | "group" | "room";
+
 export interface BindingTarget {
   type: BindingTargetType;        // user / group / room
   targetId: string;               // LINE 生ID: Uxxxx / Gxxxx / Rxxxx
@@ -77,4 +78,27 @@ export interface GptsBindingDoc extends Document {
   instpack: string;               // スナップショット（運用は固定でOK）
   createdAt: Date;
   updatedAt: Date;
+}
+
+
+export interface GptsScheduleDoc extends Document {
+  _id: ObjectId;
+  userId: string;                 // スケジュール所有者（保存した人の Uxxxx）
+  gptsId: string;                 // 紐づくチャットルールID（論理ID）
+  targetType: BindingTargetType;  // "user" | "group" | "room"
+  targetId: string;               // Uxxxx / Cxxxx / Rxxxx の生ID
+  enabled: boolean;
+  timezone?: string;              // 例: "Asia/Tokyo"
+  freq?: "daily" | "weekly" | "monthly"; // UIの3択用（rrule優先）
+  rrule?: string | null;          // 例: FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0
+  hour?: number | null;
+  minute?: number | null;
+  second?: number | null;
+  byWeekday?: string[] | null;    // ["MO","WE"] など（任意）
+  byMonthday?: number[] | null;   // [1,15,31] など（任意）
+  nextRunAt?: Date | null;  // 次回実行（UTC）
+  lastRunAt?: Date | null;  // 最終実行（UTC）
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
 }

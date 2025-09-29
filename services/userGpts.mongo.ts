@@ -1,6 +1,6 @@
 import type { UpdateFilter } from "mongodb";
 import type { UserGptsDoc } from "@/types/db";
-import { getGptsCollection, getUserGptsCollection } from "@/utils/mongo";
+import { getUserGptsCollection } from "@/utils/mongo";
 import { isNonEmptyString } from "@/utils/types";
 
 let _indexesReady = false;

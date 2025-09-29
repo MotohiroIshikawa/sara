@@ -20,6 +20,7 @@ import { toToolCalls, type ToolCall, isFunctionToolCall } from "@/utils/types";
 const debugBing = DEBUG.BING;
 
 type SourceType = "user" | "group" | "room";
+
 //// run状態
 type RunState = {
   status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
