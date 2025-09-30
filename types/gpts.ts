@@ -1,3 +1,5 @@
+export type SourceType = "user" | "group" | "room";
+
 type Intent = "event" | "news" | "buy" | "generic";
 
 // Meta.slotsの中身

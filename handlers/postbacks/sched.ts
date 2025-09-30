@@ -2,7 +2,7 @@ import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
 import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 import { getGptsSchedulesCollection } from "@/utils/mongo";
 import { createDraftSchedule, updateScheduleById } from "@/services/gptsSchedules.mongo";
-import { computeNextRunAt } from "@/utils/schedulerTime";
+import { computeNextRunAt, roundMinutes } from "@/utils/schedulerTime";
 import {
   uiChooseFreq,
   uiPickMonthday,
@@ -49,12 +49,6 @@ const fmt = (k: MsgKey, vars: Record<string, string | number>): string => {
   }
   return s;
 };
-
-// ユーティリティ
-function roundMinutes(min: number, step = Number(process.env.SCHEDULE_ROUND_MIN ?? 5)): number {
-  const r = Math.round(min / step) * step;
-  return Math.max(0, Math.min(59, r));
-}
 
 function asFreq(v: string | undefined): "daily" | "weekly" | "monthly" | null {
   const x = (v ?? "").toLowerCase();

@@ -1,3 +1,6 @@
+import type { GptsScheduleDoc } from "@/types/db";
+import { isWeekdayKey, type ScheduleDto } from "@/types/schedule";
+
 export type WeekdayKey = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
 
 export interface NextRunOpts {
@@ -101,8 +104,6 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
   return makeAt(tmr.y, tmr.m, tmr.dd, opts.hour, opts.minute, second);
 }
 
-/* ===== helpers ===== */
-
 function inferFreqFromFields(o: Pick<NextRunOpts, "byWeekday" | "byMonthday">): "daily" | "weekly" | "monthly" {
   if (o.byMonthday && o.byMonthday.length > 0) return "monthly";
   if (o.byWeekday && o.byWeekday.length > 0) return "weekly";
@@ -135,4 +136,42 @@ function addMonths(p: { y: number; m: number; dd: number }, delta: number) {
 function lastDateOfMonth(y: number, m1: number): number {
   // 次月の0日目 = 当月末日
   return new Date(Date.UTC(y, m1, 0)).getUTCDate();
+}
+
+// 分丸め（SCHEDULE_ROUND_MIN）
+export function roundMinutes(
+  min: number, 
+  step = Number(process.env.SCHEDULE_ROUND_MIN ?? 5)
+): number {
+  const r = Math.round(min / step) * step;
+  return Math.max(0, Math.min(59, r));
+}
+
+// string[] を WeekdayKey[] に安全に絞る
+function sanitizeWeekdays(src: unknown): ReadonlyArray<WeekdayKey> | undefined {
+  if (!Array.isArray(src)) return undefined;
+  return src.filter((d): d is WeekdayKey => isWeekdayKey(d)) as ReadonlyArray<WeekdayKey>;
+}
+
+// GptsScheduleDoc → ScheduleDto（ObjectId/Date の正規化＆weekdayの型安全化）
+export function toScheduleDto(doc: GptsScheduleDoc): ScheduleDto {
+  const byWeekday = sanitizeWeekdays(doc.byWeekday);
+
+  return {
+    _id: String(doc._id),
+    gptsId: doc.gptsId,
+    targetType: doc.targetType,
+    targetId: doc.targetId,
+    timezone: doc.timezone ?? "Asia/Tokyo",
+    // freq 型は ScheduleDto 側に合わせる（ScheduleFreq/Freq どちらでもOK）
+    freq: (doc.freq ?? "daily") as ScheduleDto["freq"],
+    byWeekday,
+    byMonthday: Array.isArray(doc.byMonthday)
+      ? (doc.byMonthday as ReadonlyArray<number>)
+      : undefined,
+    hour: typeof doc.hour === "number" ? doc.hour : 9,
+    minute: typeof doc.minute === "number" ? doc.minute : 0,
+    enabled: Boolean(doc.enabled),
+    nextRunAt: doc.nextRunAt ? new Date(doc.nextRunAt).toISOString() : null,
+  };
 }

@@ -1,15 +1,8 @@
 import type { LineMessage } from "@/types/line";
+import { WD } from "@/types/schedule";
 import { encodePostback } from "@/utils/postback";
 
 const DEFAULT_MSGS = {
-  // 共通（曜日ラベル）
-  WD_MO: "月",
-  WD_TU: "火",
-  WD_WE: "水",
-  WD_TH: "木",
-  WD_FR: "金",
-  WD_SA: "土",
-  WD_SU: "日",
   // 保存→定期実施確認
   UI_SAVEDASK_ALT: "定期実施の設定",
   UI_SAVEDASK_TEXT_TPL:
@@ -61,16 +54,6 @@ const fmt = (k: MsgKey, vars: Record<string, string | number>): string => {
   }
   return s;
 };
-
-export const WD = [
-  { key: "MO", label: msg("WD_MO") },
-  { key: "TU", label: msg("WD_TU") },
-  { key: "WE", label: msg("WD_WE") },
-  { key: "TH", label: msg("WD_TH") },
-  { key: "FR", label: msg("WD_FR") },
-  { key: "SA", label: msg("WD_SA") },
-  { key: "SU", label: msg("WD_SU") },
-] as const;
 
 /* ===== 「保存しました＋定期実施しますか？」Confirm ===== */
 export function uiSavedAndAskSchedule(gptsId: string, savedName: string): LineMessage  {
@@ -291,3 +274,5 @@ export function uiTimeRoundingConfirm(
     },
   } as LineMessage;
 }
+
+export { WD };
