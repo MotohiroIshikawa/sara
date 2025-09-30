@@ -1,13 +1,20 @@
 import { ObjectId, type WithId } from "mongodb";
 import { getGptsSchedulesCollection, withTimestampsForCreate, touchForUpdate } from "@/utils/mongo";
 import type { GptsScheduleDoc } from "@/types/db";
-import type { SourceKind } from "@/utils/lineSource";
+import type { SourceType } from "@/types/gpts";
+
+export interface FindSchedulesFilter {
+  gptsId?: string;
+  targetType?: GptsScheduleDoc["targetType"]; // "user" | "group" | "room"
+  targetId?: string;
+  userId?: string;
+}
 
 // 下書き作成
 export async function createDraftSchedule(input: {
   userId: string;
   gptsId: string;
-  targetType: SourceKind;
+  targetType: SourceType;
   targetId: string;
   timezone: string;           // e.g. "Asia/Tokyo"
   freq: GptsScheduleDoc["freq"];
@@ -69,4 +76,20 @@ export async function bumpAfterRun(id: ObjectId, nextRunAt: Date | null): Promis
     { _id: id, deletedAt: null, enabled: true },
     { $set: { lastRunAt: new Date(), nextRunAt, updatedAt: new Date() } }
   );
+}
+
+export async function findSchedules(
+  filter: Readonly<FindSchedulesFilter>
+): Promise<GptsScheduleDoc[]> {
+  const col = await getGptsSchedulesCollection();
+  const query: Record<string, unknown> = { deletedAt: null };
+
+  if (typeof filter.gptsId === "string") query.gptsId = filter.gptsId;
+  if (typeof filter.targetType === "string") query.targetType = filter.targetType;
+  if (typeof filter.targetId === "string") query.targetId = filter.targetId;
+  if (typeof filter.userId === "string") query.userId = filter.userId;
+
+  const cursor = col.find(query).sort({ _id: -1 }).limit(50);
+  const docs = (await cursor.toArray()) as unknown as GptsScheduleDoc[];
+  return docs;
 }

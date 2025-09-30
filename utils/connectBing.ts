@@ -4,7 +4,7 @@ import type { AgentsClient as AzureAgentsClient } from "@azure/ai-agents";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
-import type { Meta, ConnectBingResult } from "@/types/gpts";
+import type { Meta, ConnectBingResult, SourceType } from "@/types/gpts";
 import { agentsClient as client, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstructions, type ReplyInsOrigin } from "@/utils/agentPrompts";
 import { withTimeout } from "@/utils/async";
@@ -18,8 +18,6 @@ import { toToolCalls, type ToolCall, isFunctionToolCall } from "@/utils/types";
 
 //// Bingのレスポンスを見たいときは.envにDEBUG_BING="1"を設定する
 const debugBing = DEBUG.BING;
-
-type SourceType = "user" | "group" | "room";
 
 //// run状態
 type RunState = {
