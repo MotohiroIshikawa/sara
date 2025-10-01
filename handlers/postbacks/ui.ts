@@ -1,4 +1,4 @@
-import type { LineMessage } from "@/types/line";
+import { messagingApi } from "@line/bot-sdk";
 import { WD } from "@/types/schedule";
 import { encodePostback } from "@/utils/postback";
 
@@ -56,7 +56,7 @@ const fmt = (k: MsgKey, vars: Record<string, string | number>): string => {
 };
 
 /* ===== 「保存しました＋定期実施しますか？」Confirm ===== */
-export function uiSavedAndAskSchedule(gptsId: string, savedName: string): LineMessage  {
+export function uiSavedAndAskSchedule(gptsId: string, savedName: string): messagingApi.Message  {
   return {
     type: "template",
     altText: msg("UI_SAVEDASK_ALT"),
@@ -78,11 +78,11 @@ export function uiSavedAndAskSchedule(gptsId: string, savedName: string): LineMe
         },
       ],
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 /* ===== 頻度選択（毎日/毎週/毎月） ===== */
-export function uiChooseFreq(gptsId: string): LineMessage {
+export function uiChooseFreq(gptsId: string): messagingApi.Message {
   return {
     type: "template",
     altText: msg("UI_FREQ_ALT"),
@@ -95,11 +95,11 @@ export function uiChooseFreq(gptsId: string): LineMessage {
         { type: "postback", label: msg("UI_FREQ_MONTHLY"),   data: encodePostback("sched", "freq", { gptsId, freq: "monthly"}), displayText: msg("UI_FREQ_MONTHLY") },
       ],
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 /* ===== 日付ピッカー（毎月用） ===== */
-export function uiPickMonthday(gptsId: string): LineMessage {
+export function uiPickMonthday(gptsId: string): messagingApi.Message {
   return {
     type: "template",
     altText: msg("UI_PICKDATE_ALT"),
@@ -116,11 +116,11 @@ export function uiPickMonthday(gptsId: string): LineMessage {
         },
       ],
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 /* ===== 時刻ピッカー（共通） ===== */
-export function uiPickTime(gptsId: string, opts?: { text?: string; initial?: string }): LineMessage {
+export function uiPickTime(gptsId: string, opts?: { text?: string; initial?: string }): messagingApi.Message {
   return {
     type: "template",
     altText: msg("UI_PICKTIME_ALT"),
@@ -139,11 +139,11 @@ export function uiPickTime(gptsId: string, opts?: { text?: string; initial?: str
         },
       ],
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 /* ===== 曜日選択Flex（毎週用） ===== */
-export function uiWeekdayFlex(gptsId: string, selected: ReadonlyArray<string>): LineMessage {
+export function uiWeekdayFlex(gptsId: string, selected: ReadonlyArray<string>): messagingApi.Message {
   const selectedSet = new Set(selected);
   const chunks: Array<Array<typeof WD[number]>> = [[WD[0], WD[1], WD[2], WD[3]], [WD[4], WD[5], WD[6]]];
 
@@ -217,11 +217,11 @@ export function uiWeekdayFlex(gptsId: string, selected: ReadonlyArray<string>): 
         ],
       },
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 /* ===== 最終確認（有効化） ===== */
-export function uiFinalEnableConfirm(gptsId: string, text: string): LineMessage {
+export function uiFinalEnableConfirm(gptsId: string, text: string): messagingApi.Message {
   return {
     type: "template",
     altText: "最終確認",
@@ -233,7 +233,7 @@ export function uiFinalEnableConfirm(gptsId: string, text: string): LineMessage 
         { type: "postback", label: msg("UI_FINAL_RESTART"), data: encodePostback("sched", "restart", { gptsId }), displayText: msg("UI_FINAL_RESTART") },
       ],
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 /* ===== 分丸め確認 ===== */
@@ -243,7 +243,7 @@ export function uiTimeRoundingConfirm(
   minuteOrig: number, 
   minuteRounded: number, 
   step: number
-): LineMessage {
+): messagingApi.Message {
   const hh = String(hour).padStart(2, "0");
   const mm = String(minuteOrig).padStart(2, "0");
   const mmr = String(minuteRounded).padStart(2, "0");
@@ -272,7 +272,7 @@ export function uiTimeRoundingConfirm(
         },
       ],
     },
-  } as LineMessage;
+  } as messagingApi.Message;
 }
 
 export { WD };

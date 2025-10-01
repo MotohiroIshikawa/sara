@@ -98,7 +98,11 @@ export interface GptsScheduleDoc extends Document {
   byMonthday?: number[] | null;   // [1,15,31] など（任意）
   nextRunAt?: Date | null;  // 次回実行（UTC）
   lastRunAt?: Date | null;  // 最終実行（UTC）
+  claimedAt?: Date | null;   // 排他制御
+  lastError?: string | null; // 直近の失敗理由
+  errorCount?: number;       // 累積エラー回数
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date | null;
+
 }

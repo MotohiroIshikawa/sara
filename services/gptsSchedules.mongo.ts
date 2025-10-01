@@ -93,3 +93,90 @@ export async function findSchedules(
   const docs = (await cursor.toArray()) as unknown as GptsScheduleDoc[];
   return docs;
 }
+
+export async function softDeleteSchedulesByGpts(input: {
+  userId: string;
+  gptsId: string;
+}): Promise<number> {
+  const col = await getGptsSchedulesCollection();
+  const res = await col.updateMany(
+    { userId: input.userId, gptsId: input.gptsId, deletedAt: null },
+    { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
+  );
+  return res.modifiedCount ?? 0;
+}
+
+export async function softDeleteAllSchedulesByUser(input: {
+  userId: string;
+}): Promise<number> {
+  const col = await getGptsSchedulesCollection();
+  const res = await col.updateMany(
+    { userId: input.userId, deletedAt: null }, // ★ targetType/Id は見ない（作成者基準）
+    { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
+  );
+  return res.modifiedCount ?? 0;
+}
+
+/** スケジューラ用 */
+
+export type ClaimedSchedule = WithId<GptsScheduleDoc>;
+
+// 配信すべき1件を取得
+// 条件: enabled=true, deletedAt=null, nextRunAt<=now, claimedAt が null or 未定義
+// claimedAt: ジョブ中にnowが入って、終了後にnullになる。ジョブ中に他が掴まないようにするため
+export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | null> {
+  const col = await getGptsSchedulesCollection();
+  const res = await col.findOneAndUpdate(
+    {
+      enabled: true,
+      deletedAt: null,
+      nextRunAt: { $lte: now },
+      $or: [{ claimedAt: null }, { claimedAt: { $exists: false } }],
+    },
+    { $set: { claimedAt: new Date(), updatedAt: new Date() } as Record<string, unknown> },
+    { sort: { nextRunAt: 1 }, returnDocument: "after" }
+  );
+  return res?.value ?? null;
+}
+
+// 実行成功時の更新
+export async function markRunSuccess(id: ObjectId, at: Date, next: Date | null): Promise<void> {
+  const col = await getGptsSchedulesCollection();
+  await col.updateOne(
+    { _id: id, deletedAt: null, enabled: true },
+    {
+      $set: {
+        lastRunAt: at,
+        nextRunAt: next,
+        claimedAt: null,
+        lastError: null,
+        updatedAt: new Date(),
+      } as Record<string, unknown>, // ★ 型に無いフィールドがあっても更新できるようにする
+    }
+  );
+}
+
+export async function markRunFailure(
+  id: ObjectId,
+  at: Date,
+  reason: string,
+  backoffMs?: number
+): Promise<void> {
+  const col = await getGptsSchedulesCollection();
+  const setObj: Record<string, unknown> = {
+    claimedAt: null,
+    lastRunAt: at,
+    lastError: reason,
+    updatedAt: new Date(),
+  };
+  if (typeof backoffMs === "number" && backoffMs > 0) {
+    setObj.nextRunAt = new Date(Date.now() + backoffMs);
+  }
+  await col.updateOne(
+    { _id: id, deletedAt: null },
+    {
+      $set: setObj,
+      $inc: { errorCount: 1 } as Record<string, number>, // ★
+    }
+  );
+}
