@@ -111,7 +111,7 @@ export async function softDeleteAllSchedulesByUser(input: {
 }): Promise<number> {
   const col = await getGptsSchedulesCollection();
   const res = await col.updateMany(
-    { userId: input.userId, deletedAt: null }, // ★ targetType/Id は見ない（作成者基準）
+    { userId: input.userId, deletedAt: null },
     { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
   );
   return res.modifiedCount ?? 0;
@@ -151,11 +151,12 @@ export async function markRunSuccess(id: ObjectId, at: Date, next: Date | null):
         claimedAt: null,
         lastError: null,
         updatedAt: new Date(),
-      } as Record<string, unknown>, // ★ 型に無いフィールドがあっても更新できるようにする
+      } as Record<string, unknown>,
     }
   );
 }
 
+/*
 export async function markRunFailure(
   id: ObjectId,
   at: Date,
@@ -176,7 +177,8 @@ export async function markRunFailure(
     { _id: id, deletedAt: null },
     {
       $set: setObj,
-      $inc: { errorCount: 1 } as Record<string, number>, // ★
+      $inc: { errorCount: 1 } as Record<string, number>,
     }
   );
 }
+*/
