@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { claimOneDueSchedule, markRunSuccess, markRunFailure, type ClaimedSchedule } from "@/services/gptsSchedules.mongo";
+import { claimOneDueSchedule, markRunSuccess, type ClaimedSchedule } from "@/services/gptsSchedules.mongo";
 import { runGptsAndPush } from "@/services/gptsRunner";
 import { computeNextRunAt, type WeekdayKey } from "@/utils/schedulerTime";
 import { isWeekdayKey } from "@/utils/scheduleGuards";
