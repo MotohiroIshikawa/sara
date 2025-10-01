@@ -16,6 +16,7 @@
   "dependencies": {
     "@azure/ai-agents": "^1.1.0",
     "@azure/core-util": "^1.13.0",
+    "@azure/functions": "^4.8.0",
     "@azure/identity": "^4.11.1",
     "@azure/openai": "^2.0.0",
     "@line/bot-sdk": "^10.1.0",

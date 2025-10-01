@@ -9,8 +9,8 @@ export interface NextRunOpts {
   freq?: "daily" | "weekly" | "monthly"; // 無い場合は daily 相当で計算
   byWeekday?: WeekdayKey[] | null;
   byMonthday?: number[] | null;
-  hour: number;              // 0-23
-  minute: number;            // 0-59
+  hour?: number;              // 0-23
+  minute?: number;            // 0-59
   second?: number;           // 0-59
   from?: Date;               // 既定: new Date()
 }
@@ -27,6 +27,8 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
   const tz = opts.timezone || "Asia/Tokyo";
   const now = opts.from ? new Date(opts.from) : new Date();
   const second = opts.second ?? 0;
+  const hour = opts.hour ?? 9;
+  const minute = opts.minute ?? 0;
   const freq = opts.freq ?? inferFreqFromFields(opts);
 
   // とりあえず固定 +09:00（Tokyo）。他TZは best-effort（将来拡張）
@@ -60,10 +62,10 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
 
   if (freq === "daily") {
     // 今日のその時刻 or 明日
-    const todayAt = makeAt(parts.y, parts.m, parts.dd, opts.hour, opts.minute, second);
+    const todayAt = makeAt(parts.y, parts.m, parts.dd, hour, minute, second);
     if (todayAt.getTime() > now.getTime()) return todayAt;
     const tmr = addDays(parts, 1);
-    return makeAt(tmr.y, tmr.m, tmr.dd, opts.hour, opts.minute, second);
+    return makeAt(tmr.y, tmr.m, tmr.dd, hour, minute, second);
   }
 
   if (freq === "weekly") {
@@ -73,7 +75,7 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
     for (let add = 0; add < 14; add++) {
       const p = addDays(parts, add);
       if (targetSet.has(p.wd)) {
-        const at = makeAt(p.y, p.m, p.dd, opts.hour, opts.minute, second);
+        const at = makeAt(p.y, p.m, p.dd, hour, minute, second);
         if (at.getTime() > now.getTime()) return at;
       }
     }
@@ -90,7 +92,7 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
       const lastDay = lastDateOfMonth(ym.y, ym.m);
       for (const d of days) {
         if (d > lastDay) continue; // スキップ方針
-        const at = makeAt(ym.y, ym.m, d, opts.hour, opts.minute, second);
+        const at = makeAt(ym.y, ym.m, d, hour, minute, second);
         if (at.getTime() > now.getTime()) return at;
       }
     }
@@ -98,10 +100,10 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
   }
 
   // デフォルトは daily
-  const todayAt = makeAt(parts.y, parts.m, parts.dd, opts.hour, opts.minute, second);
+  const todayAt = makeAt(parts.y, parts.m, parts.dd, hour, minute, second);
   if (todayAt.getTime() > now.getTime()) return todayAt;
   const tmr = addDays(parts, 1);
-  return makeAt(tmr.y, tmr.m, tmr.dd, opts.hour, opts.minute, second);
+  return makeAt(tmr.y, tmr.m, tmr.dd, hour, minute, second);
 }
 
 function inferFreqFromFields(o: Pick<NextRunOpts, "byWeekday" | "byMonthday">): "daily" | "weekly" | "monthly" {

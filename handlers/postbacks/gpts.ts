@@ -1,4 +1,4 @@
-import type { LineMessage } from "@/types/line";
+import { messagingApi } from "@line/bot-sdk";
 import { createGpts, getGptsById } from "@/services/gpts.mongo";
 import { setBinding, clearBinding } from "@/services/gptsBindings.mongo";
 import { getThreadInst, deleteThreadInst, purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
@@ -88,7 +88,7 @@ const save: Handler = async (event, args = {}) => {
   try { await deleteThreadInst(scopedId, threadId); } catch {}
   console.info("[gpts.save] tempThreadInstDeleted", { threadId });
 
-  const schedConfirm: LineMessage = uiSavedAndAskSchedule(g.gptsId, g.name);
+  const schedConfirm: messagingApi.Message = uiSavedAndAskSchedule(g.gptsId, g.name);
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
     messages: [schedConfirm],

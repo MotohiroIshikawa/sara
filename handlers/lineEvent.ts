@@ -15,6 +15,7 @@ import { resetThread } from "@/services/threadState";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
 import { softDeleteAllGptsByUser } from "@/services/gpts.mongo";
+import { softDeleteAllSchedulesByUser } from "@/services/gptsSchedules.mongo";
 
 const replyMax = LINE.REPLY_MAX;
 
@@ -199,12 +200,21 @@ export async function lineEvent(event: WebhookEvent) {
         console.warn("[unfollow] softDeleteAllGptsByUser failed", { uid, err: String(e) });
       }
 
+      // スケジュールの削除（userIdで走査する。targetId/targetTypeは見ないので、該当ユーザが作成したものはすべて削除される）
+      try {
+        const m = await softDeleteAllSchedulesByUser({ userId: uid }); // ★
+        console.info("[unfollow] schedules soft-deleted (user target)", { uid, count: m });
+      } catch (e) {
+        console.warn("[unfollow] softDeleteAllSchedulesByUser failed", { uid, err: String(e) });
+      }
+
       console.info("[unfollow] cleanup done", { uid });
     } catch (e) {
       console.error("[unfollow] cleanup error", { uid, err: e });
     }
 
     await unfollowUser({ userId: uid });
+
     return;
   }
 

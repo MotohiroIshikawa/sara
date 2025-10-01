@@ -1,6 +1,5 @@
 import { messagingApi } from "@line/bot-sdk";
 import { LINE } from "@/utils/env";
-import type { LineMessage, LineTextMessage } from "@/types/line";
 
 const pushMax = LINE.PUSH_MAX;
 const replyMax = LINE.REPLY_MAX;
@@ -12,11 +11,11 @@ const client = new messagingApi.MessagingApiClient({
 });
 
 // 文字列配列 → LINE TextMessage[]（空/空白は除去、各要素2000字に丸め）
-export function toTextMessages(blocks: string[], limit = textLimit): LineMessage[] {
-  const msgs: LineTextMessage[] = blocks
+export function toTextMessages(blocks: string[], limit = textLimit): messagingApi.Message[] {
+  const msgs: messagingApi.TextMessage[] = blocks
     .map((t) => t.trim())
     .filter((t) => t.length > 0)
-    .map<LineTextMessage>((t) => ({ type: "text", text: t.slice(0, limit) }));
+    .map<messagingApi.TextMessage>((t) => ({ type: "text", text: t.slice(0, limit) }));
   return msgs;
 }
 
@@ -33,7 +32,7 @@ export function buildSaveOrContinueConfirm({
   continueData: string;   // 例: `gpts:continue:<threadId>`
   saveLabel?: string;
   continueLabel?: string;
-}): LineMessage {
+}): messagingApi.Message {
   const msg: messagingApi.TemplateMessage = {
     type: "template",
     altText: "保存/続ける",
@@ -83,12 +82,12 @@ export async function sendMessagesReplyThenPush({
 }: {
   replyToken?: string | null;
   to: string;
-  messages: LineMessage[];
+  messages: messagingApi.Message[];
   delayMs?: number;
   log?: Pick<typeof console, "info" | "warn" | "error">;
 }): Promise<void> {
   if (!messages?.length) {
-    const fallback: LineMessage = { type: "text", text: "何か途中で失敗しました。もう一度お願いします" };
+    const fallback: messagingApi.TextMessage = { type: "text", text: "何か途中で失敗しました。もう一度お願いします" };
     if (to) {
       try {
         await client.pushMessage({ to, messages: [fallback] });
@@ -155,7 +154,6 @@ export async function sendMessagesReplyThenPush({
   }
 }
 
-/*
 export async function pushMessages({
   to,
   messages,
@@ -163,7 +161,7 @@ export async function pushMessages({
   log = console,
 }: {
   to: string;
-  messages: Message[];
+  messages: messagingApi.Message[];
   delayMs?: number;
   log?: Pick<typeof console, "info" | "warn" | "error">;
 }) : Promise<void> {
@@ -179,4 +177,3 @@ export async function pushMessages({
     if (delayMs > 0) await sleep(delayMs);
   }
 }
-*/

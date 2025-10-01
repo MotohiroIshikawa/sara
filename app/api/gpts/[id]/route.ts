@@ -4,6 +4,7 @@ import { getGptsById, updateGpts } from "@/services/gpts.mongo";
 import { clearBindingIfMatches } from "@/services/gptsBindings.mongo";
 import { hasUserGptsLink, softDeleteUserGpts } from "@/services/userGpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const rid = randomUUID().slice(0, 8);
@@ -93,7 +94,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     await softDeleteUserGpts({ userId, gptsId: id });
     await clearBindingIfMatches({ type: "user", targetId: userId }, id);
-
+    await softDeleteSchedulesByGpts({ userId, gptsId: id });
+    
     console.info(`[gpts.delete:${rid}] soft_deleted_and_unbound`, { userId, gptsId: id });
     return NextResponse.json({ ok: true });
   } catch (e) {
