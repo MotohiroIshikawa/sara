@@ -156,6 +156,16 @@ export async function markRunSuccess(id: ObjectId, at: Date, next: Date | null):
   );
 }
 
+export async function countDueCandidates(now: Date): Promise<number> {
+  const col = await getGptsSchedulesCollection();
+  return col.countDocuments({
+    enabled: true,
+    deletedAt: null,
+    nextRunAt: { $lte: now },
+    $or: [{ claimedAt: null }, { claimedAt: { $exists: false } }],
+  });
+}
+
 /*
 export async function markRunFailure(
   id: ObjectId,
