@@ -136,7 +136,32 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
     { $set: { claimedAt: new Date(), updatedAt: new Date() } as Record<string, unknown> },
     { sort: { nextRunAt: 1 }, returnDocument: "after" }
   );
-  return res?.value ?? null;
+
+  const v = res?.value ?? null;
+  // TODO: あとで消す
+  // ★追加: 取得できたかどうか、そして中身をログに出す
+  if (v) {
+    console.info("[claimOneDueSchedule] got", {
+      id: String(v._id),
+      gptsId: v.gptsId,
+      nextRunAt: v.nextRunAt?.toISOString?.() ?? null,
+      claimedAt: v.claimedAt?.toISOString?.() ?? null,
+      enabled: v.enabled,
+      deletedAt: v.deletedAt,
+    });
+  } else {
+    console.info("[claimOneDueSchedule] no match", {
+      now: now.toISOString(),
+      criteria: {
+        enabled: true,
+        deletedAt: null,
+        nextRunAt_lte: now.toISOString(),
+        claimedAt: "null or !exists",
+      },
+    });
+  }
+
+  return v;
 }
 
 // 実行成功時の更新
