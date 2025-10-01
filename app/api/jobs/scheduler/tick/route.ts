@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { claimOneDueSchedule, markRunSuccess, type ClaimedSchedule } from "@/services/gptsSchedules.mongo";
+import { claimOneDueSchedule, countDueCandidates, markRunSuccess, type ClaimedSchedule } from "@/services/gptsSchedules.mongo";
 import { runGptsAndPush } from "@/services/gptsRunner";
 import { computeNextRunAt, type WeekdayKey } from "@/utils/schedulerTime";
 import { isWeekdayKey } from "@/utils/scheduleGuards";
@@ -34,7 +34,9 @@ export async function POST(request: Request) {
     assertInternalAuth(request);
 
     console.info(`[tick:${rid}] start`, { at: now.toISOString(), fromHdr, fromBody });
-
+    const candidates = await countDueCandidates(now);
+    console.info(`[tick:${rid}] candidates`, { count: candidates });
+    
     let count = 0;
     while (true) {
       const s: ClaimedSchedule | null = await claimOneDueSchedule(now);
