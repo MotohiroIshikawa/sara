@@ -5,6 +5,7 @@ module.exports = {
     cwd: "/home/azureuser/sara",
     script: "node",
     args: "server.mjs",
+    node_args: "--require ./scripts/console-info-ensure-stdout.cjs",
     env: {
       NODE_ENV: "production",
       APP_ENV: "stg",
