@@ -40,6 +40,22 @@ export async function POST(request: Request) {
     let count = 0;
     while (true) {
       const s: ClaimedSchedule | null = await claimOneDueSchedule(now);
+      if (s){
+        console.info(`[tick:${rid}] claim_obj`, {
+          id: String(s._id),
+          gptsId: s.gptsId,
+          userId: s.userId,
+          targetType: s.targetType,
+          targetId: s.targetId,
+          nextRunAt: s.nextRunAt?.toISOString?.() ?? null,
+          claimedAt: s.claimedAt?.toISOString?.() ?? null,
+          enabled: s.enabled,
+          deletedAt: s.deletedAt,
+        });
+      } else {
+        console.info(`[tick:${rid}] claim_obj is null`);
+      }
+
       if (!s) break;
       count++;
 
