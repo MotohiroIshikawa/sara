@@ -11,7 +11,7 @@ export function envInt(
   return Math.floor(Math.min(max, Math.max(min, n)));
 }
 
-function envBool(name: string, def: boolean): boolean {
+export function envBool(name: string, def: boolean): boolean {
   const raw = (process.env[name] ?? "").trim().toLowerCase();
   if (!raw) return def;
   return ["1", "true", "yes", "on"].includes(raw);
