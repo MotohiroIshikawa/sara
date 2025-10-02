@@ -1,0 +1,172 @@
+import React from "react";
+import styles from "../Client.module.css";
+import SegmentedSwitch from "@/components/SegmentedSwitch";
+import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
+import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/scheduleValidators";
+
+export interface ScheduleEditorProps {
+  sched: ScheduleDto | null;
+  schedToggle: boolean;
+  onToggleSchedule: (nextOn: boolean) => Promise<void>;
+  patchSchedule: (patch: SchedulePatch) => Promise<void>;
+  enableSchedule: () => Promise<void>;
+  disableScheduleOnly: () => Promise<void>;
+}
+
+export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element {
+  const { sched, schedToggle, onToggleSchedule, patchSchedule, enableSchedule, disableScheduleOnly } = props;
+
+  return (
+    <section className={styles.card}>
+      <h2 className={styles.title}>スケジュール</h2>
+
+      {/* セグメント①：登録ずみ｜未登録 */}
+      <SegmentedSwitch
+        className="mt-3"
+        value={schedToggle}
+        onChange={(v: boolean) => void onToggleSchedule(v)}
+        groupLabel="スケジュールの有無"
+        options={[
+          { value: true, label: "登録ずみ" },
+          { value: false, label: "未登録" },
+        ]}
+      />
+
+      {/* 登録ずみ（ON）のときのみ編集UIを表示 */}
+      {schedToggle && sched && (
+        <div className="mt-4 space-y-4">
+          {/* 頻度 */}
+          <div>
+            <div className="mt-2 flex gap-2">
+              {([
+                { key: "daily" as ScheduleFreq, label: "毎日" },
+                { key: "weekly" as ScheduleFreq, label: "毎週" },
+                { key: "monthly" as ScheduleFreq, label: "毎月" },
+              ] as ReadonlyArray<{ key: ScheduleFreq; label: string }>).map((o) => {
+                const on: boolean = sched.freq === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    className={`${styles.pill} ${on ? styles.pillOn : styles.pillOff}`}
+                    onClick={() => void patchSchedule({ freq: o.key })}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 週次: 曜日 */}
+          {sched.freq === "weekly" && (
+            <div>
+              <div className="text-sm font-medium">曜日</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {WD.map((d) => {
+                  const on: boolean = (sched.byWeekday ?? []).includes(d.key);
+                  return (
+                    <button
+                      key={d.key}
+                      className={`${styles.pill} ${on ? styles.pillOn : styles.pillOff}`}
+                      onClick={() => {
+                        const cur: Set<string> = new Set(sched.byWeekday ?? []);
+                        if (cur.has(d.key)) { cur.delete(d.key); } else { cur.add(d.key); }
+                        void patchSchedule({ byWeekday: Array.from(cur) });
+                      }}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex gap-2 text-xs">
+                <button
+                  className="px-2 py-1 rounded border"
+                  onClick={() => void patchSchedule({ byWeekday: ["MO", "TU", "WE", "TH", "FR"] })}
+                >
+                  平日
+                </button>
+                <button
+                  className="px-2 py-1 rounded border"
+                  onClick={() => void patchSchedule({ byWeekday: ["SA", "SU"] })}
+                >
+                  週末
+                </button>
+                <button
+                  className="px-2 py-1 rounded border"
+                  onClick={() => void patchSchedule({ byWeekday: [] })}
+                >
+                  クリア
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 月次: 日付 */}
+          {sched.freq === "monthly" && (
+            <div>
+              <div className="text-sm font-medium">日付（存在しない月はスキップ）</div>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                className={styles.numberInput}
+                value={sched.byMonthday?.[0] ?? 1}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  void patchSchedule({ byMonthday: [Number(e.target.value)] })
+                }
+              />
+            </div>
+          )}
+
+          {/* 時刻 */}
+          <div className="flex items-center gap-3">
+            <div className="text-sm font-medium">時刻</div>
+            <input
+              type="time"
+              className={styles.timeInput}
+              step={5 * 60}
+              value={safeTimeHHMM(sched)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const [hStr, mStr] = e.target.value.split(":");
+                const h: number = Number(hStr);
+                const m: number = Number(mStr);
+                if (Number.isFinite(h) && Number.isFinite(m)) {
+                  void patchSchedule({ hour: h, minute: m });
+                }
+              }}
+            />
+          </div>
+
+          {/* セグメント②：実施中｜停止中 */}
+          <SegmentedSwitch
+            className="mt-1"
+            value={Boolean(sched.enabled)}
+            onChange={(v: boolean) => {
+              if (v) {
+                const chk = canEnableSchedule(sched); // 未設定なら有効化しない
+                if (!chk.ok) {
+                  alert(chk.message);
+                  return;
+                }
+                void enableSchedule();
+              } else {
+                void disableScheduleOnly();
+              }
+            }}
+            groupLabel="実行状態"
+            options={[
+              { value: true, label: "実施中" },
+              { value: false, label: "停止中" },
+            ]}
+          />
+
+          {/* 要約（未設定を明示） */}
+          <p className={styles.helpText}>
+            {summarizeScheduleJa(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}

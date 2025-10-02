@@ -83,7 +83,7 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
         role="radiogroup"
         aria-label={ariaLabel}
         className={[
-          "inline-flex h-9 items-center rounded-full border border-gray-300 bg-gray-50 p-1",
+          "inline-flex h-10 items-center rounded-full border border-gray-300 bg-gray-50 p-1.5", // ★
           disabled ? "opacity-50" : "opacity-100",
         ].join(" ")}
         tabIndex={disabled ? -1 : 0}
@@ -107,11 +107,9 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
                 if (!disabled && !active) onChange(opt.value);
               }}
               className={[
-                "min-w-[5.5rem] px-4 py-1.5 text-sm rounded-full border transition focus:outline-none",
+                "min-w-[5.5rem] px-4 py-2 text-sm rounded-full border transition focus:outline-none", // ★
                 active
-                  // 選択中：黄緑
-                  ? "bg-emerald-700 text-white border-emerald-700 shadow-sm hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-600/60"
-                  // 未選択：グレー
+                  ? "bg-green-600 text-white border-green-600 shadow-sm hover:bg-green-700 focus:ring-2 focus:ring-green-500/60" // ★
                   : "bg-gray-100 text-gray-700 border-transparent hover:text-gray-900 focus:ring-2 focus:ring-gray-300",
                 disabled ? "cursor-not-allowed" : "cursor-pointer",
               ].join(" ")}
