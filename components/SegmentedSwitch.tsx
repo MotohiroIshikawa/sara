@@ -16,7 +16,7 @@ export type SegmentedSwitchProps = {
   /** 値変更時に呼ばれるハンドラ */
   onChange: (next: boolean) => void;
   /** ラジオグループ全体のラベル（例: "スケジュール"） */
-  groupLabel: string;
+  groupLabel?: string;
   /** オプション配列（左/右の2要素） */
   options: [SegmentedSwitchOption, SegmentedSwitchOption];
   /** 非活性（任意） */
@@ -91,7 +91,7 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
         aria-disabled={disabled}
       >
         {/* スクリーンリーダ関連付け用の不可視ラベル */}
-        <span id={groupId} className="sr-only">{groupLabel}</span>
+        {groupLabel ? <span id={groupId} className="sr-only">{groupLabel}</span> : null}
 
         {options.map((opt) => {
           const active: boolean = value === opt.value;
