@@ -10,7 +10,8 @@ export function isTrackable(meta?: Meta): boolean {
   const hasTopic = !!(s.topic && s.topic.trim());
   const hasPlace = typeof s.place === "string" && s.place.trim().length > 0;
   const hasDate  = !!(s.date_range && String(s.date_range).trim().length > 0);
-  return hasTopic && (hasPlace || hasDate);
+  // 変更: generic は topic があれば保存対象
+  return hasTopic || (hasPlace || hasDate);
 }
 
 // normalizeMeta: Metaの正規化（newsのdate_rangeを既定補正、completeフラグの正規化）
