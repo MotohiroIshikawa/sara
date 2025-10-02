@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type JSX } from "react";
 import styles from "../Client.module.css";
 import { type GptsListItem } from "@/utils/types";
 
