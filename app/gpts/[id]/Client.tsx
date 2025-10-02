@@ -2,10 +2,15 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { type GptsDetailResponse, type GptsUpdateRequest, isGptsDetailResponse } from "@/utils/types";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
-import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
+import { type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { isScheduleDto, isScheduleList } from "@/utils/scheduleGuards";
-import SegmentedSwitch from "@/components/SegmentedSwitch";
-import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/scheduleValidators";
+import { canEnableSchedule } from "@/utils/scheduleValidators";
+import styles from "./Client.module.css"; // ★
+import NameSection from "./components/NameSection"; // ★
+import RuleSection from "./components/RuleSection"; // ★
+import ScheduleEditor from "./components/ScheduleEditor"; // ★
+import FooterActions from "./components/FooterActions"; // ★
+import ConfirmModal from "./components/ConfirmModal"; // ★
 
 interface ApiErrorJson {
   error?: string;
@@ -387,235 +392,40 @@ export default function Client({ id }: { id: string }) {
   if (err) return <main className="p-4 text-red-600">{err}</main>;
 
   return (
-    <main className="mx-auto max-w-screen-sm p-4 space-y-5">
+    // ★ 変更: 直書きTailwindを CSS Modules( container ) に置換
+    <main className={styles.container}> {/* ★ */}
       {/* === 名前 === */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-4">
-        <h2 className="text-base font-semibold">名前</h2>
-        <input
-          className="mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-green-500"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="ルールの名前を入力..."
-        />
-        <div className="mt-1 text-right text-[11px] text-gray-500">{counts.name} 文字</div>
-      </section>
+      <NameSection name={name} onChange={setName} count={counts.name} /> {/* ★ */}
 
       {/* === ルール === */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-4">
-        <h2 className="text-base font-semibold">ルール</h2>
-        <textarea
-          className="mt-2 w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-green-500
-                     min-h-[55vh] md:min-h-[60vh] resize-y"
-          value={inst}
-          onChange={(e) => setInst(e.target.value)}
-          placeholder="チャットルールを入力..."
-        />
-        <div className="mt-1 text-right text-[11px] text-gray-500">{counts.inst} 文字</div>
-      </section>
+      <RuleSection inst={inst} onChange={setInst} count={counts.inst} /> {/* ★ */}
 
       {/* === スケジュール === */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-4">
-        <h2 className="text-base font-semibold">スケジュール</h2>
-
-        {/* セグメント①：登録ずみ｜未登録 */}
-        <SegmentedSwitch
-          className="mt-3"
-          value={schedToggle}
-          onChange={(v) => void onToggleSchedule(v)}
-          groupLabel="スケジュールの有無"
-          options={[
-            { value: true, label: "登録ずみ" },
-            { value: false, label: "未登録" },
-          ]}
-        />
-
-        {/* 登録ずみ（ON）のときのみ編集UIを表示 */}
-        {schedToggle && sched && (
-          <div className="mt-4 space-y-4">
-
-            {/* 頻度 */}
-            <div>
-              <div className="mt-2 flex gap-2">
-                {([
-                  { key: "daily" as ScheduleFreq, label: "毎日" },
-                  { key: "weekly" as ScheduleFreq, label: "毎週" },
-                  { key: "monthly" as ScheduleFreq, label: "毎月" },
-                ] as ReadonlyArray<{ key: ScheduleFreq; label: string }>).map((o) => (
-                  <button
-                    key={o.key}
-                    className={`px-3 py-1 rounded-full border ${sched.freq === o.key ? "bg-emerald-700 text-white border-emerald-700" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
-                    onClick={() => void patchSchedule({ freq: o.key })}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 週次: 曜日 */}
-            {sched.freq === "weekly" && (
-              <div>
-                <div className="text-sm font-medium">曜日</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {WD.map((d) => {
-                    const on: boolean = (sched.byWeekday ?? []).includes(d.key);
-                    return (
-                      <button
-                        key={d.key}
-                        className={`px-3 py-1 rounded-full border ${on ? "bg-emerald-700 text-white border-emerald-700" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
-                        onClick={() => {
-                          const cur = new Set(sched.byWeekday ?? []);
-                          if (cur.has(d.key)) { cur.delete(d.key); } else { cur.add(d.key); }
-                          void patchSchedule({ byWeekday: Array.from(cur) });
-                        }}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-2 flex gap-2 text-xs">
-                  <button className="px-2 py-1 rounded border" onClick={() => void patchSchedule({ byWeekday: ["MO","TU","WE","TH","FR"] })}>平日</button>
-                  <button className="px-2 py-1 rounded border" onClick={() => void patchSchedule({ byWeekday: ["SA","SU"] })}>週末</button>
-                  <button className="px-2 py-1 rounded border" onClick={() => void patchSchedule({ byWeekday: [] })}>クリア</button>
-                </div>
-              </div>
-            )}
-
-            {/* 月次: 日付 */}
-            {sched.freq === "monthly" && (
-              <div>
-                <div className="text-sm font-medium">日付（存在しない月はスキップ）</div>
-                <input
-                  type="number"
-                  min={1}
-                  max={31}
-                  className="mt-2 w-24 px-3 py-2 border rounded-lg"
-                  value={sched.byMonthday?.[0] ?? 1}
-                  onChange={(e) => void patchSchedule({ byMonthday: [Number(e.target.value)] })}
-                />
-              </div>
-            )}
-
-            {/* 時刻（1行表示） */}
-            <div className="flex items-center gap-3">
-              <div className="text-sm font-medium">時刻</div>
-              <input
-                type="time"
-                className="px-3 py-2 border rounded-lg"
-                step={5 * 60}
-                value={safeTimeHHMM(sched)}
-                onChange={(e) => {
-                  const [hStr, mStr] = e.target.value.split(":");
-                  const h: number = Number(hStr);
-                  const m: number = Number(mStr);
-                  if (Number.isFinite(h) && Number.isFinite(m)) {
-                    void patchSchedule({ hour: h, minute: m });
-                  }
-                }}
-              />
-            </div>
-
-            {/* セグメント②：実施中｜停止中 */}
-            <SegmentedSwitch
-              className="mt-1"
-              value={Boolean(sched.enabled)}
-              onChange={(v: boolean) => {
-                if (v) {
-                  const chk = canEnableSchedule(sched); // 未設定なら有効化しない
-                  if (!chk.ok) {
-                    alert(chk.message);
-                    return;
-                  }
-                  void enableSchedule();
-                } else {
-                  void disableScheduleOnly();
-                }
-              }}
-              groupLabel="実行状態"
-              options={[
-                { value: true, label: "実施中" },
-                { value: false, label: "停止中" },
-              ]}
-            />
-
-            {/* 要約（未設定を明示） */}
-            <p className="text-sm text-gray-600">
-              {summarizeScheduleJa(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
-            </p>
-
-          </div>
-        )}
-      </section>
+      <ScheduleEditor
+        sched={sched}
+        schedToggle={schedToggle}
+        onToggleSchedule={onToggleSchedule}
+        patchSchedule={patchSchedule}
+        enableSchedule={enableSchedule}
+        disableScheduleOnly={disableScheduleOnly}
+      /> {/* ★ */}
 
       {/* フッター操作 */}
-      <div className="sticky bottom-2 z-10 mt-2 flex gap-2">
-        <button
-          className="flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400"
-          onClick={() => window.history.back()}
-        >
-          戻る
-        </button>
-        <button
-          className="flex-1 rounded-full bg-emerald-700 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-          onClick={() => setConfirming(true)}
-        >
-          確認
-        </button>
-      </div>
+      <FooterActions
+        onBack={() => window.history.back()}
+        onConfirm={() => setConfirming(true)}
+      /> {/* ★ */}
 
       {/* 確認モーダル */}
-      {confirming && (
-        <div className="fixed inset-0 z-50 bg-white overflow-auto"> 
-          <section className="mx-auto max-w-screen-sm p-4 space-y-4">
-            <div className="text-base font-semibold pt-2">保存内容の確認</div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="text-sm font-medium">名前</div>
-              <div className="mt-1 break-words">{name || "(無題)"}</div>
-
-              <div className="mt-4 text-sm font-medium">ルール</div>
-              <pre
-                className="mt-1 max-h-[60vh] overflow-auto rounded-md bg-gray-50 p-3 text-[14px] leading-relaxed
-                           whitespace-pre-wrap break-words overflow-x-hidden"
-              >
-                {inst}
-              </pre>
-
-              <div className="mt-4 text-sm font-medium">スケジュール</div>
-              {schedToggle && sched ? (
-                <div className="mt-1 text-sm">
-                  <div>
-                    {summarizeScheduleJa(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
-                  </div>
-                  {sched.enabled && (
-                    <div className="mt-1 text-xs text-gray-600">
-                      次回実施日時: {sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : "-"} {/* ★ ラベル変更 */}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="mt-1 text-sm text-gray-600">未登録</div>
-              )}
-            </div>
-
-            <div className="sticky bottom-2 z-10 mt-2 flex gap-2">
-              <button
-                className="flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400"
-                onClick={() => setConfirming(false)}
-              >
-                修正する
-              </button>
-              <button
-                className="flex-1 rounded-full bg-emerald-700 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600" // ★ 濃い緑
-                onClick={() => void onSave()}
-              >
-                保存
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+      <ConfirmModal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        onSave={() => void onSave()}
+        name={name}
+        inst={inst}
+        schedToggle={schedToggle}
+        sched={sched}
+      /> {/* ★ */}
     </main>
   );
 }
