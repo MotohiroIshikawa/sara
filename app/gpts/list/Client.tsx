@@ -205,59 +205,68 @@ export default function Client() {
 
               {/* ボタン列 */}
               <div className="mt-3 flex items-center gap-2">
-                {/* 選択ボタンは「選択中」のとき無効化してグレー表示 */}
-                <button
-                  className={[
-                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
-                    // 見た目：選択中=グレー&無効, それ以外=グリーン
-                    applied
-                      ? "bg-gray-200 text-gray-500 cursor-not-allowed opacity-70"
-                      : (isBusy
-                          ? "bg-green-300 text-white"
-                          : "bg-green-600 text-white hover:bg-green-700"),
-                    "focus:outline-none",
-                    applied ? "" : "focus:ring-2 focus:ring-green-500", // 無効時はフォーカス装飾も外す
-                  ].join(" ")}
-                  // 動作：選択中 or ビジーで無効化
-                  disabled={applied || isBusy}
-                  aria-disabled={applied || isBusy} // アクセシビリティ
-                  onClick={() => {
-                    // ガード：念のためクリック無効化
-                    if (applied || isBusy) return;
-                    void onApply(it.id);
-                  }}
-                  title={applied ? "このルールは選択中です" : "このチャットで使うルールとして選択します"}
-                >
-                  {/* ラベル：選択中は「選択中」表示 */}
-                  {applied ? "選択" : isBusy ? "選択中…" : "選択"}
-                </button>
+                {/* ★ 出し分け: 選択中 → 「編集」「削除」 / 未選択 → 「選択」「削除」 */}
+                {applied ? (
+                  <>
+                    {/* 編集（選択中のみ表示） // ★ */}
+                    <button
+                      className={[
+                        "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                        isBusy ? "bg-blue-300 text-white" : "bg-blue-600 text-white hover:bg-blue-700",
+                        "focus:outline-none focus:ring-2 focus:ring-blue-500",
+                      ].join(" ")}
+                      disabled={isBusy}
+                      onClick={() => { if (!isBusy) router.push(href); }}
+                      title="ルールを編集します（選択中）" // ★
+                    >
+                      編集
+                    </button>
 
-                {/* 編集 */}
-                <button
-                  className={[
-                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
-                    isBusy ? "bg-blue-300 text-white" : "bg-blue-600 text-white hover:bg-blue-700",
-                    "focus:outline-none focus:ring-2 focus:ring-blue-500",
-                  ].join(" ")}
-                  disabled={isBusy}
-                  onClick={() => { if (!isBusy) router.push(href); }}
-                  title="ルールを編集します"
-                >
-                  編集
-                </button>
+                    {/* 削除（共通） */}
+                    <button
+                      className={[
+                        "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                        isBusy ? "bg-gray-300 text-gray-600" : "bg-gray-200 hover:bg-gray-300",
+                        "focus:outline-none focus:ring-2 focus:ring-gray-400",
+                      ].join(" ")}
+                      disabled={isBusy}
+                      onClick={() => void onDelete(it.id)}
+                    >
+                      削除
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* 選択（未選択のみ表示） // ★ */}
+                    <button
+                      className={[
+                        "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                        isBusy ? "bg-green-300 text-white" : "bg-green-600 text-white hover:bg-green-700",
+                        "focus:outline-none focus:ring-2 focus:ring-green-500",
+                      ].join(" ")}
+                      disabled={isBusy}
+                      aria-disabled={isBusy}
+                      onClick={() => { if (!isBusy) void onApply(it.id); }}
+                      title="このチャットで使うルールとして選択します"
+                    >
+                      {isBusy ? "選択中…" : "選択"}
+                    </button>
 
-                {/* 削除 */}
-                <button
-                  className={[
-                    "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
-                    isBusy ? "bg-gray-300 text-gray-600" : "bg-gray-200 hover:bg-gray-300",
-                    "focus:outline-none focus:ring-2 focus:ring-gray-400",
-                  ].join(" ")}
-                  disabled={isBusy}
-                  onClick={() => void onDelete(it.id)}
-                >
-                  削除
-                </button>
+                    {/* 削除（共通） */}
+                    <button
+                      className={[
+                        "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium",
+                        isBusy ? "bg-gray-300 text-gray-600" : "bg-gray-200 hover:bg-gray-300",
+                        "focus:outline-none focus:ring-2 focus:ring-gray-400",
+                      ].join(" ")}
+                      disabled={isBusy}
+                      onClick={() => void onDelete(it.id)}
+                    >
+                      削除
+                    </button>
+                  </>
+                )}
+                {/* ★ ここまで出し分け */}
               </div>
             </li>
           );

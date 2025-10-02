@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getGptsById, updateGpts } from "@/services/gpts.mongo";
-import { clearBindingIfMatches } from "@/services/gptsBindings.mongo";
+import { clearBindingIfMatches, getBinding } from "@/services/gptsBindings.mongo";
 import { hasUserGptsLink, softDeleteUserGpts } from "@/services/userGpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
+import type { BindingTarget } from "@/types/db";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const rid = randomUUID().slice(0, 8);
@@ -68,6 +69,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (name === undefined && instpack === undefined) {
       console.warn(`[gpts.update:${rid}] no_fields`, { userId, gptsId });
       return NextResponse.json({ error: "no_fields" }, { status: 400 });
+    }
+
+    // 「編集は適用中のみ可」ガード
+    const target: BindingTarget = { type: "user", targetId: userId };
+    const binding = await getBinding(target);
+    if (!binding || binding.gptsId !== gptsId) {
+      console.warn(`[gpts.update:${rid}] not_applied`, { userId, gptsId, applied: binding?.gptsId ?? null });
+      return NextResponse.json({ error: "not_applied" }, { status: 403 });
     }
 
     const updated = await updateGpts({ gptsId, userId, name, instpack });
