@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type JSX } from "react";
 import styles from "../Client.module.css";
 
 export default function EmptyCard(): JSX.Element {

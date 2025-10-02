@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type JSX } from "react";
 import styles from "../Client.module.css";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
@@ -69,9 +69,10 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
                       key={d.key}
                       className={`${styles.pill} ${on ? styles.pillOn : styles.pillOff}`}
                       onClick={() => {
-                        const cur: Set<string> = new Set(sched.byWeekday ?? []);
-                        if (cur.has(d.key)) { cur.delete(d.key); } else { cur.add(d.key); }
-                        void patchSchedule({ byWeekday: Array.from(cur) });
+                        type Weekday = NonNullable<ScheduleDto["byWeekday"]>[number];
+                        const cur: Set<Weekday> = new Set<Weekday>((sched.byWeekday ?? []) as Weekday[]);
+                        if (cur.has(d.key as Weekday)) { cur.delete(d.key as Weekday); } else { cur.add(d.key as Weekday); }
+                        void patchSchedule({ byWeekday: Array.from(cur) as Weekday[] });
                       }}
                     >
                       {d.label}
@@ -82,19 +83,19 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
               <div className="mt-2 flex gap-2 text-xs">
                 <button
                   className="px-2 py-1 rounded border"
-                  onClick={() => void patchSchedule({ byWeekday: ["MO", "TU", "WE", "TH", "FR"] })}
+                  onClick={() => void patchSchedule({ byWeekday: ["MO", "TU", "WE", "TH", "FR"] as const })}
                 >
                   平日
                 </button>
                 <button
                   className="px-2 py-1 rounded border"
-                  onClick={() => void patchSchedule({ byWeekday: ["SA", "SU"] })}
+                  onClick={() => void patchSchedule({ byWeekday: ["SA", "SU"] as const })}
                 >
                   週末
                 </button>
                 <button
                   className="px-2 py-1 rounded border"
-                  onClick={() => void patchSchedule({ byWeekday: [] })}
+                  onClick={() => void patchSchedule({ byWeekday: [] as const })}
                 >
                   クリア
                 </button>
