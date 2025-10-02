@@ -1,4 +1,4 @@
-import type { SourceType } from "@/types/gpts"; // ★ SourceType は types/gpts.ts から
+import type { SourceType } from "@/types/gpts";
 
 export type ScheduleFreq = "daily" | "weekly" | "monthly";
 export const isScheduleFreq = (v: unknown): v is ScheduleFreq =>

@@ -1,7 +1,8 @@
-import { ObjectId, type WithId } from "mongodb";
+import { ObjectId, type Filter, type UpdateFilter, type WithId } from "mongodb";
 import { getGptsSchedulesCollection, withTimestampsForCreate, touchForUpdate } from "@/utils/mongo";
 import type { GptsScheduleDoc } from "@/types/db";
 import type { SourceType } from "@/types/gpts";
+import { findOneAndUpdateCompat } from "@/utils/mongoCompat";
 
 export interface FindSchedulesFilter {
   gptsId?: string;
@@ -126,16 +127,23 @@ export type ClaimedSchedule = WithId<GptsScheduleDoc>;
 // claimedAt: ジョブ中にnowが入って、終了後にnullになる。ジョブ中に他が掴まないようにするため
 export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | null> {
   const col = await getGptsSchedulesCollection();
-  const res = await col.findOneAndUpdate(
-    {
-      enabled: true,
-      deletedAt: null,
-      nextRunAt: { $lte: now },
-      $or: [{ claimedAt: null }, { claimedAt: { $exists: false } }],
-    },
-    { $set: { claimedAt: new Date(), updatedAt: new Date() } as Record<string, unknown> },
-    { sort: { nextRunAt: 1 }, returnDocument: "after" }
-  );
+
+  const filter: Filter<GptsScheduleDoc> = {
+  enabled: true,
+  deletedAt: null,
+  nextRunAt: { $lte: now },
+  };
+  const update: UpdateFilter<GptsScheduleDoc> = {
+    $set: { claimedAt: new Date(), updatedAt: new Date() },
+  };
+  const optimisticFilter: Filter<GptsScheduleDoc> = {
+    $or: [{ claimedAt: null }, { claimedAt: { $exists: false } }],
+  };
+  const res = await findOneAndUpdateCompat(col, filter, update, {
+    sort: { nextRunAt: 1 },
+    returnDocument: "after",
+    optimisticFilter,
+  });
 
   const v = res?.value ?? null;
   // TODO: あとで消す
