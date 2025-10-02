@@ -1,3 +1,5 @@
+@reference "../../globals.css";
+
 .container {
   @apply mx-auto max-w-screen-sm p-4 space-y-5;
 }
