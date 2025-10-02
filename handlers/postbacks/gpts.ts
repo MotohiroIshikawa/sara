@@ -24,17 +24,30 @@ const DEFAULT_MSGS = {
 type MsgKey = keyof typeof DEFAULT_MSGS;
 const msg = (k: MsgKey): string => process.env[`MSG_${k}`] ?? DEFAULT_MSGS[k];
 
+// タイトル体裁の軽い整形（空白正規化・末尾句読点除去・最大40字）
+function sanitizeTitle(raw: string): string {
+  const collapsed = raw.replace(/[\u3000\s]+/g, " ").trim(); // 全角/半角空白を単一空白へ正規化
+  const trimmed = collapsed.replace(/[、。．,.・･…\u3001\u3002]+$/u, "").trim(); // 末尾の句読点・記号を除去
+  if (trimmed.length <= 40) return trimmed;
+  const cutAt = trimmed.lastIndexOf(" ", 39); // 語中でなるべく切る
+  return (cutAt > 10 ? trimmed.slice(0, cutAt) : trimmed.slice(0, 39)).trim() + "…";
+}
+
 // 保存名のデフォルト生成（metaを参照）
 function defaultTitleFromMeta(meta?: Meta): string {
+  // reply/META側で生成されたタイトルがあれば最優先で使う
+  const slots = meta?.slots as Record<string, unknown> | undefined;
+  const slotTitle = typeof slots?.title === "string" ? slots.title.trim() : undefined;
+  if (slotTitle && slotTitle.length > 0) return slotTitle.trim();
+
   const t = meta?.slots?.topic;
   const p = meta?.slots?.place ?? undefined;
-  const d = meta?.slots?.date_range ?? undefined;
   const intent = meta?.intent;
-  if (intent === "event" && t) return `イベント: ${t}${p ? ` @${p}` : ""}${d ? ` (${d})` : ""}`;
-  if (intent === "news"  && t) return `ニュース: ${t}${d ? ` (${d})` : ""}`;
-  if (intent === "buy"   && t) return `購入: ${t}${p ? ` @${p}` : ""}`;
-  if (t && p) return `${t} @${p}`;
-  if (t) return t;
+  if (intent === "event" && t) return sanitizeTitle(`${t}のイベント情報${p ? `（${p}）` : ""}`);
+  if (intent === "news"  && t) return sanitizeTitle(`${t}の最新ニュース`);
+  if (intent === "buy"   && t) return sanitizeTitle(`${t}の購入情報${p ? `（${p}）` : ""}`);
+  if (t && p) return sanitizeTitle(`${t}（${p}）`);
+  if (t) return sanitizeTitle(t);
   return "未命名ルール";
 }
 
