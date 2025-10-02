@@ -15,7 +15,6 @@ export default function Client({ id }: { id: string }) {
   const [inst, setInst] = useState<string>("");
   const [sched, setSched] = useState<ScheduleDto | null>(null);
   const [schedToggle, setSchedToggle] = useState<boolean>(false); // 「登録ずみ｜未登録」の左（登録ずみ）= true
-  const [schedList, setSchedList] = useState<ScheduleDto[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [confirming, setConfirming] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
@@ -42,7 +41,7 @@ export default function Client({ id }: { id: string }) {
   }
 
   // スケジュール一覧の再取得
-  const refreshSchedules = useCallback(async (): Promise<void> => {
+  const refreshSchedules = useCallback(async (opts?: { preserveToggle?: boolean }): Promise<void> => {
     const sres = await fetch(`/api/schedules?gptsId=${encodeURIComponent(id)}`, {
       credentials: "include",
       cache: "no-store",
@@ -51,10 +50,11 @@ export default function Client({ id }: { id: string }) {
       const sj: unknown = await sres.json();
       if (isScheduleList(sj)) {
         const items: ScheduleDto[] = (sj as { items: ScheduleDto[] }).items;
-        setSchedList(items);
         const first: ScheduleDto | null = items[0] ?? null;
         setSched(first);
-        setSchedToggle(Boolean(first));
+        if (!opts?.preserveToggle) {
+          setSchedToggle(Boolean(first));
+        }
       }
     }
   }, [id]);
@@ -156,7 +156,9 @@ export default function Client({ id }: { id: string }) {
             return;
           }
           setSched(created as ScheduleDto);
-          await refreshSchedules();
+          await refreshSchedules({ preserveToggle: true });
+        } else {
+          await refreshSchedules({ preserveToggle: true });
         }
       } else {
         // 未登録（OFF）: 編集UIは畳み、既存は disable（ドラフト保持）
@@ -177,7 +179,9 @@ export default function Client({ id }: { id: string }) {
             return;
           }
           setSched(j as ScheduleDto);
-          await refreshSchedules();
+          await refreshSchedules({ preserveToggle: true });
+        } else {
+          await refreshSchedules({ preserveToggle: true });
         }
       }
     } catch {
@@ -206,7 +210,7 @@ export default function Client({ id }: { id: string }) {
         return;
       }
       setSched(j as ScheduleDto);
-      await refreshSchedules();
+      await refreshSchedules({ preserveToggle: true });
     } catch {
       alert("スケジュール更新時にエラーが発生しました");
     }
@@ -230,7 +234,7 @@ export default function Client({ id }: { id: string }) {
         return;
       }
       setSched(j as ScheduleDto);
-      await refreshSchedules();
+      await refreshSchedules({ preserveToggle: true });
     } catch {
       alert("有効化でエラーが発生しました");
     }
@@ -254,7 +258,7 @@ export default function Client({ id }: { id: string }) {
         return;
       }
       setSched(j as ScheduleDto);
-      await refreshSchedules();
+      await refreshSchedules({ preserveToggle: true });
     } catch {
       alert("無効化でエラーが発生しました");
     }
@@ -274,7 +278,7 @@ export default function Client({ id }: { id: string }) {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-base font-semibold">名前</h2>
         <input
-          className="mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-blue-500"
+          className="mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-emerald-600"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="ルールの名前を入力..."
@@ -286,7 +290,7 @@ export default function Client({ id }: { id: string }) {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-base font-semibold">ルール</h2>
         <textarea
-          className="mt-2 w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-blue-500
+          className="mt-2 w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-emerald-600
                      min-h-[55vh] md:min-h-[60vh] resize-y"
           value={inst}
           onChange={(e) => setInst(e.target.value)}
@@ -304,7 +308,6 @@ export default function Client({ id }: { id: string }) {
           className="mt-3"
           value={schedToggle}
           onChange={(v) => void onToggleSchedule(v)}
-          groupLabel="スケジュールの有無" // スクリーンリーダ用
           options={[
             { value: true, label: "登録ずみ" },
             { value: false, label: "未登録" },
@@ -314,14 +317,9 @@ export default function Client({ id }: { id: string }) {
         {/* 登録ずみ（ON）のときのみ編集UIを表示 */}
         {schedToggle && sched && (
           <div className="mt-4 space-y-4">
-            {/* 要約 */}
-            <p className="text-sm text-gray-600">
-              現在の設定：{summarizeSchedule(sched)} ・ {sched.enabled ? "実施中" : "停止中"}（{sched.timezone ?? "Asia/Tokyo"}）
-            </p>
 
             {/* 頻度 */}
             <div>
-              <div className="text-sm font-medium">頻度</div>
               <div className="mt-2 flex gap-2">
                 {([
                   { key: "daily" as ScheduleFreq, label: "毎日" },
@@ -330,7 +328,7 @@ export default function Client({ id }: { id: string }) {
                 ] as ReadonlyArray<{ key: ScheduleFreq; label: string }>).map((o) => (
                   <button
                     key={o.key}
-                    className={`px-3 py-1 rounded-full border ${sched.freq === o.key ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700"}`}
+                    className={`px-3 py-1 rounded-full border ${sched.freq === o.key ? "bg-emerald-700 text-white border-emerald-700" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
                     onClick={() => void patchSchedule({ freq: o.key })}
                   >
                     {o.label}
@@ -349,10 +347,10 @@ export default function Client({ id }: { id: string }) {
                     return (
                       <button
                         key={d.key}
-                        className={`px-3 py-1 rounded-full border ${on ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700"}`}
+                        className={`px-3 py-1 rounded-full border ${on ? "bg-emerald-700 text-white border-emerald-700" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
                         onClick={() => {
                           const cur = new Set(sched.byWeekday ?? []);
-                          if (cur.has(d.key)) cur.delete(d.key); else cur.add(d.key);
+                          if (cur.has(d.key)) { cur.delete(d.key); } else { cur.add(d.key); }
                           void patchSchedule({ byWeekday: Array.from(cur) });
                         }}
                       >
@@ -401,7 +399,6 @@ export default function Client({ id }: { id: string }) {
                   }
                 }}
               />
-              <span className="text-xs text-gray-500">TZ: {sched.timezone ?? "Asia/Tokyo"}</span>
             </div>
 
             {/* セグメント②：実施中｜停止中 */}
@@ -414,8 +411,7 @@ export default function Client({ id }: { id: string }) {
                 } else {
                   void disableScheduleOnly();
                 }
-              }}      
-              groupLabel="実行状態"
+              }}
               options={[
                 { value: true, label: "実施中" },
                 { value: false, label: "停止中" },
@@ -423,25 +419,6 @@ export default function Client({ id }: { id: string }) {
             />
           </div>
         )}
-
-        {/* 登録済みの一覧（読み取り専用） */}
-        <div className="mt-6">
-          <div className="text-sm font-medium text-gray-800">登録済みスケジュール</div>
-          {schedList.length === 0 ? (
-            <div className="mt-2 text-sm text-gray-500">スケジュールは未登録です。</div>
-          ) : (
-            <ul className="mt-2 space-y-2">
-              {schedList.map((s) => (
-                <li key={s._id} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                  <div className="text-sm">{summarizeSchedule(s)}</div>
-                  <div className="mt-1 text-xs text-gray-600">
-                    状態: {s.enabled ? "実施中" : "停止中"} ／ nextRunAt: {s.nextRunAt ? new Date(s.nextRunAt).toLocaleString() : "-"} ／ TZ: {s.timezone ?? "Asia/Tokyo"}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       </section>
 
       {/* フッター操作 */}
@@ -453,7 +430,7 @@ export default function Client({ id }: { id: string }) {
           戻る
         </button>
         <button
-          className="flex-1 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 rounded-full bg-emerald-700 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
           onClick={() => setConfirming(true)}
         >
           確認
@@ -462,52 +439,55 @@ export default function Client({ id }: { id: string }) {
 
       {/* 確認モーダル相当（既存ロジック） */}
       {confirming && (
-        <section className="space-y-4">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">保存内容の確認</div>
+        <div className="fixed inset-0 z-50 bg-white overflow-auto"> 
+          <section className="mx-auto max-w-screen-sm p-4 space-y-4">
+            <div className="text-base font-semibold pt-2">保存内容の確認</div>
 
-            <div className="mt-2 text-sm font-medium">名前</div>
-            <div className="mt-1 break-words">{name || "(無題)"}</div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-medium">名前</div>
+              <div className="mt-1 break-words">{name || "(無題)"}</div>
 
-            <div className="mt-4 text-sm font-medium">ルール</div>
-            <pre
-              className="mt-1 max-h-[60vh] overflow-auto rounded-md bg-gray-50 p-3 text-[14px] leading-relaxed
-                         whitespace-pre-wrap break-words overflow-x-hidden"
-            >
-              {inst}
-            </pre>
+              <div className="mt-4 text-sm font-medium">ルール</div>
+              <pre
+                className="mt-1 max-h-[60vh] overflow-auto rounded-md bg-gray-50 p-3 text-[14px] leading-relaxed
+                           whitespace-pre-wrap break-words overflow-x-hidden"
+              >
+                {inst}
+              </pre>
 
-            <div className="mt-4 text-sm font-medium">スケジュール</div>
-            {schedToggle && sched ? (
-              <div className="mt-1 text-sm">
-                <div>
-                  {summarizeSchedule(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
-                  {sched.timezone ?? "Asia/Tokyo"}）
+              <div className="mt-4 text-sm font-medium">スケジュール</div>
+              {schedToggle && sched ? (
+                <div className="mt-1 text-sm">
+                  <div>
+                    {summarizeSchedule(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
+                  </div>
+                  {sched.enabled && (
+                    <div className="mt-1 text-xs text-gray-600">
+                      次回実施日時: {sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : "-"} {/* ★ ラベル変更 */}
+                    </div>
+                  )}
                 </div>
-                <div className="mt-1 text-xs text-gray-600">
-                  nextRunAt: {sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : "-"}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-1 text-sm text-gray-600">未登録</div>
-            )} 
-          </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">未登録</div>
+              )}
+            </div>
 
-          <div className="sticky bottom-2 z-10 mt-2 flex gap-2">
-            <button
-              className="flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400"
-              onClick={() => setConfirming(false)}
-            >
-              修正する
-            </button>
-            <button
-              className="flex-1 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onClick={() => void onSave()}
-            >
-              保存
-            </button>
-          </div>
-        </section>
+            <div className="sticky bottom-2 z-10 mt-2 flex gap-2">
+              <button
+                className="flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400"
+                onClick={() => setConfirming(false)}
+              >
+                修正する
+              </button>
+              <button
+                className="flex-1 rounded-full bg-emerald-700 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600" // ★ 濃い緑
+                onClick={() => void onSave()}
+              >
+                保存
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </main>
   );

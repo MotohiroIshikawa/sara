@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useId } from "react";
-
+import { useCallback, useId, type KeyboardEvent } from "react";
 export type SegmentedSwitchOption = {
   /** 内部値（true/false の2択に限定） */
   value: boolean;
@@ -56,7 +55,7 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
   const groupId: string = useId();
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
+    (e: KeyboardEvent<HTMLDivElement>) => {
       if (disabled) return;
 
       // ← / → で選択を切り替え
@@ -75,17 +74,14 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
     [disabled, onChange, options, value]
   );
 
+  const ariaLabel: string = groupLabel ?? "切替";
+
   return (
     <div className={className}>
-      {/* 見出し（視覚的ラベル） */}
-      <div className="mb-2 text-sm font-semibold text-gray-900">
-        {groupLabel}
-      </div>
-
       {/* コンテナ */}
       <div
         role="radiogroup"
-        aria-labelledby={groupId}
+        aria-label={ariaLabel}
         className={[
           "inline-flex h-9 items-center rounded-full border border-gray-300 bg-gray-50 p-1",
           disabled ? "opacity-50" : "opacity-100",
@@ -114,9 +110,9 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
                 "min-w-[5.5rem] px-4 py-1.5 text-sm rounded-full border transition focus:outline-none",
                 active
                   // 選択中：黄緑
-                  ? "bg-lime-400 text-white border-lime-500 shadow-sm hover:bg-lime-500 focus:ring-2 focus:ring-lime-500/50"
+                  ? "bg-emerald-700 text-white border-emerald-700 shadow-sm hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-600/60"
                   // 未選択：グレー
-                  : "bg-gray-100 text-gray-600 border-transparent hover:text-gray-800 focus:ring-2 focus:ring-gray-300",
+                  : "bg-gray-100 text-gray-700 border-transparent hover:text-gray-900 focus:ring-2 focus:ring-gray-300",
                 disabled ? "cursor-not-allowed" : "cursor-pointer",
               ].join(" ")}
             >
