@@ -1,14 +1,44 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
-import {
-  type GptsDetailResponse,
-  type GptsUpdateRequest,
-  isGptsDetailResponse
-} from "@/utils/types";
+import { type GptsDetailResponse, type GptsUpdateRequest, isGptsDetailResponse } from "@/utils/types";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { isScheduleDto, isScheduleList } from "@/utils/scheduleGuards";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
+import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/scheduleValidators";
+
+interface ApiErrorJson {
+  error?: string;
+  message?: string;
+}
+
+async function readServerError(res: Response, fallback: string): Promise<string> {
+  try {
+    const j: unknown = await res.json();
+    const o: ApiErrorJson = (typeof j === "object" && j !== null) ? (j as ApiErrorJson) : {};
+    const detail: string | undefined =
+      typeof o.message === "string" ? o.message :
+      (typeof o.error === "string" ? o.error : undefined);
+
+    console.info("[readServerError] response", {
+      status: res.status,
+      statusText: res.statusText,
+      url: (res as { url?: string }).url ?? undefined,
+      body: o,
+    });
+
+    if (detail) {
+      return `${fallback}\n詳細: ${detail}`;
+    }
+  } catch (e) {
+    console.info("[readServerError] parse_error", {
+      status: res.status,
+      statusText: res.statusText,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+  return `${fallback}\n詳細: ${String(res.status)} ${res.statusText}`;
+}
 
 export default function Client({ id }: { id: string }) {
   const [name, setName] = useState<string>("");
@@ -18,27 +48,6 @@ export default function Client({ id }: { id: string }) {
   const [loading, setLoading] = useState<boolean>(true);
   const [confirming, setConfirming] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
-
-  // 曜日の日本語短縮
-  const wdayLabel: Record<NonNullable<ScheduleDto["byWeekday"]>[number], string> = {
-    MO: "月", TU: "火", WE: "水", TH: "木", FR: "金", SA: "土", SU: "日",
-  };
-
-  // スケジュール要約
-  function summarizeSchedule(s: ScheduleDto): string {
-    const hh: string = String(s.hour).padStart(2, "0");
-    const mm: string = String(s.minute).padStart(2, "0");
-    if (s.freq === "daily") return `毎日 ${hh}:${mm}`;
-    if (s.freq === "weekly") {
-      const wd: string = (s.byWeekday ?? []).map((k) => wdayLabel[k]).join("・") || "—";
-      return `毎週 ${wd} ${hh}:${mm}`;
-    }
-    if (s.freq === "monthly") {
-      const day: number = s.byMonthday?.[0] ?? 1;
-      return `毎月 ${day}日 ${hh}:${mm}`;
-    }
-    return `${hh}:${mm}`;
-  }
 
   // スケジュール一覧の再取得
   const refreshSchedules = useCallback(async (opts?: { preserveToggle?: boolean }): Promise<void> => {
@@ -95,8 +104,110 @@ export default function Client({ id }: { id: string }) {
     })();
   }, [id, refreshSchedules]);
 
+  // 保存時の最終確定ロジックを追加（スケジュール → GPTS本体の順で確定）
   async function onSave(): Promise<void> {
     try {
+      // 1. 未登録の場合：レコードがあればソフト削除
+      if (!schedToggle) {
+        if (sched?._id) {
+          const payload: { deletedAt: string; enabled: boolean; nextRunAt: null } = {
+            deletedAt: new Date().toISOString(),
+            enabled: false,  // 保険
+            nextRunAt: null, // 保険
+          };
+          const delRes = await fetch(`/api/schedules/${sched._id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(payload),
+          });
+          if (!delRes.ok) {
+            const msg: string = await readServerError(delRes, "スケジュールを未登録にできませんでした。通信環境をご確認のうえ、再度お試しください。");
+            alert(msg);
+            return;
+          }
+        }
+      } else {
+        // 2. 登録ずみの場合：レコードを確実に用意し、実施中/停止中で最終確定
+        let current: ScheduleDto | null = sched ?? null;
+
+        // （稀ケース）レコードが無い場合は作成してから続行
+        if (!current?._id) {
+          interface ScheduleCreateBody {
+            gptsId: string;
+            freq: ScheduleFreq;
+            hour: number;
+            minute: number;
+            enabled: boolean;
+            timezone: string;
+          }
+          const createBody: ScheduleCreateBody = {
+            gptsId: id,
+            freq: "daily" as ScheduleFreq,
+            hour: 9,
+            minute: 0,
+            enabled: false,
+            timezone: process.env.NEXT_PUBLIC_SCHEDULE_TZ_DEFAULT ?? "Asia/Tokyo",
+          };
+          const cRes = await fetch(`/api/schedules`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(createBody),
+          });
+          if (!cRes.ok) {
+            const msg: string = await readServerError(cRes, "スケジュールの作成に失敗しました。通信環境をご確認のうえ、再度お試しください。");
+            alert(msg);
+            return;
+          }
+          const createdJson: unknown = await cRes.json();
+          if (!isScheduleDto(createdJson)) {
+            alert("サーバ応答が不正です（スケジュール作成）");
+            return;
+          }
+          current = createdJson as ScheduleDto;
+        }
+
+        // 実施中/停止中で確定（/enable は丸め&nextRunAt再計算、/disable は nextRunAt=null）
+        if (current.enabled) {
+          const chk = canEnableSchedule(current);
+          if (!chk.ok) {
+            alert(chk.message);
+            return;
+          }
+          const eRes = await fetch(`/api/schedules/${current._id}/enable`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (!eRes.ok) {
+            const msg: string = await readServerError(eRes, "スケジュールの有効化に失敗しました。設定内容をご確認のうえ、再度お試しください。");
+            alert(msg);
+            return;
+          }
+          const eJson: unknown = await eRes.json();
+          if (!isScheduleDto(eJson)) {
+            alert("サーバ応答が不正です（有効化）");
+            return;
+          }
+        } else {
+          const dRes = await fetch(`/api/schedules/${current._id}/disable`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (!dRes.ok) {
+            const msg: string = await readServerError(dRes, "スケジュールの無効化に失敗しました。通信環境をご確認のうえ、再度お試しください。");
+            alert(msg);
+            return;
+          }
+          const dJson: unknown = await dRes.json();
+          if (!isScheduleDto(dJson)) {
+            alert("サーバ応答が不正です（無効化）");
+            return;
+          }
+        }
+      }
+
+      // 3. GPTS本体を保存（名前・ルール）
       const body: GptsUpdateRequest = { name, instpack: inst };
       const r = await fetch(`/api/gpts/${encodeURIComponent(id)}`, {
         method: "POST",
@@ -105,12 +216,15 @@ export default function Client({ id }: { id: string }) {
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        alert("保存に失敗しました");
+        const msg: string = await readServerError(r, "チャットルールの保存に失敗しました。通信環境をご確認のうえ、再度お試しください。");
+        alert(msg);
         return;
       }
+
+      // 完了 → 一覧へ
       window.location.href = "/gpts/list";
     } catch {
-      alert("保存時にエラーが発生しました");
+      alert("保存処理中にエラーが発生しました。時間をおいて再度お試しください。");
     }
   }
 
@@ -278,7 +392,7 @@ export default function Client({ id }: { id: string }) {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-base font-semibold">名前</h2>
         <input
-          className="mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-emerald-600"
+          className="mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-green-500"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="ルールの名前を入力..."
@@ -290,7 +404,7 @@ export default function Client({ id }: { id: string }) {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-base font-semibold">ルール</h2>
         <textarea
-          className="mt-2 w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-emerald-600
+          className="mt-2 w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-green-500
                      min-h-[55vh] md:min-h-[60vh] resize-y"
           value={inst}
           onChange={(e) => setInst(e.target.value)}
@@ -308,6 +422,7 @@ export default function Client({ id }: { id: string }) {
           className="mt-3"
           value={schedToggle}
           onChange={(v) => void onToggleSchedule(v)}
+          groupLabel="スケジュールの有無"
           options={[
             { value: true, label: "登録ずみ" },
             { value: false, label: "未登録" },
@@ -389,7 +504,7 @@ export default function Client({ id }: { id: string }) {
                 type="time"
                 className="px-3 py-2 border rounded-lg"
                 step={5 * 60}
-                value={`${String(sched.hour).padStart(2,"0")}:${String(sched.minute).padStart(2,"0")}`}
+                value={safeTimeHHMM(sched)}
                 onChange={(e) => {
                   const [hStr, mStr] = e.target.value.split(":");
                   const h: number = Number(hStr);
@@ -407,16 +522,28 @@ export default function Client({ id }: { id: string }) {
               value={Boolean(sched.enabled)}
               onChange={(v: boolean) => {
                 if (v) {
+                  const chk = canEnableSchedule(sched); // 未設定なら有効化しない
+                  if (!chk.ok) {
+                    alert(chk.message);
+                    return;
+                  }
                   void enableSchedule();
                 } else {
                   void disableScheduleOnly();
                 }
               }}
+              groupLabel="実行状態"
               options={[
                 { value: true, label: "実施中" },
                 { value: false, label: "停止中" },
               ]}
             />
+
+            {/* 要約（未設定を明示） */}
+            <p className="text-sm text-gray-600">
+              {summarizeScheduleJa(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
+            </p>
+
           </div>
         )}
       </section>
@@ -437,7 +564,7 @@ export default function Client({ id }: { id: string }) {
         </button>
       </div>
 
-      {/* 確認モーダル相当（既存ロジック） */}
+      {/* 確認モーダル */}
       {confirming && (
         <div className="fixed inset-0 z-50 bg-white overflow-auto"> 
           <section className="mx-auto max-w-screen-sm p-4 space-y-4">
@@ -459,7 +586,7 @@ export default function Client({ id }: { id: string }) {
               {schedToggle && sched ? (
                 <div className="mt-1 text-sm">
                   <div>
-                    {summarizeSchedule(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
+                    {summarizeScheduleJa(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
                   </div>
                   {sched.enabled && (
                     <div className="mt-1 text-xs text-gray-600">
