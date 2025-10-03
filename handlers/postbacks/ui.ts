@@ -158,7 +158,7 @@ export function uiWeekdayFlex(gptsId: string, selected: ReadonlyArray<string>): 
       action: {
         type: "postback" as const,
         label: d.label,
-        data: encodePostback("sched", "wdayToggle", { gptsId, v: d.key }),
+        data: encodePostback("sched", "wdayToggle", { gptsId, wd: d.key }),
         displayText: d.label,
       },
     })),
@@ -198,19 +198,34 @@ export function uiWeekdayFlex(gptsId: string, selected: ReadonlyArray<string>): 
                 type: "button",
                 style: "link",
                 height: "sm",
-                action: { type: "postback", label: msg("UI_WDAY_PRESET_WEEKDAYS"), data: encodePostback("sched", "wdayPreset", { gptsId, v: "weekdays" }), displayText: msg("UI_WDAY_PRESET_WEEKDAYS") },
+                action: { 
+                  type: "postback", 
+                  label: msg("UI_WDAY_PRESET_WEEKDAYS"), 
+                  data: encodePostback("sched", "wdayPreset", { gptsId, preset: "weekdays" }), 
+                  displayText: msg("UI_WDAY_PRESET_WEEKDAYS") 
+                },
               },
               {
                 type: "button",
                 style: "link",
                 height: "sm",
-                action: { type: "postback", label: msg("UI_WDAY_PRESET_WEEKEND"), data: encodePostback("sched", "wdayPreset", { gptsId, v: "weekend" }), displayText: msg("UI_WDAY_PRESET_WEEKEND") },
+                action: { 
+                  type: "postback", 
+                  label: msg("UI_WDAY_PRESET_WEEKEND"), 
+                  data: encodePostback("sched", "wdayPreset", { gptsId, preset: "weekend" }), 
+                  displayText: msg("UI_WDAY_PRESET_WEEKEND") 
+                },
               },
               {
                 type: "button",
                 style: "link",
                 height: "sm",
-                action: { type: "postback", label: msg("UI_WDAY_PRESET_CLEAR"), data: encodePostback("sched", "wdayPreset", { gptsId, v: "clear" }), displayText: msg("UI_WDAY_PRESET_CLEAR") },
+                action: { 
+                  type: "postback", 
+                  label: msg("UI_WDAY_PRESET_CLEAR"), 
+                  data: encodePostback("sched", "wdayPreset", { gptsId, preset: "clear" }), 
+                  displayText: msg("UI_WDAY_PRESET_CLEAR") 
+                },
               },
             ],
           },

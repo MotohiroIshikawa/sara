@@ -208,7 +208,7 @@ const wdayToggle: Handler = async (event, args = {}) => {
   const recipientId = getRecipientId(event);
   const userId = getThreadOwnerId(event, "plain");
   const gptsId = (args["gptsId"] || "").trim();
-  const v = (args["v"] || "").toUpperCase();
+  const v = (args["wd"] || "").toUpperCase();
   if (!recipientId || !userId || !gptsId || !WD.find((w) => w.key === v)) return;
 
   const col = await getGptsSchedulesCollection();
@@ -239,7 +239,7 @@ const wdayPreset: Handler = async (event, args = {}) => {
   const recipientId = getRecipientId(event);
   const userId = getThreadOwnerId(event, "plain");
   const gptsId = (args["gptsId"] || "").trim();
-  const v = (args["v"] || "").toLowerCase();
+  const preset = (args["preset"] || "").toLowerCase();
   if (!recipientId || !userId || !gptsId) return;
 
   const col = await getGptsSchedulesCollection();
@@ -250,9 +250,9 @@ const wdayPreset: Handler = async (event, args = {}) => {
   if (!draft) return;
 
   let set: string[] = [];
-  if (v === "weekdays") set = ["MO", "TU", "WE", "TH", "FR"];
-  else if (v === "weekend") set = ["SA", "SU"];
-  else if (v === "clear") set = [];
+  if (preset === "weekdays") set = ["MO", "TU", "WE", "TH", "FR"];
+  else if (preset === "weekend") set = ["SA", "SU"];
+  else if (preset === "clear") set = [];
 
   await updateScheduleById(draft._id, { byWeekday: set });
 
