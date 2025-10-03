@@ -25,7 +25,7 @@
 }
 
 .pill {
-  @apply px-3 py-1 rounded-full border;
+  @apply px-4 py-2 rounded-full border text-sm;
 }
 
 .pillOn {
@@ -37,11 +37,11 @@
 }
 
 .numberInput {
-  @apply mt-2 w-24 px-3 py-2 border rounded-lg;
+  @apply mt-2 w-24 px-3 py-2 border rounded-lg h-10 text-sm;
 }
 
 .timeInput {
-  @apply px-3 py-2 border rounded-lg;
+  @apply px-3 py-2 border rounded-lg h-10 text-sm;
 }
 
 .footer {
@@ -49,11 +49,11 @@
 }
 
 .footerBtnGray {
-  @apply flex-1 rounded-full bg-gray-200 px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400;
+  @apply flex-1 rounded-full bg-gray-200 px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400;
 }
 
 .footerBtnGreen {
-  @apply flex-1 rounded-full bg-emerald-700 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600;
+  @apply flex-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600;
 }
 
 .modal {
