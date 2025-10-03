@@ -160,6 +160,30 @@ function sanitizeWeekdays(src: unknown): ReadonlyArray<WeekdayKey> | undefined {
   return src.filter((d): d is WeekdayKey => isWeekdayKey(d)) as ReadonlyArray<WeekdayKey>;
 }
 
+// 次回実施時間（ISO文字列 or null）を日本語/指定TZで "YYYY/MM/DD HH:mm" 表記に整形
+export function formatNextRunJa(
+  nextRunAt: string | null | undefined,
+  timezone?: string
+): string {
+  if (!nextRunAt) return "—";
+  try {
+    const d: Date = new Date(nextRunAt);
+    const tz: string = (timezone && timezone.length > 0) ? timezone : "Asia/Tokyo";
+    const fmt: Intl.DateTimeFormat = new Intl.DateTimeFormat("ja-JP", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return fmt.format(d);
+  } catch {
+    return "—";
+  }
+}
+
 // クライアント/サーバ共通で使える PATCH 正規化ユーティリティ
 export function sanitizeSchedulePatch(patch: SchedulePatch, prev: ScheduleDto | null): SchedulePatch {
   const next: SchedulePatch = { ...patch };
