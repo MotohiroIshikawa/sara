@@ -5,19 +5,20 @@ import { ensureLiffSession } from "@/utils/ensureLiffSession";
 import { type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { isScheduleDto, isScheduleList } from "@/utils/scheduleGuards";
 import { canEnableSchedule } from "@/utils/scheduleValidators";
-import styles from "./Client.module.css"; // ★
-import NameSection from "./components/NameSection"; // ★
-import RuleSection from "./components/RuleSection"; // ★
-import ScheduleEditor from "./components/ScheduleEditor"; // ★
-import FooterActions from "./components/FooterActions"; // ★
-import ConfirmModal from "./components/ConfirmModal"; // ★
+import styles from "./Client.module.css";
+import NameSection from "./components/NameSection";
+import RuleSection from "./components/RuleSection";
+import ScheduleEditor from "./components/ScheduleEditor";
+import FooterActions from "./components/FooterActions";
+import ConfirmModal from "./components/ConfirmModal";
+import { sanitizeSchedulePatch } from "@/utils/schedulerTime";
 
 interface ApiErrorJson {
   error?: string;
   message?: string;
 }
 
-async function readServerError(res: Response, fallback: string): Promise<string> {
+async function  readServerError(res: Response, fallback: string): Promise<string> {
   try {
     const j: unknown = await res.json();
     const o: ApiErrorJson = (typeof j === "object" && j !== null) ? (j as ApiErrorJson) : {};
@@ -313,11 +314,12 @@ export default function Client({ id }: { id: string }) {
   async function patchSchedule(patch: SchedulePatch): Promise<void> {
     if (!sched?._id) return;
     try {
+      const normalized = sanitizeSchedulePatch(patch, sched);
       const res = await fetch(`/api/schedules/${sched._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(patch),
+        body: JSON.stringify(normalized),
       });
       if (!res.ok) {
         alert("更新に失敗しました");
@@ -392,13 +394,13 @@ export default function Client({ id }: { id: string }) {
   if (err) return <main className="p-4 text-red-600">{err}</main>;
 
   return (
-    // ★ 変更: 直書きTailwindを CSS Modules( container ) に置換
-    <main className={styles.container}> {/* ★ */}
+    // 直書きTailwindを CSS Modules( container ) に置換
+    <main className={styles.container}>
       {/* === 名前 === */}
-      <NameSection name={name} onChange={setName} count={counts.name} /> {/* ★ */}
+      <NameSection name={name} onChange={setName} count={counts.name} />
 
       {/* === ルール === */}
-      <RuleSection inst={inst} onChange={setInst} count={counts.inst} /> {/* ★ */}
+      <RuleSection inst={inst} onChange={setInst} count={counts.inst} />
 
       {/* === スケジュール === */}
       <ScheduleEditor
@@ -408,13 +410,13 @@ export default function Client({ id }: { id: string }) {
         patchSchedule={patchSchedule}
         enableSchedule={enableSchedule}
         disableScheduleOnly={disableScheduleOnly}
-      /> {/* ★ */}
+      />
 
       {/* フッター操作 */}
       <FooterActions
         onBack={() => window.history.back()}
         onConfirm={() => setConfirming(true)}
-      /> {/* ★ */}
+      />
 
       {/* 確認モーダル */}
       <ConfirmModal
@@ -425,7 +427,7 @@ export default function Client({ id }: { id: string }) {
         inst={inst}
         schedToggle={schedToggle}
         sched={sched}
-      /> {/* ★ */}
+      />
     </main>
   );
 }

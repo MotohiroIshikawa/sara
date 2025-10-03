@@ -1,5 +1,10 @@
 import type { GptsScheduleDoc } from "@/types/db";
-import { isWeekdayKey, type ScheduleDto } from "@/types/schedule";
+import { 
+  isWeekdayKey, 
+  type ScheduleDto, 
+  type ScheduleFreq, 
+  type SchedulePatch 
+} from "@/types/schedule";
 
 export type WeekdayKey = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
 
@@ -153,6 +158,62 @@ export function roundMinutes(
 function sanitizeWeekdays(src: unknown): ReadonlyArray<WeekdayKey> | undefined {
   if (!Array.isArray(src)) return undefined;
   return src.filter((d): d is WeekdayKey => isWeekdayKey(d)) as ReadonlyArray<WeekdayKey>;
+}
+
+// クライアント/サーバ共通で使える PATCH 正規化ユーティリティ
+export function sanitizeSchedulePatch(patch: SchedulePatch, prev: ScheduleDto | null): SchedulePatch {
+  const next: SchedulePatch = { ...patch };
+
+  // ユニーク化（順序保持）
+  const uniq = <T,>(arr: ReadonlyArray<T>): T[] => Array.from(new Set(arr));
+
+  // 値域正規化（先に行う）
+  if (Array.isArray(next.byWeekday)) {
+    const filtered: ReadonlyArray<WeekdayKey> = uniq(next.byWeekday).filter(isWeekdayKey) as ReadonlyArray<WeekdayKey>;
+    next.byWeekday = filtered;
+  }
+  if (Array.isArray(next.byMonthday)) {
+    const filteredNums: ReadonlyArray<number> = uniq(next.byMonthday)
+      .map((n: number) => Math.trunc(Number(n)))
+      .filter((n: number) => Number.isFinite(n) && n >= 1 && n <= 31);
+    next.byMonthday = filteredNums;
+  }
+
+  // freq 依存の相互排他・既定補完
+  if (typeof next.freq === "string") {
+    const to: ScheduleFreq = next.freq;
+
+    if (to === "daily") {
+      // daily：どちらも未使用
+      next.byWeekday = [];
+      next.byMonthday = [];
+    } else if (to === "weekly") {
+      // weekly：weekday必須（未指定なら既定["MO"]）。monthdayは未使用に強制
+      const base: ReadonlyArray<WeekdayKey> =
+        (next.byWeekday as ReadonlyArray<WeekdayKey> | undefined)
+        ?? (prev?.byWeekday as ReadonlyArray<WeekdayKey> | undefined)
+        ?? [];
+
+      const filtered: ReadonlyArray<WeekdayKey> = base.filter(isWeekdayKey);
+      next.byWeekday = filtered.length > 0 ? [...filtered] : (["MO"] as ReadonlyArray<WeekdayKey>);
+      next.byMonthday = [];
+    } else if (to === "monthly") {
+      // monthly：monthday必須（未指定なら既定[1]）。weekdayは未使用に強制
+      const baseNums: ReadonlyArray<number> =
+        (next.byMonthday as ReadonlyArray<number> | undefined)
+        ?? (prev?.byMonthday as ReadonlyArray<number> | undefined)
+        ?? [];
+
+      const filteredNums: ReadonlyArray<number> = baseNums
+        .map((n) => Math.trunc(Number(n)))
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 31);
+
+      next.byMonthday = filteredNums.length > 0 ? [...filteredNums] : ([1] as ReadonlyArray<number>);
+      next.byWeekday = [];
+    }
+  }
+
+  return next;
 }
 
 // GptsScheduleDoc → ScheduleDto（ObjectId/Date の正規化＆weekdayの型安全化）
