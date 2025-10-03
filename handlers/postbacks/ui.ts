@@ -30,8 +30,8 @@ const DEFAULT_MSGS = {
   UI_WDAY_SELECTED_PREFIX: "選択中: ",
   UI_WDAY_SELECTED_NONE: "選択中: なし",
   UI_WDAY_NEXT: "次へ（時刻）",
-  UI_WDAY_PRESET_WEEKDAYS: "平日",
-  UI_WDAY_PRESET_WEEKEND: "週末",
+//  UI_WDAY_PRESET_WEEKDAYS: "平日",
+//  UI_WDAY_PRESET_WEEKEND: "週末",
   UI_WDAY_PRESET_CLEAR: "クリア",
   // 最終確認
   UI_FINAL_ALT: "最終確認",
@@ -193,28 +193,6 @@ export function uiWeekdayFlex(gptsId: string, selected: ReadonlyArray<string>): 
                 style: "primary",
                 height: "sm",
                 action: { type: "postback", label: msg("UI_WDAY_NEXT"), data: encodePostback("sched", "wdayNext", { gptsId }), displayText: msg("UI_WDAY_NEXT") },
-              },
-              {
-                type: "button",
-                style: "link",
-                height: "sm",
-                action: { 
-                  type: "postback", 
-                  label: msg("UI_WDAY_PRESET_WEEKDAYS"), 
-                  data: encodePostback("sched", "wdayPreset", { gptsId, preset: "weekdays" }), 
-                  displayText: msg("UI_WDAY_PRESET_WEEKDAYS") 
-                },
-              },
-              {
-                type: "button",
-                style: "link",
-                height: "sm",
-                action: { 
-                  type: "postback", 
-                  label: msg("UI_WDAY_PRESET_WEEKEND"), 
-                  data: encodePostback("sched", "wdayPreset", { gptsId, preset: "weekend" }), 
-                  displayText: msg("UI_WDAY_PRESET_WEEKEND") 
-                },
               },
               {
                 type: "button",
