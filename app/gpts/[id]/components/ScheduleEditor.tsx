@@ -3,6 +3,7 @@ import styles from "../Client.module.css";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/scheduleValidators";
+import { formatNextRunJa } from "@/utils/schedulerTime";
 
 export interface ScheduleEditorProps {
   sched: ScheduleDto | null;
@@ -12,6 +13,11 @@ export interface ScheduleEditorProps {
   enableSchedule: () => Promise<void>;
   disableScheduleOnly: () => Promise<void>;
 }
+
+const ROUND_STEP_MIN: number = Math.max(
+1,
+  Math.min(30, Math.trunc(Number(process.env.NEXT_PUBLIC_SCHEDULE_ROUND_MIN ?? 5)))
+);
 
 export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element {
   const { sched, schedToggle, onToggleSchedule, patchSchedule, enableSchedule, disableScheduleOnly } = props;
@@ -37,7 +43,8 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
         <div className="mt-4 space-y-4">
           {/* 頻度 */}
           <div>
-            <div className="mt-2 flex gap-2">
+            <div className={styles.fieldLabel}>頻度</div>
+            <div className={styles.freqGroup}>
               {([
                 { key: "daily" as ScheduleFreq, label: "毎日" },
                 { key: "weekly" as ScheduleFreq, label: "毎週" },
@@ -106,37 +113,41 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
           {/* 月次: 日付 */}
           {sched.freq === "monthly" && (
             <div>
-              <div className="text-sm font-medium">日付（存在しない月はスキップ）</div>
-              <input
-                type="number"
-                min={1}
-                max={31}
-                className={styles.numberInput}
-                value={sched.byMonthday?.[0] ?? 1}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  void patchSchedule({ byMonthday: [Number(e.target.value)] })
-                }
-              />
+              <div className="text-sm font-medium">日付（存在しない月はスキップします）</div>
+              <div className="mt-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  className={styles.numberInput}
+                  value={sched.byMonthday?.[0] ?? 1}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    void patchSchedule({ byMonthday: [Number(e.target.value)] })
+                  }
+                />
+              </div>
             </div>
           )}
 
           {/* 時刻 */}
-          <div className="flex items-center gap-3">
-            <div className="text-sm font-medium">時刻</div>
-            <input
-              type="time"
-              className={styles.timeInput}
-              step={5 * 60}
-              value={safeTimeHHMM(sched)}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                const [hStr, mStr] = e.target.value.split(":");
-                const h: number = Number(hStr);
-                const m: number = Number(mStr);
-                if (Number.isFinite(h) && Number.isFinite(m)) {
-                  void patchSchedule({ hour: h, minute: m });
-                }
-              }}
-            />
+          <div>
+            <div className={styles.fieldLabel}>時刻（{ROUND_STEP_MIN}分ごとに丸められます）</div>
+            <div className="mt-2">
+              <input
+                type="time"
+                className={styles.timeInput}
+                step={ROUND_STEP_MIN * 60}
+                value={safeTimeHHMM(sched)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  const [hStr, mStr] = e.target.value.split(":");
+                  const h: number = Number(hStr);
+                  const m: number = Number(mStr);
+                  if (Number.isFinite(h) && Number.isFinite(m)) {
+                    void patchSchedule({ hour: h, minute: m });
+                  }
+                }}
+              />
+            </div>
           </div>
 
           {/* 実施中｜停止中 */}
@@ -166,6 +177,14 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
           <p className={styles.helpText}>
             {summarizeScheduleJa(sched)} ・ {sched.enabled ? "実施中" : "停止中"}
           </p>
+
+          {/* 次回実施時間（変更のたびにサーバ再計算→sched.nextRunAt を表示） */}
+          <div className="text-sm">
+            <div className="font-medium">次回実施時間</div>
+            <div className="mt-1">
+              {formatNextRunJa(sched.nextRunAt ?? null, sched.timezone)}
+            </div>
+          </div>
         </div>
       )}
     </section>
