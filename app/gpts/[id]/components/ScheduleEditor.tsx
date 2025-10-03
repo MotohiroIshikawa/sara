@@ -20,7 +20,7 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
     <section className={styles.card}>
       <h2 className={styles.title}>スケジュール</h2>
 
-      {/* セグメント①：登録ずみ｜未登録 */}
+      {/* 登録ずみ｜未登録 */}
       <SegmentedSwitch
         className="mt-3"
         value={schedToggle}
@@ -139,7 +139,7 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
             />
           </div>
 
-          {/* セグメント②：実施中｜停止中 */}
+          {/* 実施中｜停止中 */}
           <SegmentedSwitch
             className="mt-1"
             value={Boolean(sched.enabled)}
