@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useId, type KeyboardEvent } from "react";
+import styles from "./SegmentedSwitch.module.css";
+
 export type SegmentedSwitchOption = {
   /** 内部値（true/false の2択に限定） */
   value: boolean;
@@ -82,10 +84,7 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
       <div
         role="radiogroup"
         aria-label={ariaLabel}
-        className={[
-          "inline-flex h-10 items-center rounded-full border border-gray-300 bg-gray-50 p-1.5", // ★
-          disabled ? "opacity-50" : "opacity-100",
-        ].join(" ")}
+        className={[styles.segGroup, disabled ? styles.segGroupDisabled : ""].join(" ")}
         tabIndex={disabled ? -1 : 0}
         onKeyDown={handleKeyDown}
         aria-disabled={disabled}
@@ -107,11 +106,9 @@ export default function SegmentedSwitch(props: SegmentedSwitchProps) {
                 if (!disabled && !active) onChange(opt.value);
               }}
               className={[
-                "min-w-[5.5rem] px-4 py-2 text-sm rounded-full border transition focus:outline-none", // ★
-                active
-                  ? "bg-green-600 text-white border-green-600 shadow-sm hover:bg-green-700 focus:ring-2 focus:ring-green-500/60" // ★
-                  : "bg-gray-100 text-gray-700 border-transparent hover:text-gray-900 focus:ring-2 focus:ring-gray-300",
-                disabled ? "cursor-not-allowed" : "cursor-pointer",
+                styles.segBtn,
+                active ? styles.segBtnActive : styles.segBtnInactive,
+                disabled ? styles.segBtnDisabled : "",
               ].join(" ")}
             >
               {opt.label}
