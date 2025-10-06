@@ -32,7 +32,7 @@ export async function runGptsAndPush(input: {
   // 3. 生成実行（connectBing）
   let texts: string[] = [];
   try {
-    const res = await connectBing(input.userId, question, {
+    const res = await connectBing(input.targetId, question, {
       sourceType: input.targetType,
       // ここでは meta/instpack の保存は行わない（スケジュール配信なので）
       maxMetaRetry: 1,

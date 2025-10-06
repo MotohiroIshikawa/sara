@@ -111,6 +111,22 @@ export function computeNextRunAt(opts: NextRunOpts): Date | null {
   return makeAt(tmr.y, tmr.m, tmr.dd, hour, minute, second);
 }
 
+// GRACE付き nextRunAt ラッパー（from を grace 秒だけ先送りして計算）
+export function computeNextRunAtWithGrace(
+  opts: NextRunOpts,
+  graceSec?: number
+): Date | null {
+  const raw: number = Number.isFinite(graceSec as number)
+    ? Number(graceSec)
+    : Number(process.env.SCHEDULE_GRACE_SEC ?? 60);
+
+  const g: number = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  const baseFrom: Date = opts.from ? new Date(opts.from) : new Date();
+  const fromWithGrace: Date = new Date(baseFrom.getTime() + g * 1000);
+
+  return computeNextRunAt({ ...opts, from: fromWithGrace });
+}
+
 function inferFreqFromFields(o: Pick<NextRunOpts, "byWeekday" | "byMonthday">): "daily" | "weekly" | "monthly" {
   if (o.byMonthday && o.byMonthday.length > 0) return "monthly";
   if (o.byWeekday && o.byWeekday.length > 0) return "weekly";

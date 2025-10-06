@@ -48,6 +48,33 @@ export function buildSaveOrContinueConfirm({
   return msg;
 }
 
+// join時の「自分のルールを適用」ボタン（Buttonsテンプレート）
+export interface JoinApplyTemplateOptions {
+  text?: string;    // デフォルト: "このグループに自分のルールを適用しますか？"
+  label?: string;   // デフォルト: "自分のルールを適用"
+  altText?: string; // デフォルト: text と同じ
+}
+
+export function buildJoinApplyTemplate(
+  data: string,
+  options: JoinApplyTemplateOptions = {}
+): messagingApi.TemplateMessage {
+  const text: string = options.text ?? "このグループに自分のルールを適用しますか？";
+  const label: string = options.label ?? "自分のルールを適用";
+  const altText: string = options.altText ?? text;
+
+  return {
+    type: "template",
+    altText,
+    template: {
+      type: "buttons",
+      text,
+      actions: [
+        { type: "postback", label, data },
+      ],
+    },
+  };
+}
 
 // 任意配列をサイズごとに分割
 function chunk<T>(arr: T[], size: number): T[][] {

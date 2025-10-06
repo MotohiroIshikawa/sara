@@ -78,9 +78,10 @@ export interface GptsBindingDoc extends Document {
   instpack: string;               // スナップショット（運用は固定でOK）
   createdAt: Date;
   updatedAt: Date;
+  isPendingApply?: boolean;       // join直後のドラフト状態を示すフラグ（trueの間は未適用）
 }
 
-
+// チャットルールのスケジュールを管理するテーブル
 export interface GptsScheduleDoc extends Document {
   _id: ObjectId;
   userId: string;                 // スケジュール所有者（保存した人の Uxxxx）
@@ -104,5 +105,4 @@ export interface GptsScheduleDoc extends Document {
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date | null;
-
 }
