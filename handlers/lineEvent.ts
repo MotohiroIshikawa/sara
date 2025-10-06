@@ -1,13 +1,13 @@
 import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
 import { handlePostback } from "@/handlers/postbacks/route";
-import { clearBinding, getBinding } from "@/services/gptsBindings.mongo";
+import { clearBinding, getBinding, upsertDraftBinding } from "@/services/gptsBindings.mongo";
 import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
 import type { MetaForConfirm } from "@/types/gpts";
 import { connectBing } from "@/utils/connectBing";
 import { LINE } from "@/utils/env";
 import { fetchLineUserProfile } from "@/utils/lineProfile";
-import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm } from "@/utils/lineSend";
+import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm, buildJoinApplyTemplate } from "@/utils/lineSend";
 import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
@@ -202,7 +202,7 @@ export async function lineEvent(event: WebhookEvent) {
 
       // スケジュールの削除（userIdで走査する。targetId/targetTypeは見ないので、該当ユーザが作成したものはすべて削除される）
       try {
-        const m = await softDeleteAllSchedulesByUser({ userId: uid }); // ★
+        const m = await softDeleteAllSchedulesByUser({ userId: uid });
         console.info("[unfollow] schedules soft-deleted (user target)", { uid, count: m });
       } catch (e) {
         console.warn("[unfollow] softDeleteAllSchedulesByUser failed", { uid, err: String(e) });
@@ -215,6 +215,39 @@ export async function lineEvent(event: WebhookEvent) {
 
     await unfollowUser({ userId: uid });
 
+    return;
+  }
+
+  // joinイベント
+  if (event.type === "join") {
+    try {
+      // isPendingApply=trueでgptsBindingsにupsert
+      await upsertDraftBinding(bindingTarget);
+    } catch (e) {
+      console.warn("[join] upsertDraftBinding failed", { target: bindingTarget, err: String(e) });
+    }
+
+    const data: string = encodePostback("gpts", "apply_owner");
+    const greet: messagingApi.Message[] = [
+      ...toTextMessages([
+        "グループに参加させていただきありがとうございます！",
+        "このグループにチャットルールを適用しますか？",
+      ]),
+      buildJoinApplyTemplate(data),
+    ];
+
+    await sendMessagesReplyThenPush({
+      replyToken: event.replyToken,
+      to: recipientId,
+      messages: greet,
+      delayMs: 250,
+    });
+
+    console.info("[join] greeted and queued apply_owner button", {
+      type: event.source.type,
+      groupId: (event.source.type === "group") ? event.source.groupId : undefined,
+      roomId: (event.source.type === "room") ? event.source.roomId : undefined,
+    });
     return;
   }
 

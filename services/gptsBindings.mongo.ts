@@ -42,6 +42,34 @@ async function ensureIndexes() {
   indexesReady = true;
 }
 
+// join直後のドラフトbindingを upsert（既存値があれば保持、無ければ空で作成）
+export async function upsertDraftBinding(target: BindingTarget): Promise<void> {
+  await ensureIndexes();
+  const col = await getGptsBindingsCollection();
+  const now: Date = new Date();
+
+  // 既存があれば gptsId/instpack を保持、無ければ空文字でプレースホルダ 
+  const cur = await col.findOne(
+    { targetType: target.type, targetId: target.targetId },
+    { projection: { _id: 1, gptsId: 1, instpack: 1 } }
+  );
+
+  const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
+    targetType: target.type,
+    targetId: target.targetId,
+    gptsId: cur?.gptsId ?? "",
+    instpack: cur?.instpack ?? "",
+    isPendingApply: true,
+    updatedAt: now,
+  };
+
+  await col.updateOne(
+    { targetType: target.type, targetId: target.targetId },
+    { $set, $setOnInsert: { createdAt: now } },
+    { upsert: true }
+  );
+}
+
 // 適用（新規 or 更新）
 export async function setBinding(target: BindingTarget, gptsId: string, instpack: string): Promise<void> {
   await ensureIndexes();
@@ -54,6 +82,7 @@ const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
     gptsId,
     instpack,
     updatedAt: now,
+    isPendingApply: false, // joinで追加されたときは初期false
   };
 
   await col.updateOne(
