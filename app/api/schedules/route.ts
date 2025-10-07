@@ -101,12 +101,17 @@ export async function GET(request: Request) {
     const targetType = searchParams.get("targetType") ?? undefined;
     const targetId = searchParams.get("targetId") ?? undefined;
 
+    // 未指定なら「自分（user）」をデフォルトにする
+    const effTargetType: string | undefined = targetType ?? "user";
+    const effTargetId: string | undefined =
+      targetId ?? (effTargetType === "user" ? userId : undefined);
+      
     const filter: Record<string, unknown> = { deletedAt: null };
     if (gptsId) filter.gptsId = gptsId;
-    if (targetType) filter.targetType = targetType;
-    if (targetId) filter.targetId = targetId;
+    if (effTargetType) filter.targetType = effTargetType;
+    if (effTargetId) filter.targetId = effTargetId;
 
-    const docs = await findSchedules(filter);
+    const docs: GptsScheduleDoc[] = await findSchedules(filter);
 
     const items = (docs as ReadonlyArray<GptsScheduleDoc>).map(toScheduleDto);
     console.info(`[schedules.get:${rid}] ok`, {
