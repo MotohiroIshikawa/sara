@@ -98,6 +98,18 @@ export async function softDeleteAllGptsByUser(userId: string): Promise<number> {
   return r?.modifiedCount ?? 0;
 }
 
+// ユーザ所有の gptsId 一覧を取得 -> グループ作成後のunfollow対応
+export async function listGptsIdsByUser(userId: string): Promise<string[]> {
+  const col = await getGptsCollection();
+  const docs = await col.find(
+    { userId, /* deletedAt は見ない（存在していても対象に含めたい）*/ },
+    { projection: { _id: 0, gptsId: 1 } }
+  ).toArray();
+  return docs
+    .map((d: { gptsId?: string }) => (typeof d.gptsId === "string" ? d.gptsId : ""))
+    .filter((id: string) => id.length > 0);
+}
+
 /** コピー：正本を複製し、originalGptsId / autherUserId を付与。user_gpts にリンク作成 */
 /* TODO: コピーを作るようになったら復活
 export async function copyGpts(params: {

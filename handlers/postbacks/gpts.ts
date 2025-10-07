@@ -12,33 +12,7 @@ import type { Handler } from "@/handlers/postbacks/shared";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 import { cloneUserSchedulesToTarget, disableUserSchedulesByGpts } from "@/services/gptsSchedules.mongo";
 import { envInt } from "@/utils/env";
-
-// メッセージ定義
-const DEFAULT_MSGS = {
-  GROUP_SAVE_DENY: "グループルームではチャットルールの保存はできません。",
-  TAP_LATER: "少し待ってからお試しください。",
-  SAVE_TARGET_NOT_FOUND: "保存対象が見つかりませんでした。もう一度お試しください。",
-  CONTINUE_OK: "了解しました。続けましょう！",
-  NEW_INTRO_1: "新しいチャットルールを作りましょう。",
-  NEW_INTRO_2: "ルールの内容、用途や対象をひと言で教えてください。",
-  ACTIVATE_FAIL: "⚠️有効化できませんでした。対象が見つからないか内容が空です。",
-  ACTIVATE_OK: "選択したチャットルールを有効化しました。",
-  APPLY_OWNER_FAIL_NOUSER: "操作したユーザーが特定できませんでした。もう一度お試しください。",
-  APPLY_OWNER_FAIL_NOBIND: "適用できるルールが見つかりませんでした。まずは自分のトークでルールを保存してください。",
-  APPLY_OWNER_OK: "このトークルームにルールを適用しました。スケジュールに沿って配信します！",
-  APPLY_OWNER_OK_NAME: "「{name}」を適用しました。スケジュールに沿って配信します！",
-} as const;
-type MsgKey = keyof typeof DEFAULT_MSGS;
-const msg = (k: MsgKey): string => process.env[`MSG_${k}`] ?? DEFAULT_MSGS[k];
-
-// メッセージ整形
-function fmt(template: string, vars: Readonly<Record<string, string>>): string {
-  let out: string = template;
-  for (const [k, v] of Object.entries(vars)) {
-    out = out.replaceAll(`{${k}}`, v);
-  }
-  return out;
-}
+import { getMsg, formatMsg } from "@/utils/msgCatalog";
 
 // タイトル体裁の軽い整形（空白正規化・末尾句読点除去・最大40字）
 function sanitizeTitle(raw: string): string {
@@ -78,7 +52,7 @@ const save: Handler = async (event, args = {}) => {
   if (!userId.startsWith("U")) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("GROUP_SAVE_DENY")]),
+      messages: toTextMessages([getMsg("GROUP_SAVE_DENY")]),
     });
     return;
   }
@@ -90,7 +64,7 @@ const save: Handler = async (event, args = {}) => {
     if (!ok) {
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken!, to: recipientId,
-        messages: toTextMessages([msg("TAP_LATER")]),
+        messages: toTextMessages([getMsg("TAP_LATER")]),
       });
       return;
     }
@@ -102,7 +76,7 @@ const save: Handler = async (event, args = {}) => {
   if (!inst?.instpack) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SAVE_TARGET_NOT_FOUND")]),
+      messages: toTextMessages([getMsg("SAVE_TARGET_NOT_FOUND")]),
     });
     return;
   }
@@ -129,7 +103,7 @@ const cont: Handler = async (event) => {
   if (!recipientId) return;
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: toTextMessages([msg("CONTINUE_OK")]),
+    messages: toTextMessages([getMsg("CONTINUE_OK")]),
   });
 };
 
@@ -144,7 +118,7 @@ const newRule: Handler = async (event) => {
     if (!ok) {
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken!, to: recipientId,
-        messages: toTextMessages([msg("TAP_LATER")]),
+        messages: toTextMessages([getMsg("TAP_LATER")]),
       });
       return;
     }
@@ -156,7 +130,7 @@ const newRule: Handler = async (event) => {
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: toTextMessages([msg("NEW_INTRO_1"), msg("NEW_INTRO_2")]),
+    messages: toTextMessages([getMsg("NEW_INTRO_1"), getMsg("NEW_INTRO_2")]),
   });
 };
 
@@ -177,7 +151,7 @@ const activate: Handler = async (event, args = {}) => {
   if (!gptsId || !instpack) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("ACTIVATE_FAIL")]),
+      messages: toTextMessages([getMsg("ACTIVATE_FAIL")]),
     });
     return;
   }
@@ -185,7 +159,7 @@ const activate: Handler = async (event, args = {}) => {
   await setBinding(bindingTarget, gptsId, instpack);
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: toTextMessages([msg("ACTIVATE_OK")]),
+    messages: toTextMessages([getMsg("ACTIVATE_OK")]),
   });
 };
 
@@ -199,7 +173,7 @@ const applyOwner: Handler = async (event) => {
   if (bindingTarget.type === "user") {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("GROUP_SAVE_DENY")]),
+      messages: toTextMessages([getMsg("GROUP_SAVE_DENY")]),
     });
     return;
   }
@@ -210,7 +184,7 @@ const applyOwner: Handler = async (event) => {
   if (!clickUserId) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("APPLY_OWNER_FAIL_NOUSER")]),
+      messages: toTextMessages([getMsg("APPLY_OWNER_FAIL_NOUSER")]),
     });
     return;
   }
@@ -222,7 +196,7 @@ const applyOwner: Handler = async (event) => {
     if (!ok) {
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken!, to: recipientId,
-        messages: toTextMessages([msg("TAP_LATER")]),
+        messages: toTextMessages([getMsg("TAP_LATER")]),
       });
       return;
     }
@@ -235,7 +209,7 @@ const applyOwner: Handler = async (event) => {
   if (!gptsId || !instpack) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("APPLY_OWNER_FAIL_NOBIND")]),
+      messages: toTextMessages([getMsg("APPLY_OWNER_FAIL_NOBIND")]),
     });
     return;
   }
@@ -292,8 +266,8 @@ const applyOwner: Handler = async (event) => {
     name = doc?.name ?? null;
   } catch {}
   const okText: string = name
-    ? fmt(msg("APPLY_OWNER_OK_NAME"), { name })
-    : msg("APPLY_OWNER_OK");
+    ? formatMsg(getMsg("APPLY_OWNER_OK_NAME"), { name })
+    : getMsg("APPLY_OWNER_OK");
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,

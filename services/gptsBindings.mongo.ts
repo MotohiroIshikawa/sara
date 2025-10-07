@@ -122,3 +122,50 @@ export async function clearBindingIfMatches(target: BindingTarget, gptsId: strin
   const r = await col.deleteOne({ _id: cur._id });
   return (r?.deletedCount ?? 0) > 0;
 }
+
+interface GptsAppliedTarget {
+  targetType: "group" | "room";
+  targetId: string;
+  gptsId: string;
+  instpack: string;
+}
+
+// ユーザ所有GPTS（gptsId群）を適用中の group/room ターゲット一覧を取得 -> グループ作成後のunfollow対応
+export async function listTargetsByGptsIds(gptsIds: ReadonlyArray<string>): Promise<GptsAppliedTarget[]> {
+  await ensureIndexes();
+  const ids: string[] = (gptsIds ?? []).filter((s: string) => typeof s === "string" && s.length > 0);
+  if (ids.length === 0) return [];
+
+  const col = await getGptsBindingsCollection();
+  const cursor = col.find(
+    {
+      targetType: { $in: ["group", "room"] },
+      gptsId: { $in: ids },
+    },
+    { projection: { _id: 0, targetType: 1, targetId: 1, gptsId: 1, instpack: 1 } }
+  );
+
+  const docs = await cursor.toArray();
+  const out: GptsAppliedTarget[] = docs.map((d: unknown) => {
+    const o = d as { targetType: "group" | "room"; targetId: string; gptsId: string; instpack?: string };
+    return {
+      targetType: o.targetType,
+      targetId: o.targetId,
+      gptsId: o.gptsId,
+      instpack: typeof o.instpack === "string" ? o.instpack : "",
+    };
+  });
+
+  // 念のため重複除去（gptsId×targetType×targetId）
+  const uniqKey = (t: GptsAppliedTarget): string => `${t.gptsId}::${t.targetType}:${t.targetId}`;
+  const seen = new Set<string>();
+  const dedup: GptsAppliedTarget[] = [];
+  for (const t of out) {
+    const k = uniqKey(t);
+    if (!seen.has(k)) {
+      seen.add(k);
+      dedup.push(t);
+    }
+  }
+  return dedup;
+}

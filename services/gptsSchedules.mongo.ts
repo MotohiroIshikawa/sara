@@ -100,12 +100,26 @@ export async function findSchedules(
 }
 
 export async function softDeleteSchedulesByGpts(input: {
-  userId: string;
-  gptsId: string;
+  userId?: string;                 // あれば優先
+  gptsId?: string;                 // 任意（指定時のみフィルタ）
+  targetType?: "user" | "group" | "room"; // userId が無いときに使用
+  targetId?: string;               // 同上
 }): Promise<number> {
   const col = await getGptsSchedulesCollection();
+  const filter: Filter<GptsScheduleDoc> = { deletedAt: null };
+  if (input.userId) {
+    filter.userId = input.userId;
+    if (input.gptsId) filter.gptsId = input.gptsId;
+  } else if (input.targetType && input.targetId) {
+    filter.targetType = input.targetType;
+    filter.targetId = input.targetId;
+    if (input.gptsId) filter.gptsId = input.gptsId; // 任意
+  } else {
+    // どちらも無ければ何もしない（誤爆防止）
+    return 0;
+  }
   const res = await col.updateMany(
-    { userId: input.userId, gptsId: input.gptsId, deletedAt: null },
+    filter,
     { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
   );
   return res.modifiedCount ?? 0;
