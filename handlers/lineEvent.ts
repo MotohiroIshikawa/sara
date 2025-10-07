@@ -1,21 +1,21 @@
 import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
 import { handlePostback } from "@/handlers/postbacks/route";
+import { getGptsById, softDeleteAllGptsByUser } from "@/services/gpts.mongo";
 import { clearBinding, getBinding, upsertDraftBinding } from "@/services/gptsBindings.mongo";
-import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
+import { softDeleteAllSchedulesByUser, softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
+import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
+import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
 import type { MetaForConfirm } from "@/types/gpts";
+import { delete3AgentsForInstpack } from "@/utils/agents";
 import { connectBing } from "@/utils/connectBing";
 import { LINE } from "@/utils/env";
 import { fetchLineUserProfile } from "@/utils/lineProfile";
-import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm, buildJoinApplyTemplate } from "@/utils/lineSend";
+import { sendMessagesReplyThenPush, toTextMessages, buildSaveOrContinueConfirm, buildJoinApplyTemplate, pushMessages } from "@/utils/lineSend";
 import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
 import { resetThread } from "@/services/threadState";
-import { delete3AgentsForInstpack } from "@/utils/agents";
-import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
-import { softDeleteAllGptsByUser } from "@/services/gpts.mongo";
-import { softDeleteAllSchedulesByUser } from "@/services/gptsSchedules.mongo";
 
 const replyMax = LINE.REPLY_MAX;
 
@@ -249,6 +249,104 @@ export async function lineEvent(event: WebhookEvent) {
       roomId: (event.source.type === "room") ? event.source.roomId : undefined,
     });
     return;
+  }
+
+  // memberLeft（オーナー退出時の後片付け＋通知→退室）
+  if (event.type === "memberLeft" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
+    const targetType: "group" | "room" = bindingTarget.type;
+    const targetId: string = bindingTarget.targetId;
+
+    // 去ったユーザの userId 群（友だち関係なら取得可）
+    const leftUserIds: string[] = Array.isArray(event.left?.members)
+      ? (event.left!.members
+          .map((m: unknown) => (typeof (m as { userId?: string }).userId === "string" ? (m as { userId: string }).userId : undefined))
+          .filter((u: string | undefined): u is string => typeof u === "string"))
+      : [];
+
+    try {
+      // 現在の group/room の binding → gptsId → gpts.userId（作成者）
+      const binding = await getBinding({ type: targetType, targetId }).catch(() => null);
+      const gptsId: string | undefined = binding?.gptsId ? String(binding.gptsId) : undefined;
+      const instpack: string | undefined = binding?.instpack ? String(binding.instpack) : undefined;
+
+      if (!gptsId) {
+        console.info("[memberLeft] no binding found. skip", { targetType, targetId });
+        // バインドが無ければ何もしない
+        return;
+      }
+
+      const g = await getGptsById(gptsId).catch(() => null);
+      const ownerUserId: string | undefined = g?.userId ? String(g.userId) : undefined;
+
+      // 退出者の中に「作成者」が含まれていなければ何もしない
+      const isOwnerLeft: boolean = !!ownerUserId && leftUserIds.includes(ownerUserId);
+      if (!isOwnerLeft) {
+        console.info("[memberLeft] owner not left. skip", { targetType, targetId, ownerUserId, leftUserIds });
+        return;
+      }
+      console.info("[memberLeft] owner left. delete Agents", { targetType, targetId, ownerUserId, leftUserIds });
+
+      // 1. Agent/Thread cleanup
+      try {
+        if (instpack && instpack.length > 0) {
+          await delete3AgentsForInstpack(instpack);
+        }
+      } catch (e) {
+        console.warn("[memberLeft] delete3AgentsForInstpack failed", { targetType, targetId, err: String(e) });
+      }
+      try {
+        await resetThread(threadOwnerId);
+      } catch (e) {
+        console.warn("[memberLeft] resetThread failed", { targetType, targetId, err: String(e) });
+      }
+
+      // 2. binding を削除（hard delete）
+      try {
+        await clearBinding({ type: targetType, targetId });
+      } catch (e) {
+        console.warn("[memberLeft] clearBinding failed", { targetType, targetId, err: String(e) });
+      }
+
+      // 3. スケジュールを soft delete（enabled=false, nextRunAt=null, deletedAt=now）
+      try {
+        const n: number = await softDeleteSchedulesByGpts({ targetType, targetId });
+        console.info("[memberLeft] schedules soft-deleted", { targetType, targetId, count: n });
+      } catch (e) {
+        console.warn("[memberLeft] softDeleteSchedulesByGpts failed", { targetType, targetId, err: String(e) });
+      }
+
+      // 4. 通知 → 退室（replyToken は無いので push → leave）
+      try {
+        await pushMessages({
+          to: recipientId,
+          messages: toTextMessages([
+            "このルームのチャットルールの作成者が退出されたので退室しますね。またこんど誘ってください！"
+          ]),
+        });
+        console.info("[memberLeft] notify pushed", { targetType, targetId });
+      } catch (e) {
+        console.warn("[memberLeft] push notify failed", { targetType, targetId, err: String(e) });
+      }
+
+      const lineClient: messagingApi.MessagingApiClient = new messagingApi.MessagingApiClient({
+        channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN as string,
+      });
+
+      try {
+        if (targetType === "group") {
+          await lineClient.leaveGroup(targetId);
+        } else {
+          await lineClient.leaveRoom(targetId);
+        }
+      } catch (e) {
+        console.warn("[memberLeft] leave failed", { targetType, targetId, err: String(e) });
+      }
+      console.info("[memberLeft] left", { targetType, targetId });
+      return;
+    } catch (e) {
+      console.warn("[memberLeft] handler error", { targetType, targetId, err: String(e) });
+      return;
+    }
   }
 
   // messageイベント
