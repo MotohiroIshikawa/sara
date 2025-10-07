@@ -230,7 +230,7 @@ export async function disableUserSchedulesByGpts(input: {
       deletedAt: null,
       enabled: true,
     },
-    { $set: { enabled: false, updatedAt: new Date() } }
+    { $set: { enabled: false, nextRunAt: null, updatedAt: new Date() } }
   );
   return res.modifiedCount ?? 0;
 }
