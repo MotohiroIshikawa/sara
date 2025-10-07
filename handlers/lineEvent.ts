@@ -1,7 +1,7 @@
 import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
 import { handlePostback } from "@/handlers/postbacks/route";
-import { getGptsById, softDeleteAllGptsByUser } from "@/services/gpts.mongo";
-import { clearBinding, getBinding, upsertDraftBinding } from "@/services/gptsBindings.mongo";
+import { getGptsById, listGptsIdsByUser, softDeleteAllGptsByUser } from "@/services/gpts.mongo";
+import { clearBinding, getBinding, listTargetsByGptsIds, upsertDraftBinding } from "@/services/gptsBindings.mongo";
 import { softDeleteAllSchedulesByUser, softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
 import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
@@ -16,6 +16,7 @@ import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/line
 import { isTrackable } from "@/utils/meta";
 import { encodePostback } from "@/utils/postback";
 import { resetThread } from "@/services/threadState";
+import { getMsg } from "@/utils/msgCatalog";
 
 const replyMax = LINE.REPLY_MAX;
 
@@ -142,7 +143,7 @@ export async function lineEvent(event: WebhookEvent) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken,
       to: recipientId,
-      messages: toTextMessages(["友だち追加ありがとうございます！\n（使い方の説明文）\n質問をどうぞ🙌"]),
+      messages: toTextMessages([getMsg("FOLLOW_GREETING")]),
       delayMs: 250,
     });
     return;
@@ -151,6 +152,25 @@ export async function lineEvent(event: WebhookEvent) {
   // unfollowイベント
   if (event.type === "unfollow" && event.source.type === "user" && event.source.userId) {
     const uid = event.source.userId;
+
+    // このユーザのGPTと、そのGPTが適用されているgroup/roomターゲットを事前収集
+    let ownedGptsIds: string[] = [];
+    let appliedTargets: Array<{ targetType: "group" | "room"; targetId: string; gptsId: string; instpack: string }> = [];
+    try {
+      ownedGptsIds = await listGptsIdsByUser(uid);
+      if (ownedGptsIds.length > 0) {
+        appliedTargets = await listTargetsByGptsIds(ownedGptsIds);
+      }
+      console.info("[unfollow] collected owned gpts and applied targets", {
+        uid,
+        gptsCount: ownedGptsIds.length,
+        targetsCount: appliedTargets.length,
+      });
+    } catch (e) {
+      console.warn("[unfollow] collect targets failed (continue cleanup anyway)", { uid, err: String(e) });
+    }
+
+    // ユーザに対する削除
     try {
       // Redisのthread,Agentを削除
       const binding = await getBinding({ type: "user", targetId: uid }).catch(() => null);
@@ -213,6 +233,68 @@ export async function lineEvent(event: WebhookEvent) {
       console.error("[unfollow] cleanup error", { uid, err: e });
     }
 
+    // このユーザのGPTが適用されていたgroup/roomを巡回し、通知 → 退室
+    if (appliedTargets.length > 0) {
+      const lineClient: messagingApi.MessagingApiClient = new messagingApi.MessagingApiClient({
+        channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN as string,
+      });
+
+      for (const t of appliedTargets) {
+        const ownerScope: string = `${t.targetType}:${t.targetId}`;
+
+        // 1. Agent/Thread cleanup（instpackありならAgentを削除、スレッドは対象スコープでリセット）
+        try {
+          if (t.instpack && t.instpack.length > 0) {
+            await delete3AgentsForInstpack(t.instpack);
+          }
+        } catch (e) {
+          console.warn("[unfollow] target delete3AgentsForInstpack failed", { uid, ownerScope, err: String(e) });
+        }
+        try {
+          await resetThread(ownerScope);
+        } catch (e) {
+          console.warn("[unfollow] target resetThread failed", { uid, ownerScope, err: String(e) });
+        }
+
+        // 2. binding を物理削除
+        try {
+          await clearBinding({ type: t.targetType, targetId: t.targetId });
+        } catch (e) {
+          console.warn("[unfollow] target clearBinding failed", { uid, ownerScope, err: String(e) });
+        }
+
+        // 3. スケジュールを論理削除（target指定で無効化、nextRunAt:null）
+        try {
+          const n: number = await softDeleteSchedulesByGpts({ targetType: t.targetType, targetId: t.targetId });
+          console.info("[unfollow] target schedules soft-deleted", { uid, ownerScope, count: n });
+        } catch (e) {
+          console.warn("[unfollow] target softDeleteSchedulesByGpts failed", { uid, ownerScope, err: String(e) });
+        }
+
+        // 4. 通知 → leave（replyToken は無いので push → leave）
+        try {
+          await pushMessages({
+            to: t.targetId,
+            messages: toTextMessages([getMsg("UNFOLLOW_TARGET_NOTIFY")]),
+          });
+          console.info("[unfollow] target notify pushed", { uid, ownerScope });
+        } catch (e) {
+          console.warn("[unfollow] target push notify failed", { uid, ownerScope, err: String(e) });
+        }
+
+        try {
+          if (t.targetType === "group") {
+            await lineClient.leaveGroup(t.targetId);
+          } else {
+            await lineClient.leaveRoom(t.targetId);
+          }
+          console.info("[unfollow] target left", { uid, ownerScope });
+        } catch (e) {
+          console.warn("[unfollow] target leave failed", { uid, ownerScope, err: String(e) });
+        }
+      }
+    }
+
     await unfollowUser({ userId: uid });
 
     return;
@@ -229,10 +311,7 @@ export async function lineEvent(event: WebhookEvent) {
 
     const data: string = encodePostback("gpts", "apply_owner");
     const greet: messagingApi.Message[] = [
-      ...toTextMessages([
-        "グループに参加させていただきありがとうございます！",
-        "このグループにチャットルールを適用しますか？",
-      ]),
+      ...toTextMessages([getMsg("JOIN_GREETING_1"), getMsg("JOIN_GREETING_2")]),
       buildJoinApplyTemplate(data),
     ];
 
@@ -319,9 +398,7 @@ export async function lineEvent(event: WebhookEvent) {
       try {
         await pushMessages({
           to: recipientId,
-          messages: toTextMessages([
-            "このルームのチャットルールの作成者が退出されたので退室しますね。またこんど誘ってください！"
-          ]),
+          messages: toTextMessages([getMsg("MEMBERLEFT_NOTIFY")]),
         });
         console.info("[memberLeft] notify pushed", { targetType, targetId });
       } catch (e) {
@@ -357,7 +434,7 @@ export async function lineEvent(event: WebhookEvent) {
         await sendMessagesReplyThenPush({
           replyToken: event.replyToken,
           to: recipientId,
-          messages: toTextMessages(["⚠️メッセージが空です。"]),
+          messages: toTextMessages([getMsg("MESSAGE_EMPTY_WARN")]),
           delayMs: 250,
         });
         return;
@@ -453,7 +530,7 @@ export async function lineEvent(event: WebhookEvent) {
           await sendMessagesReplyThenPush({
             replyToken: event.replyToken,
             to: recipientId,
-            messages: toTextMessages(["⚠️内部エラーが発生しました。時間をおいてもう一度お試しください。"]),
+            messages: toTextMessages([getMsg("INTERNAL_ERROR")]),
             delayMs: 250,
           });
       } catch {}

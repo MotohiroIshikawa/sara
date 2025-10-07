@@ -13,42 +13,7 @@ import {
   WD,
 } from "@/handlers/postbacks/ui";
 import type { Handler } from "@/handlers/postbacks/shared";
-
-// メッセージ定義
-const DEFAULT_MSGS = {
-  // start
-  SCHED_START_NO: "了解しました。定期実施は設定しません。",
-  SCHED_START_YES_CONFIRM: "了解しました！\n定期実施ですね！",
-  SCHED_START_INVALID: "すみません、選択を認識できませんでした。もう一度お試しください。",
-  // freq
-  SCHED_FREQ_INVALID: "すみません、選択内容を認識できませんでした。もう一度お試しください。",
-  SCHED_FREQ_CONFIRM_TPL: "「${LABEL}」実施ですね！",
-  // pickDate
-  SCHED_PICKDATE_ERROR: "うまく日付を受け取れませんでした。もう一度お試しください。",
-  SCHED_PICKDATE_NODRAFT: "スケジュールの下書きが見つかりませんでした。最初からやり直してください。",
-  SCHED_PICKDATE_CONFIRM_TPL: "毎月${DAY}日ですね！",
-  SCHED_PICKDATE_NOTE: "※ 29/30/31日など、存在しない月はその月はスキップします。",
-  // weekly
-  SCHED_WEEKLY_NEEDONE: "少なくとも1つ、曜日を選んでください。",
-  SCHED_WEEKLY_CONFIRM_TPL: "了解しました！\n毎週（${PICKED}）ですね！",
-  // time
-  SCHED_PICKTIME_PROMPT: "何時にしましょう？（時刻を選んでください）",
-  SCHED_TIME_REDO_PROMPT: "もう一度、何時にしましょう？",
-  SCHED_TIME_ERROR: "うまく時刻を受け取れませんでした。もう一度お試しください。",
-  SCHED_TIME_FINALCONFIRM_TPL: "了解しました！\n${FREQLABEL} の ${HHM} に実施します。これで有効化しますか？",
-  // enable
-  SCHED_ENABLE_NODRAFT: "有効化できませんでした。下書きが見つかりません。",
-  SCHED_ENABLE_SUCCESS: "スケジュールを有効化しました。",
-} as const;
-type MsgKey = keyof typeof DEFAULT_MSGS;
-const msg = (k: MsgKey): string => process.env[`MSG_${k}`] ?? DEFAULT_MSGS[k];
-const fmt = (k: MsgKey, vars: Record<string, string | number>): string => {
-  let s = msg(k);
-  for (const [key, val] of Object.entries(vars)) {
-    s = s.replaceAll(`\${${key}}`, String(val));
-  }
-  return s;
-};
+import { getMsg, formatMsg } from "@/utils/msgCatalog";
 
 function asFreq(v: string | undefined): "daily" | "weekly" | "monthly" | null {
   const x = (v ?? "").toLowerCase();
@@ -76,13 +41,13 @@ const start: Handler = async (event, args = {}) => {
   if (ans === "no") {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_START_NO")]),
+      messages: toTextMessages([getMsg("SCHED_START_NO")]),
     });
     return;
   }
 
   if (ans === "yes") {
-    const confirmTexts = toTextMessages([msg("SCHED_START_YES_CONFIRM")]);
+    const confirmTexts = toTextMessages([getMsg("SCHED_START_YES_CONFIRM")]);
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
       messages: [...confirmTexts, uiChooseFreq(gptsId)],
@@ -92,7 +57,7 @@ const start: Handler = async (event, args = {}) => {
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: toTextMessages([msg("SCHED_START_INVALID")]),
+    messages: toTextMessages([getMsg("SCHED_START_INVALID")]),
   });
 };
 
@@ -110,7 +75,7 @@ const freq: Handler = async (event, args = {}) => {
   if (!gptsId || !f || !label) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_FREQ_INVALID")]),
+      messages: toTextMessages([getMsg("SCHED_FREQ_INVALID")]),
     });
     return;
   }
@@ -125,7 +90,9 @@ const freq: Handler = async (event, args = {}) => {
     freq: f,
   });
 
-  const confirm = toTextMessages([fmt("SCHED_FREQ_CONFIRM_TPL", { LABEL: label })]);
+  const confirm = toTextMessages([
+    formatMsg(getMsg("SCHED_FREQ_CONFIRM_TPL"), { LABEL: label }),
+  ]);
 
   if (f === "monthly") {
     await sendMessagesReplyThenPush({
@@ -137,7 +104,7 @@ const freq: Handler = async (event, args = {}) => {
   if (f === "daily") {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: [...confirm, uiPickTime(gptsId, { text: msg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
+      messages: [...confirm, uiPickTime(gptsId, { text: getMsg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
     });
     return;
   }
@@ -161,7 +128,7 @@ const pickDate: Handler = async (event, args = {}) => {
   if (!gptsId || !picked || !(day >= 1 && day <= 31)) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_PICKDATE_ERROR")]),
+      messages: toTextMessages([getMsg("SCHED_PICKDATE_ERROR")]),
     });
     return;
   }
@@ -174,7 +141,7 @@ const pickDate: Handler = async (event, args = {}) => {
   if (!draft) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_PICKDATE_NODRAFT")]),
+      messages: toTextMessages([getMsg("SCHED_PICKDATE_NODRAFT")]),
     });
     return;
   }
@@ -182,12 +149,12 @@ const pickDate: Handler = async (event, args = {}) => {
   await updateScheduleById(draft._id, { byMonthday: [day] });
 
   const confirmTexts = toTextMessages([
-    fmt("SCHED_PICKDATE_CONFIRM_TPL", { DAY: day }),
-    msg("SCHED_PICKDATE_NOTE"),
+    formatMsg(getMsg("SCHED_PICKDATE_CONFIRM_TPL"), { DAY: day }),
+    getMsg("SCHED_PICKDATE_NOTE"),
   ]);
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: [...confirmTexts, uiPickTime(gptsId, { text: msg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
+    messages: [...confirmTexts, uiPickTime(gptsId, { text: getMsg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
   });
 };
 
@@ -279,7 +246,7 @@ const wdayNext: Handler = async (event, args = {}) => {
   if (!draft || days.length === 0) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_WEEKLY_NEEDONE")]),
+      messages: toTextMessages([getMsg("SCHED_WEEKLY_NEEDONE")]),
     });
     return;
   }
@@ -287,11 +254,13 @@ const wdayNext: Handler = async (event, args = {}) => {
   const pickedLabel = WD.filter((w) => days.includes(w.key))
     .map((w) => w.label)
     .join("・");
-  const confirm = toTextMessages([fmt("SCHED_WEEKLY_CONFIRM_TPL", { PICKED: pickedLabel })]);
+  const confirm = toTextMessages([
+    formatMsg(getMsg("SCHED_WEEKLY_CONFIRM_TPL"), { PICKED: pickedLabel }),
+  ]);
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: [...confirm, uiPickTime(gptsId, { text: msg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
+    messages: [...confirm, uiPickTime(gptsId, { text: getMsg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
   });
 };
 
@@ -306,7 +275,7 @@ const pickTime: Handler = async (event, args = {}) => {
   if (!gptsId || !tParam) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_TIME_ERROR")]),
+      messages: toTextMessages([getMsg("SCHED_TIME_ERROR")]),
     });
     return;
   }
@@ -331,7 +300,7 @@ const timeRedo: Handler = async (event, args = {}) => {
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: [uiPickTime(gptsId, { text: msg("SCHED_TIME_REDO_PROMPT"), initial: "09:00" })],
+    messages: [uiPickTime(gptsId, { text: getMsg("SCHED_TIME_REDO_PROMPT"), initial: "09:00" })],
   });
 };
 
@@ -354,7 +323,7 @@ const timeOk: Handler = async (event, args = {}) => {
   if (!draft) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_PICKDATE_NODRAFT")]),
+      messages: toTextMessages([getMsg("SCHED_PICKDATE_NODRAFT")]),
     });
     return;
   }
@@ -375,7 +344,10 @@ const timeOk: Handler = async (event, args = {}) => {
   const hhm = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: [uiFinalEnableConfirm(gptsId, fmt("SCHED_TIME_FINALCONFIRM_TPL", { FREQLABEL: freqLabel, HHM: hhm }))],
+    messages: [uiFinalEnableConfirm(
+      gptsId, 
+      formatMsg(getMsg("SCHED_TIME_FINALCONFIRM_TPL"), { FREQLABEL: freqLabel, HHM: hhm })
+    )],
   });
 };
 
@@ -394,7 +366,7 @@ const enable: Handler = async (event, args = {}) => {
   if (!draft) {
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken!, to: recipientId,
-      messages: toTextMessages([msg("SCHED_ENABLE_NODRAFT")]),
+      messages: toTextMessages([getMsg("SCHED_ENABLE_NODRAFT")]),
     });
     return;
   }
@@ -416,7 +388,7 @@ const enable: Handler = async (event, args = {}) => {
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken!, to: recipientId,
-    messages: toTextMessages([msg("SCHED_ENABLE_SUCCESS")]),
+    messages: toTextMessages([getMsg("SCHED_ENABLE_SUCCESS")]),
   });
 };
 
