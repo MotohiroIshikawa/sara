@@ -1,7 +1,3 @@
-// app/help/Client.tsx
-// 「/help」LIFF向け。/api/helpで認証→本文表示
-// 形は app/gpts/list/Client.tsx に寄せ、early-return構成・明示型を維持
-
 "use client";
 
 import type { JSX } from "react";
@@ -31,6 +27,18 @@ export default function Client(): JSX.Element {
   const [subMasked, setSubMasked] = useState<string | null>(null);
   const [nowIso, setNowIso] = useState<string | null>(null);
 
+
+  const [sessReason, setSessReason] = useState<string | null>(null); // DEBUG: ★ 追加: 失敗理由の可視化
+  const [debug, setDebug] = useState<boolean>(false); // DEBUG: ★ 追加: ?debug=1 でUI出す
+
+  useEffect(() => {
+    // DEBUG: ★ 追加: クエリでデバッグON
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("debug") === "1") setDebug(true);
+    } catch {}
+  }, []);
+
   // 初回：LIFFセッション→/api/help
   useEffect(() => {
     void (async () => {
@@ -38,6 +46,7 @@ export default function Client(): JSX.Element {
         const sess = await ensureLiffSession();
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return;
+          setSessReason(typeof sess.reason === "string" ? sess.reason : "unknown"); // DEBUG
           setErr("ログインに失敗しました");
           return;
         }
@@ -105,11 +114,48 @@ export default function Client(): JSX.Element {
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {err}
           {rid ? `（rid: ${rid}）` : ""}
+          {sessReason ? ` / ${sessReason}` : ""} {/* DEBUG: ★ 追加: 理由を表示 */}
         </div>
+
+        {/* ★ 追加: 簡易デバッグ欄（?debug=1 で表示） */}
+        {debug && (
+          <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 text-xs text-gray-700">
+            <div>Debug</div>
+            <ul className="mt-2 list-disc list-inside space-y-1">
+              <li>sessReason: <code>{sessReason ?? "-"}</code></li>
+              <li>rid: <code>{rid ?? "-"}</code></li>
+            </ul>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                className="rounded border px-3 py-1 text-xs"
+                onClick={() => { window.location.href = "/help"; }}
+              >
+                リロード
+              </button>
+              <button
+                type="button"
+                className="rounded border px-3 py-1 text-xs"
+                onClick={async () => {
+                  try {
+                    // LIFF再ログインを強制したい場合、ensureLiffSession側に
+                    // login(force) 相当のオプションがあれば呼ぶ。
+                    // なければ /liff/logout → location.reload() 等の実装を検討。
+                    // ここでは単純にリロード。
+                    window.location.reload();
+                  } catch {}
+                }}
+              >
+                再ログインを試す
+              </button>
+            </div>
+          </div>
+        )}
+        {/* DEBUGここまで */}
       </main>
     );
   }
-
+ 
   // ===== 本文 =====
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
