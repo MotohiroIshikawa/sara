@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import Image from "next/image";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
