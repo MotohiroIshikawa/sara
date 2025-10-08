@@ -68,20 +68,6 @@ export default function Client(): JSX.Element {
     })();
   }, [liffIdHelp]);
 
-  // 目次（useMemoで安定化）
-  const toc = useMemo<Array<{ href: string; label: string }>>(
-    () => [
-      { href: "#step-1", label: "はじめまして！" },
-      { href: "#step-2", label: "ルールを保存する" },
-      { href: "#step-3", label: "スケジュールを決める" },
-      { href: "#step-4", label: "グループで共有する" },
-      { href: "#step-5", label: "編集・確認する" },
-      { href: "#step-6", label: "困ったときは" },
-      { href: "#step-7", label: "安心して使ってください" },
-    ],
-    []
-  );
-
   // ===== Skeleton（listのSkeletonCard相当） =====
   if (loading) {
     return (
@@ -113,19 +99,6 @@ export default function Client(): JSX.Element {
       {/* Header */}
       <header className="mb-8">
         <h1 className="text-2xl font-bold">使い方</h1>
-
-        {/* TOC */}
-        <nav aria-label="目次" className="mt-6">
-          <ol className="list-decimal list-inside space-y-1 text-sm">
-            {toc.map((t) => (
-              <li key={t.href}>
-                <a href={t.href} className="hover:underline">
-                  {t.label}
-                </a>
-              </li>
-            ))}
-          </ol>
-        </nav>
       </header>
 
       {/* 1. はじめまして！ */}
