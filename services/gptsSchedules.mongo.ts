@@ -136,6 +136,19 @@ export async function softDeleteAllSchedulesByUser(input: {
   return res.modifiedCount ?? 0;
 }
 
+// targetType/targetId 指定でのソフト削除 -> leave時
+export async function softDeleteSchedulesByTarget(input: {
+  targetType: "user" | "group" | "room";
+  targetId: string;
+  gptsId?: string;
+}): Promise<number> {
+  return softDeleteSchedulesByGpts({
+    targetType: input.targetType,
+    targetId: input.targetId,
+    gptsId: input.gptsId,
+  });
+}
+
 // ユーザ側（target=user）スケジュールを group/room へ複製し、GRACEを加味した nextRunAt を設定
 export async function cloneUserSchedulesToTarget(input: {
   userId: string;
@@ -277,8 +290,9 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
   });
 
   const v = res?.value ?? null;
+  /** 
   // TODO: あとで消す
-  // ★追加: 取得できたかどうか、そして中身をログに出す
+  // 取得できたかどうか、そして中身をログに出す
   if (v) {
     console.info("[claimOneDueSchedule] got", {
       id: String(v._id),
@@ -299,7 +313,7 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
       },
     });
   }
-
+  */
   return v;
 }
 

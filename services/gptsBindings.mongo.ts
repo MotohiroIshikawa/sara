@@ -19,8 +19,8 @@ async function ensureIndexes() {
     { gptsId: 1 }, { name: "gptsId_1" }
   ).catch(() => {});
 
-  const seconds = BINDINGS_TTL_DAYS * 24 * 60 * 60;
-  const ttlName = `ttl_updatedAt_${BINDINGS_TTL_DAYS}d`;
+  const seconds: number = BINDINGS_TTL_DAYS * 24 * 60 * 60;
+  const ttlName: string = `ttl_updatedAt_${BINDINGS_TTL_DAYS}d`;
   try {
     await col.createIndex(
       { updatedAt: 1 },
@@ -74,7 +74,7 @@ export async function upsertDraftBinding(target: BindingTarget): Promise<void> {
 export async function setBinding(target: BindingTarget, gptsId: string, instpack: string): Promise<void> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
-  const now = new Date();
+  const now: Date = new Date();
 
 const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
     targetType: target.type,
