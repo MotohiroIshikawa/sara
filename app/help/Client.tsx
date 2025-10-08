@@ -28,8 +28,9 @@ export default function Client(): JSX.Element {
   const [nowIso, setNowIso] = useState<string | null>(null);
 
 
-  const [sessReason, setSessReason] = useState<string | null>(null); // DEBUG: ★ 追加: 失敗理由の可視化
-  const [debug, setDebug] = useState<boolean>(false); // DEBUG: ★ 追加: ?debug=1 でUI出す
+  const [sessReason, setSessReason] = useState<string | null>(null); // DEBUG
+  const [sessDetail, setSessDetail] = useState<string | null>(null); // DEBUG
+  const [debug, setDebug] = useState<boolean>(false); // DEBUG
 
   useEffect(() => {
     // DEBUG: ★ 追加: クエリでデバッグON
@@ -46,7 +47,8 @@ export default function Client(): JSX.Element {
         const sess = await ensureLiffSession();
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return;
-          setSessReason(typeof sess.reason === "string" ? sess.reason : "unknown"); // DEBUG
+          setSessReason(sess.reason ?? "unknown"); // DEBUG
+          setSessDetail(typeof sess.detail === "string" ? sess.detail : null); // DEBUG
           setErr("ログインに失敗しました");
           return;
         }
@@ -114,10 +116,11 @@ export default function Client(): JSX.Element {
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {err}
           {rid ? `（rid: ${rid}）` : ""}
-          {sessReason ? ` / ${sessReason}` : ""} {/* DEBUG: ★ 追加: 理由を表示 */}
+          {sessReason ? ` / ${sessReason}` : ""} {/* DEBUG */}
+          {sessDetail ? ` / detail: ${sessDetail}` : ""} {/* DEBUG */}
         </div>
 
-        {/* ★ 追加: 簡易デバッグ欄（?debug=1 で表示） */}
+        {/* DEBUG */}
         {debug && (
           <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 text-xs text-gray-700">
             <div>Debug</div>
