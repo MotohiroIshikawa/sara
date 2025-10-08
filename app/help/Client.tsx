@@ -4,20 +4,10 @@ import type { JSX } from "react";
 import { useEffect, useState, useMemo } from "react";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
-// ===== API Response 型 =====
-type HelpOkResponse = {
-  ok: true;
-  rid: string;
-  subMasked: string;
-  now: string;
-};
+type HelpOkResponse = { ok: true; rid: string; subMasked: string; now: string;};
+type HelpErrorResponse = { error: string; rid: string; };
 
-type HelpErrorResponse = {
-  error: string;
-  rid: string;
-};
-
-// ===== 画面状態 =====
+// 画面状態
 export default function Client(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
@@ -32,6 +22,8 @@ export default function Client(): JSX.Element {
   const [sessDetail, setSessDetail] = useState<string | null>(null); // DEBUG
   const [debug, setDebug] = useState<boolean>(false); // DEBUG
 
+  const liffIdHelp: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_HELP as string | undefined;
+
   useEffect(() => {
     // DEBUG: ★ 追加: クエリでデバッグON
     try {
@@ -44,7 +36,7 @@ export default function Client(): JSX.Element {
   useEffect(() => {
     void (async () => {
       try {
-        const sess = await ensureLiffSession();
+        const sess = await ensureLiffSession({ liffId: liffIdHelp });
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return;
           setSessReason(sess.reason ?? "unknown"); // DEBUG
@@ -76,7 +68,7 @@ export default function Client(): JSX.Element {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [liffIdHelp]);
 
   // 目次（useMemoで安定化）
   const toc = useMemo<Array<{ href: string; label: string }>>(
@@ -118,6 +110,7 @@ export default function Client(): JSX.Element {
           {rid ? `（rid: ${rid}）` : ""}
           {sessReason ? ` / ${sessReason}` : ""} {/* DEBUG */}
           {sessDetail ? ` / detail: ${sessDetail}` : ""} {/* DEBUG */}
+          {debug && liffIdHelp ? ` / liffId: ${liffIdHelp}` : ""} {/* DEBUG */}
         </div>
 
         {/* DEBUG */}
@@ -126,7 +119,10 @@ export default function Client(): JSX.Element {
             <div>Debug</div>
             <ul className="mt-2 list-disc list-inside space-y-1">
               <li>sessReason: <code>{sessReason ?? "-"}</code></li>
+              <li>sessDetail: <code>{sessDetail ?? "-"}</code></li>
               <li>rid: <code>{rid ?? "-"}</code></li>
+              <li>href: <code>{typeof window !== "undefined" ? window.location.href : "-"}</code></li>
+              <li>liffIdHelp: <code>{liffIdHelp ?? "-"}</code></li>
             </ul>
             <div className="mt-3 flex gap-2">
               <button
