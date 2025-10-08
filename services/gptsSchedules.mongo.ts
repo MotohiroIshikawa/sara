@@ -125,28 +125,26 @@ export async function softDeleteSchedulesByGpts(input: {
   return res.modifiedCount ?? 0;
 }
 
-export async function softDeleteAllSchedulesByUser(input: {
-  userId: string;
-}): Promise<number> {
-  const col = await getGptsSchedulesCollection();
-  const res = await col.updateMany(
-    { userId: input.userId, deletedAt: null },
-    { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
-  );
-  return res.modifiedCount ?? 0;
-}
-
-// targetType/targetId 指定でのソフト削除 -> leave時
+// targetType/targetId 指定でのソフト削除
 export async function softDeleteSchedulesByTarget(input: {
   targetType: "user" | "group" | "room";
   targetId: string;
   gptsId?: string;
 }): Promise<number> {
-  return softDeleteSchedulesByGpts({
+  const col = await getGptsSchedulesCollection();
+  const filter: Filter<GptsScheduleDoc> = {
+    deletedAt: null,
     targetType: input.targetType,
     targetId: input.targetId,
-    gptsId: input.gptsId,
-  });
+  };
+  if (typeof input.gptsId === "string" && input.gptsId.length > 0) {
+    filter.gptsId = input.gptsId;
+  }
+  const res = await col.updateMany(
+    filter,
+    { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
+  );
+  return res.modifiedCount ?? 0;
 }
 
 // ユーザ側（target=user）スケジュールを group/room へ複製し、GRACEを加味した nextRunAt を設定
@@ -343,30 +341,3 @@ export async function countDueCandidates(now: Date): Promise<number> {
     $or: [{ claimedAt: null }, { claimedAt: { $exists: false } }],
   });
 }
-
-/*
-export async function markRunFailure(
-  id: ObjectId,
-  at: Date,
-  reason: string,
-  backoffMs?: number
-): Promise<void> {
-  const col = await getGptsSchedulesCollection();
-  const setObj: Record<string, unknown> = {
-    claimedAt: null,
-    lastRunAt: at,
-    lastError: reason,
-    updatedAt: new Date(),
-  };
-  if (typeof backoffMs === "number" && backoffMs > 0) {
-    setObj.nextRunAt = new Date(Date.now() + backoffMs);
-  }
-  await col.updateOne(
-    { _id: id, deletedAt: null },
-    {
-      $set: setObj,
-      $inc: { errorCount: 1 } as Record<string, number>,
-    }
-  );
-}
-*/
