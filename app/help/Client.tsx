@@ -10,13 +10,13 @@ type HelpErrorResponse = { error: string; rid: string; };
 type SectionPalette = { bg: string; border: string; };
 
 const ICONS: Record<string, string> = {
-  intro: "/help/images/help-01_intro.png",
-  save: "/help/images/help-02_save.png",
-  schedule: "/help/images/help-03_schedule.png",
-  share: "/help/images/help-04_share.png",
-  edit: "/help/images/help-05_edit.png",
-  trouble: "/help/images/help-06_trouble.png",
-  safe: "/help/images/help-07_safe.png",
+  intro: "/help/help-01_intro.png",
+  save: "/help/help-02_save.png",
+  schedule: "/help/help-03_schedule.png",
+  share: "/help/help-04_share.png",
+  edit: "/help/help-05_edit.png",
+  trouble: "/help/help-06_trouble.png",
+  safe: "/help/help-07_safe.png",
 };
 
 const PALETTES: Record<string, SectionPalette> = {
