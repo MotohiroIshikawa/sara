@@ -40,7 +40,7 @@ export async function requireLineUser(req: Request | NextRequest): Promise<strin
   const idToken = extractIdToken(req);
   if (!idToken) throw new HttpError(401, "missing_id_token");
 
-  // ★変更: 必須envは LINE_LOGIN_CHANNEL_ID のみ
+  // 必須envは LINE_LOGIN_CHANNEL_ID のみ
   if (!LINE_LOGIN_CHANNEL_ID) throw new Error("LINE_LOGIN_CHANNEL_ID is not set");
 
   // 簡易キャッシュ

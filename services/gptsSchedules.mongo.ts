@@ -125,12 +125,23 @@ export async function softDeleteSchedulesByGpts(input: {
   return res.modifiedCount ?? 0;
 }
 
-export async function softDeleteAllSchedulesByUser(input: {
-  userId: string;
+// targetType/targetId 指定でのソフト削除
+export async function softDeleteSchedulesByTarget(input: {
+  targetType: "user" | "group" | "room";
+  targetId: string;
+  gptsId?: string;
 }): Promise<number> {
   const col = await getGptsSchedulesCollection();
+  const filter: Filter<GptsScheduleDoc> = {
+    deletedAt: null,
+    targetType: input.targetType,
+    targetId: input.targetId,
+  };
+  if (typeof input.gptsId === "string" && input.gptsId.length > 0) {
+    filter.gptsId = input.gptsId;
+  }
   const res = await col.updateMany(
-    { userId: input.userId, deletedAt: null },
+    filter,
     { $set: { deletedAt: new Date(), enabled: false, nextRunAt: null, updatedAt: new Date() } }
   );
   return res.modifiedCount ?? 0;
@@ -277,8 +288,9 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
   });
 
   const v = res?.value ?? null;
+  /** 
   // TODO: あとで消す
-  // ★追加: 取得できたかどうか、そして中身をログに出す
+  // 取得できたかどうか、そして中身をログに出す
   if (v) {
     console.info("[claimOneDueSchedule] got", {
       id: String(v._id),
@@ -299,7 +311,7 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
       },
     });
   }
-
+  */
   return v;
 }
 
@@ -329,30 +341,3 @@ export async function countDueCandidates(now: Date): Promise<number> {
     $or: [{ claimedAt: null }, { claimedAt: { $exists: false } }],
   });
 }
-
-/*
-export async function markRunFailure(
-  id: ObjectId,
-  at: Date,
-  reason: string,
-  backoffMs?: number
-): Promise<void> {
-  const col = await getGptsSchedulesCollection();
-  const setObj: Record<string, unknown> = {
-    claimedAt: null,
-    lastRunAt: at,
-    lastError: reason,
-    updatedAt: new Date(),
-  };
-  if (typeof backoffMs === "number" && backoffMs > 0) {
-    setObj.nextRunAt = new Date(Date.now() + backoffMs);
-  }
-  await col.updateOne(
-    { _id: id, deletedAt: null },
-    {
-      $set: setObj,
-      $inc: { errorCount: 1 } as Record<string, number>,
-    }
-  );
-}
-*/

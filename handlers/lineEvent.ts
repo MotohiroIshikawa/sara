@@ -2,7 +2,7 @@ import { messagingApi, type WebhookEvent, type MessageEvent } from "@line/bot-sd
 import { handlePostback } from "@/handlers/postbacks/route";
 import { getGptsById, listGptsIdsByUser, softDeleteAllGptsByUser } from "@/services/gpts.mongo";
 import { clearBinding, getBinding, listTargetsByGptsIds, upsertDraftBinding } from "@/services/gptsBindings.mongo";
-import { softDeleteAllSchedulesByUser, softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
+import { softDeleteSchedulesByTarget, softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
 import { softDeleteAllUserGptsByUser } from "@/services/userGpts.mongo";
 import { followUser, unfollowUser } from "@/services/users.mongo";
 import { purgeAllThreadInstByUser, upsertThreadInst } from "@/services/threadInst.mongo";
@@ -222,10 +222,10 @@ export async function lineEvent(event: WebhookEvent) {
 
       // スケジュールの削除（userIdで走査する。targetId/targetTypeは見ないので、該当ユーザが作成したものはすべて削除される）
       try {
-        const m = await softDeleteAllSchedulesByUser({ userId: uid });
-        console.info("[unfollow] schedules soft-deleted (user target)", { uid, count: m });
+        const m: number = await softDeleteSchedulesByTarget({ targetType: "user", targetId: uid });
+        console.info("[unfollow] schedules soft-deleted by target(user)", { uid, count: m });
       } catch (e) {
-        console.warn("[unfollow] softDeleteAllSchedulesByUser failed", { uid, err: String(e) });
+        console.warn("[unfollow] softDeleteSchedulesByTarget failed", { uid, err: String(e) });
       }
 
       console.info("[unfollow] cleanup done", { uid });
@@ -330,6 +330,60 @@ export async function lineEvent(event: WebhookEvent) {
     return;
   }
 
+  // leaveイベント（BOTが退出させられた）
+  if (event.type === "leave" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
+    const targetType: "group" | "room" = bindingTarget.type;
+    const targetId: string = bindingTarget.targetId;
+    const ownerScope: string = `${targetType}:${targetId}`;
+
+    try {
+      // 現在の binding を確認（あれば instpack を使って Agent を整理）
+      const binding = await getBinding({ type: targetType, targetId }).catch(() => null);
+      const instpack: string | undefined = binding?.instpack ? String(binding.instpack) : undefined;
+
+      // 1. Agent/Thread cleanup
+      try {
+        if (instpack && instpack.length > 0) {
+          await delete3AgentsForInstpack(instpack);
+        }
+      } catch (e) {
+        console.warn("[leave] delete3AgentsForInstpack failed", { ownerScope, err: String(e) });
+      }
+      try {
+        await resetThread(ownerScope); // スコープIDでリセット
+      } catch (e) {
+        console.warn("[leave] resetThread failed", { ownerScope, err: String(e) });
+      }
+
+      // 2. binding を削除（hard delete）
+      try {
+        await clearBinding({ type: targetType, targetId });
+      } catch (e) {
+        console.warn("[leave] clearBinding failed", { ownerScope, err: String(e) });
+      }
+
+      // 3. スケジュールを soft delete（target 指定）
+      try {
+        const n: number = await softDeleteSchedulesByTarget({ targetType, targetId });
+        console.info("[leave] schedules soft-deleted", { ownerScope, count: n });
+      } catch (e) {
+        console.warn("[leave] softDeleteSchedulesByTarget failed", { ownerScope, err: String(e) });
+      }
+
+      // 4. 通知は不可（BOTは既に退室済み）
+      console.info("[leave] cleanup done (no notify, already left)", { ownerScope });
+    } catch (e) {
+      console.warn("[leave] handler error", { targetType, targetId, err: String(e) });
+    }
+    return;
+  }
+
+  // memberJoined
+  if (event.type === "memberJoined" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
+    /** 何もしない */
+    return;
+  }
+
   // memberLeft（オーナー退出時の後片付け＋通知→退室）
   if (event.type === "memberLeft" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
     const targetType: "group" | "room" = bindingTarget.type;
@@ -374,7 +428,8 @@ export async function lineEvent(event: WebhookEvent) {
         console.warn("[memberLeft] delete3AgentsForInstpack failed", { targetType, targetId, err: String(e) });
       }
       try {
-        await resetThread(threadOwnerId);
+        const ownerScope: string = `${targetType}:${targetId}`;
+        await resetThread(ownerScope);
       } catch (e) {
         console.warn("[memberLeft] resetThread failed", { targetType, targetId, err: String(e) });
       }
@@ -388,10 +443,10 @@ export async function lineEvent(event: WebhookEvent) {
 
       // 3. スケジュールを soft delete（enabled=false, nextRunAt=null, deletedAt=now）
       try {
-        const n: number = await softDeleteSchedulesByGpts({ targetType, targetId });
+        const n: number = await softDeleteSchedulesByTarget({ targetType, targetId });
         console.info("[memberLeft] schedules soft-deleted", { targetType, targetId, count: n });
       } catch (e) {
-        console.warn("[memberLeft] softDeleteSchedulesByGpts failed", { targetType, targetId, err: String(e) });
+        console.warn("[memberLeft] softDeleteSchedulesByTarget failed", { targetType, targetId, err: String(e) });
       }
 
       // 4. 通知 → 退室（replyToken は無いので push → leave）
