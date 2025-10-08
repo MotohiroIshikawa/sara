@@ -1,36 +1,40 @@
 "use client";
 
-import type { JSX } from "react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, type JSX } from "react";
+import Image from "next/image";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 
 type HelpOkResponse = { ok: true; rid: string; subMasked: string; now: string;};
 type HelpErrorResponse = { error: string; rid: string; };
+
+type SectionPalette = { bg: string; border: string; };
+
+const ICONS: Record<string, string> = {
+  intro: "/help/images/help-01_intro.png",
+  save: "/help/images/help-02_save.png",
+  schedule: "/help/images/help-03_schedule.png",
+  share: "/help/images/help-04_share.png",
+  edit: "/help/images/help-05_edit.png",
+  trouble: "/help/images/help-06_trouble.png",
+  safe: "/help/images/help-07_safe.png",
+};
+
+const PALETTES: Record<string, SectionPalette> = {
+  intro:   { bg: "rgb(255, 235, 241)", border: "rgb(241, 170, 190)" }, // Blossom Pink
+  save:    { bg: "rgb(231, 247, 239)", border: "rgb(150, 214, 188)" }, // Mint
+  schedule:{ bg: "rgb(233, 241, 255)", border: "rgb(162, 193, 244)" }, // Sky
+  share:   { bg: "rgb(240, 235, 252)", border: "rgb(183, 166, 224)" }, // Lavender
+  edit:    { bg: "rgb(255, 242, 232)", border: "rgb(248, 190, 150)" }, // Peach
+  trouble: { bg: "rgb(255, 252, 230)", border: "rgb(244, 225, 129)" }, // Butter
+  safe:    { bg: "rgb(238, 245, 236)", border: "rgb(176, 202, 172)" }, // Sage
+};
 
 // 画面状態
 export default function Client(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // 追加情報（ヘッダーに小さく表示）
-  const [rid, setRid] = useState<string | null>(null);
-  const [subMasked, setSubMasked] = useState<string | null>(null);
-  const [nowIso, setNowIso] = useState<string | null>(null);
-
-
-  const [sessReason, setSessReason] = useState<string | null>(null); // DEBUG
-  const [sessDetail, setSessDetail] = useState<string | null>(null); // DEBUG
-  const [debug, setDebug] = useState<boolean>(false); // DEBUG
-
   const liffIdHelp: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_HELP as string | undefined;
-
-  useEffect(() => {
-    // DEBUG: ★ 追加: クエリでデバッグON
-    try {
-      const url = new URL(window.location.href);
-      if (url.searchParams.get("debug") === "1") setDebug(true);
-    } catch {}
-  }, []);
 
   // 初回：LIFFセッション→/api/help
   useEffect(() => {
@@ -39,29 +43,23 @@ export default function Client(): JSX.Element {
         const sess = await ensureLiffSession({ liffId: liffIdHelp });
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return;
-          setSessReason(sess.reason ?? "unknown"); // DEBUG
-          setSessDetail(typeof sess.detail === "string" ? sess.detail : null); // DEBUG
           setErr("ログインに失敗しました");
           return;
         }
         const r: Response = await fetch("/api/help", { credentials: "include" });
-        const j: unknown = await r.json();
+        const body: unknown = await r.json();
         if (!r.ok) {
           const ej: HelpErrorResponse | undefined =
-            typeof j === "object" && j !== null ? (j as HelpErrorResponse) : undefined;
-          setRid(ej?.rid ?? null);
-          setErr("読み込みに失敗しました");
+            typeof body === "object" && body !== null ? (body as HelpErrorResponse) : undefined;
+          setErr("読み込みに失敗しました" + ej?.error);
           return;
         }
         const ok: HelpOkResponse | undefined =
-          typeof j === "object" && j !== null ? (j as HelpOkResponse) : undefined;
+          typeof body === "object" && body !== null ? (body as HelpOkResponse) : undefined;
         if (!ok?.ok) {
           setErr("予期しない応答形式です");
           return;
         }
-        setRid(ok.rid);
-        setSubMasked(ok.subMasked);
-        setNowIso(ok.now);
       } catch {
         setErr("読み込みに失敗しました");
       } finally {
@@ -103,54 +101,8 @@ export default function Client(): JSX.Element {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-8">
         <header className="mb-6">
-          <h1 className="text-2xl font-bold">使い方</h1>
+          <h1 className="text-2xl font-bold">SARA | 使い方</h1>
         </header>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {err}
-          {rid ? `（rid: ${rid}）` : ""}
-          {sessReason ? ` / ${sessReason}` : ""} {/* DEBUG */}
-          {sessDetail ? ` / detail: ${sessDetail}` : ""} {/* DEBUG */}
-          {debug && liffIdHelp ? ` / liffId: ${liffIdHelp}` : ""} {/* DEBUG */}
-        </div>
-
-        {/* DEBUG */}
-        {debug && (
-          <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 text-xs text-gray-700">
-            <div>Debug</div>
-            <ul className="mt-2 list-disc list-inside space-y-1">
-              <li>sessReason: <code>{sessReason ?? "-"}</code></li>
-              <li>sessDetail: <code>{sessDetail ?? "-"}</code></li>
-              <li>rid: <code>{rid ?? "-"}</code></li>
-              <li>href: <code>{typeof window !== "undefined" ? window.location.href : "-"}</code></li>
-              <li>liffIdHelp: <code>{liffIdHelp ?? "-"}</code></li>
-            </ul>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                className="rounded border px-3 py-1 text-xs"
-                onClick={() => { window.location.href = "/help"; }}
-              >
-                リロード
-              </button>
-              <button
-                type="button"
-                className="rounded border px-3 py-1 text-xs"
-                onClick={async () => {
-                  try {
-                    // LIFF再ログインを強制したい場合、ensureLiffSession側に
-                    // login(force) 相当のオプションがあれば呼ぶ。
-                    // なければ /liff/logout → location.reload() 等の実装を検討。
-                    // ここでは単純にリロード。
-                    window.location.reload();
-                  } catch {}
-                }}
-              >
-                再ログインを試す
-              </button>
-            </div>
-          </div>
-        )}
-        {/* DEBUGここまで */}
       </main>
     );
   }
@@ -161,13 +113,6 @@ export default function Client(): JSX.Element {
       {/* Header */}
       <header className="mb-8">
         <h1 className="text-2xl font-bold">使い方</h1>
-        <p className="mt-2 text-gray-600 text-sm">
-          このページでは、チャットルームでの使い方と、ルールの保存・スケジュール・グループ共有の手順を説明します。
-        </p>
-        <div className="mt-3 text-xs text-gray-500">
-          認証済み: <span className="font-mono">{subMasked ?? "-"}</span>
-          {nowIso ? <span className="ml-2">/ {new Date(nowIso).toLocaleString()}</span> : null}
-        </div>
 
         {/* TOC */}
         <nav aria-label="目次" className="mt-6">
@@ -184,7 +129,13 @@ export default function Client(): JSX.Element {
       </header>
 
       {/* 1. はじめまして！ */}
-      <Section index={1} title="はじめまして！">
+      <Section 
+        index={1} 
+        title="はじめまして！" 
+        iconSrc={ICONS.intro} 
+        iconAlt="はじめまして"
+        palette={PALETTES.intro}
+      >
         <ul className="list-disc list-inside">
           <li>
             こんにちは、この公式アカウントではトークルームで話しかけると、
@@ -198,7 +149,13 @@ export default function Client(): JSX.Element {
       </Section>
 
       {/* 2. ルールを保存する */}
-      <Section index={2} title="ルールを保存する">
+      <Section 
+        index={2} 
+        title="ルールを保存する"
+        iconSrc={ICONS.save}
+        iconAlt="ルールを保存する"
+        palette={PALETTES.save}
+      >
         <ul className="list-disc list-inside">
           <li>知りたい情報・共有したい情報を「チャットルール」として保存できます。</li>
           <li>
@@ -208,7 +165,13 @@ export default function Client(): JSX.Element {
       </Section>
 
       {/* 3. スケジュールを決める */}
-      <Section index={3} title="スケジュールを決める">
+      <Section 
+        index={3} 
+        title="スケジュールを決める"
+        iconSrc={ICONS.schedule}
+        iconAlt="スケジュールを決める"
+        palette={PALETTES.schedule}
+      >
         <ul className="list-disc list-inside">
           <li>保存したルールの最新情報を定期的にお知らせすることができます。</li>
           <li>毎日、毎週、毎月から選んでスケジュールを作成してください。</li>
@@ -216,7 +179,13 @@ export default function Client(): JSX.Element {
       </Section>
 
       {/* 4. グループで共有する */}
-      <Section index={4} title="グループで共有する">
+      <Section 
+        index={4} 
+        title="グループで共有する"
+        iconSrc={ICONS.share}
+        iconAlt="グループで共有する"
+        palette={PALETTES.share}
+      >
         <ul className="list-disc list-inside">
           <li>作成したチャットルールを、ぜひ友だちと共有しましょう！</li>
           <li>
@@ -232,7 +201,13 @@ export default function Client(): JSX.Element {
       </Section>
 
       {/* 5. 編集・確認する */}
-      <Section index={5} title="編集・確認する">
+      <Section 
+        index={5} 
+        title="編集・確認する"
+        iconSrc={ICONS.edit}
+        iconAlt="編集・確認する"
+        palette={PALETTES.edit}
+      >
         <ul className="list-disc list-inside">
           <li>画面下のメニュー「編集・選択」から、これまでに作ったルールを確認できます。</li>
           <li>ルールの内容を変更したり、使うルールを切り替えたり、スケジュールの時間を調整することもできます。</li>
@@ -240,7 +215,13 @@ export default function Client(): JSX.Element {
       </Section>
 
       {/* 6. 困ったときは */}
-      <Section index={6} title="困ったときは">
+      <Section 
+        index={6} 
+        title="困ったときは"
+        iconSrc={ICONS.trouble}
+        iconAlt="困ったときは"
+        palette={PALETTES.trouble}
+      >
         <ul className="list-disc list-inside">
           <li>返信がこない場合は、少し時間をおいてもう一度話しかけてみてください。</li>
           <li>スケジュールを保存したばかりのときは、次の実行時間から配信されます。</li>
@@ -251,7 +232,13 @@ export default function Client(): JSX.Element {
       </Section>
 
       {/* 7. 安心して使ってください */}
-      <Section index={7} title="安心して使ってください">
+      <Section 
+        index={7} 
+        title="安心して使ってください"
+        iconSrc={ICONS.safe}
+        iconAlt="安心して使ってください"
+        palette={PALETTES.safe}
+      >
         <ul className="list-disc list-inside">
           <li>あなたが話しかけた内容は、よりよいお手伝いをするために使います。</li>
           <li>個人情報や大事な内容は送らないように気をつけてくださいね。</li>
@@ -271,16 +258,43 @@ type SectionProps = {
   index: number;
   title: string;
   children: React.ReactNode;
+  iconSrc?: string;
+  iconAlt?: string;
+  palette?: SectionPalette;
 };
 
 function Section(props: SectionProps): JSX.Element {
-  const { index, title, children } = props;
+  const { index, title, children, iconSrc, iconAlt, palette } = props;
   return (
     <section id={`step-${index}`} className="scroll-mt-24">
-      <h3 className="mt-10 text-lg font-semibold">
-        {index}. {title}
-      </h3>
-      <div className="mt-3 space-y-2 text-sm leading-7 text-gray-700">{children}</div>
+      {/* タイトル行（アイコン + タイトル） */}
+      <div className="mt-10 mb-3 flex items-center gap-3">
+        {iconSrc ? (
+          <Image
+            src={iconSrc}
+            alt={iconAlt ?? title}
+            width={64}
+            height={64}
+            className="rounded-2xl shrink-0"
+            priority={index <= 3}
+          />
+        ) : null}
+        <h3 className="text-lg font-semibold">
+          {index}. {title}
+        </h3>
+      </div>
+
+      {/* 角丸ボックス（背景＆枠にパレット適用） */}
+      <div
+        className="rounded-2xl border p-4 md:p-5 text-sm leading-7"
+        style={{
+          backgroundColor: palette?.bg ?? "transparent",
+          borderColor: palette?.border ?? "rgb(229,231,235)", // gray-200 fallback
+          color: "rgb(56,66,82)", // 可読性の高いダークグレー
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }
