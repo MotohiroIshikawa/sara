@@ -99,7 +99,7 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
 
   // sched.ts関係
   //// start
-  SCHED_START_NO: "了解しました。定期実施は設定しません。",
+  SCHED_START_NO: "了解しました！\n定期実施は設定しません。\n\nもし必要になりましたらメニューの「編集・選択」からも変更できます！",
   SCHED_START_YES_CONFIRM: "了解しました！\n定期実施ですね！",
   SCHED_START_INVALID: "すみません、選択を認識できませんでした。もう一度お試しください。",
   //// freq
@@ -108,25 +108,25 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   //// pickDate
   SCHED_PICKDATE_ERROR: "うまく日付を受け取れませんでした。もう一度お試しください。",
   SCHED_PICKDATE_NODRAFT: "スケジュールの下書きが見つかりませんでした。最初からやり直してください。",
-  SCHED_PICKDATE_CONFIRM_TPL: "毎月{DAY}日ですね！",
+  SCHED_PICKDATE_CONFIRM_TPL: "了解しました！\n毎月{DAY}日ですね！",
   SCHED_PICKDATE_NOTE: "※ 29/30/31日など、存在しない月はその月はスキップします。",
   //// weekly
   SCHED_WEEKLY_NEEDONE: "少なくとも1つ、曜日を選んでください。",
   SCHED_WEEKLY_CONFIRM_TPL: "了解しました！\n毎週（{PICKED}）ですね！",
   //// time
-  SCHED_PICKTIME_PROMPT: "何時にしましょう？（時刻を選んでください）",
-  SCHED_TIME_REDO_PROMPT: "もう一度、何時にしましょう？",
-  SCHED_TIME_ERROR: "うまく時刻を受け取れませんでした。もう一度お試しください。",
-  SCHED_TIME_FINALCONFIRM_TPL: "了解しました！\n{FREQLABEL} の {HHM} に実施します。これで有効化しますか？",
+  SCHED_PICKTIME_PROMPT: "では実施する何時を選んでください。",
+  SCHED_TIME_REDO_PROMPT: "実施する何時を選んでください。",
+  SCHED_TIME_ERROR: "うまく時刻を受け取れませんでした。\nもう一度お試しください。",
+  SCHED_TIME_FINALCONFIRM_TPL: "了解しました！\n{FREQLABEL} の {HHM} に実施します。\nこれでよろしいですか？",
   //// enable
   SCHED_ENABLE_NODRAFT: "有効化できませんでした。下書きが見つかりません。",
-  SCHED_ENABLE_SUCCESS: "スケジュールを有効化しました。",
+  SCHED_ENABLE_SUCCESS: "スケジュールを設定しました。",
 
   // ui.ts関係 ここから
   //// 保存→定期実施確認
   UI_SAVEDASK_ALT: "定期実施の設定",
   UI_SAVEDASK_TEXT_TPL:
-    "保存しました：{NAME}\nこのトークではこの設定を使います。\n\nこのチャットルールを自動で定期的に実施しますか？",
+    "保存しました：{NAME}\nこのトークではこのルールを使います。\n\nこのルールを自動で定期的に実施しますか？",
   UI_SAVEDASK_YES: "定期実施する",
   UI_SAVEDASK_NO: "しない",
   //// 頻度選択
@@ -137,11 +137,11 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   UI_FREQ_MONTHLY: "毎月",
   //// 日付ピッカー
   UI_PICKDATE_ALT: "日付を選択",
-  UI_PICKDATE_TEXT: "何日にしますか？日付を選んでください",
+  UI_PICKDATE_TEXT: "何日にしますか？ 日付を選んでください",
   UI_PICKDATE_LABEL: "日付を選ぶ",
   //// 時刻ピッカー
   UI_PICKTIME_ALT: "時間を選択",
-  UI_PICKTIME_TEXT: "何時にしますか？時間を選んでください",
+  UI_PICKTIME_TEXT: "何時にしますか？ 時間を選んでください",
   UI_PICKTIME_LABEL: "時間を選択",
   UI_PICKTIME_INITIAL: "09:00",
   //// 曜日Flex
@@ -154,15 +154,15 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   UI_WDAY_PRESET_CLEAR: "クリア",
   //// 最終確認
   UI_FINAL_ALT: "最終確認",
-  UI_FINAL_ENABLE: "有効化する",
-  UI_FINAL_RESTART: "修正する",
+  UI_FINAL_ENABLE: "OK",
+  UI_FINAL_RESTART: "修正",
   //// 分丸め確認
   UI_ROUND_ALT: "分丸めの確認",
   UI_ROUND_TEXT_CHANGED_TPL:
     "「{HH}:{MM}」で受け取りましたが、{STEP}分単位に丸めて「{HH}:{MMR}」で実施します。よろしいですか？",
   UI_ROUND_TEXT_OK_TPL: "「{HH}:{MM}」で実施します。よろしいですか？",
   UI_ROUND_OK: "OK",
-  UI_ROUND_REDO: "別の時刻にする",
+  UI_ROUND_REDO: "修正",
 } as const;
 
 // メッセージ本文を取得。

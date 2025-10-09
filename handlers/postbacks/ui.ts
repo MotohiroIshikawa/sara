@@ -170,7 +170,7 @@ export function uiFinalEnableConfirm(gptsId: string, text: string): messagingApi
       type: "confirm",
       text,
       actions: [
-        { type: "postback", label: getMsg("UI_FINAL_ALT"), data: encodePostback("sched", "enable",  { gptsId }), displayText: getMsg("UI_FINAL_ALT") },
+        { type: "postback", label: getMsg("UI_FINAL_ENABLE"), data: encodePostback("sched", "enable",  { gptsId }), displayText: getMsg("UI_FINAL_ALT") },
         { type: "postback", label: getMsg("UI_FINAL_RESTART"), data: encodePostback("sched", "restart", { gptsId }), displayText: getMsg("UI_FINAL_RESTART") },
       ],
     },
