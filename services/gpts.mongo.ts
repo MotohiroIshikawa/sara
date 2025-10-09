@@ -83,7 +83,7 @@ export async function updateGpts(params: {
     { $set: touchForUpdate($set) },
     { returnDocument: "after" }
   );
-  return res;
+  return res?.value ?? null;
 }
 
 // 指定ユーザのgptsをすべて論理削除
@@ -115,10 +115,10 @@ export async function listGptsIdsByUser(userId: string): Promise<string[]> {
     .filter((id: string) => id.length > 0);
 }
 
-/** コピー：正本を複製し、originalGptsId / autherUserId を付与。user_gpts にリンク作成 */
-/* TODO: コピーを作るようになったら復活
-/* ※isPublicをfalseにすること
-
+/** コピー：正本を複製し、originalGptsId / autherUserId を付与。user_gpts にリンク作成
+ * TODO: コピーを作るようになったら復活
+ * ※isPublicをfalseにすること
+ *
 export async function copyGpts(params: {
   originalGptsId: string;       // コピー元
   userId: string;               // コピーする人
