@@ -79,11 +79,34 @@ export async function updateGpts(params: {
   }
 
   // DEBUG
+  const pre = await colGpts.findOne(
+    { gptsId: params.gptsId, userId: params.userId },
+    { projection: { _id: 1, gptsId: 1, userId: 1, isPublic: 1 } }
+  );
+
+  // DEBUG
   const before: Pick<GptsDoc, "gptsId" | "userId" | "isPublic"> | null =
     await colGpts.findOne(
       { gptsId: params.gptsId },
       { projection: { _id: 0, gptsId: 1, userId: 1, isPublic: 1 } }
     );
+
+  // DEBUG
+  const dbg = (s: string): number[] => Array.from(s).map(c => c.codePointAt(0) ?? 0);
+
+  // DEBUG
+  if (!pre) {
+    console.warn("[gpts.update:debug] pre_filter_miss", {
+      filter: { gptsId: params.gptsId, userId: params.userId },
+      beforeOwner: before?.userId ?? null,
+      // 差分チェック用（長さ・コードポイント）
+      len_client: params.userId.length,
+      len_db: before?.userId ? before.userId.length : null,
+      eq: before?.userId ? (params.userId === before.userId) : null,
+      cp_client: dbg(params.userId),
+      cp_db: before?.userId ? dbg(before.userId) : null,
+    });
+  }
 
   const res = await colGpts.findOneAndUpdate(
     { gptsId: params.gptsId, userId: params.userId },
@@ -91,7 +114,12 @@ export async function updateGpts(params: {
     { returnDocument: "after" }
   );
 
-  // DEBUG: 調査ログ（必要がなくなったら外す）
+  // DEBUG
+  console.info("[gpts.update:debug] raw_result:start");
+  console.dir(res, { depth: 5 });
+  console.info("[gpts.update:debug] raw_result:end");
+
+  // DEBUG
   if (!res?.value) {
     console.warn("[gpts.update:debug] not_matched", {
       filter: { gptsId: params.gptsId, userId: params.userId },
