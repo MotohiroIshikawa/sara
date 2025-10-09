@@ -88,7 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     // DEBUG
     console.info(`[gpts.update:${rid}] recv`, { gptsId, userId, hasName: name !== undefined, hasInst: instpack !== undefined, isPublic });
 
-    const updated = await updateGpts({ gptsId, userId, name, instpack });
+    const updated = await updateGpts({ gptsId, userId, name, instpack, isPublic });
     if (!updated) {
       // 所有者でない / もしくは存在しない
       console.warn(`[gpts.update:${rid}] forbidden_or_not_found`, { userId, gptsId });
