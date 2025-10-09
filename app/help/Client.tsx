@@ -96,11 +96,6 @@ export default function Client(): JSX.Element {
   // ===== 本文 =====
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
-      {/* Header */}
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold">使い方</h1>
-      </header>
-
       {/* 1. はじめまして！ */}
       <Section 
         index={1} 
@@ -109,9 +104,9 @@ export default function Client(): JSX.Element {
         iconAlt="はじめまして"
         palette={PALETTES.intro}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>
-            こんにちは、この公式アカウントではトークルームで話しかけると、
+            この公式アカウントではトークルームで話しかけると、
             あなたの代わりに情報を集めたり、友だちと共有できるアシスタントを作成できます。
           </li>
           <li>
@@ -129,7 +124,7 @@ export default function Client(): JSX.Element {
         iconAlt="ルールを保存する"
         palette={PALETTES.save}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>知りたい情報・共有したい情報を「チャットルール」として保存できます。</li>
           <li>
             「保存しますか？」と出たとき、その内容でよろしければチャットルールを保存してください。
@@ -145,7 +140,7 @@ export default function Client(): JSX.Element {
         iconAlt="スケジュールを決める"
         palette={PALETTES.schedule}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>保存したルールの最新情報を定期的にお知らせすることができます。</li>
           <li>毎日、毎週、毎月から選んでスケジュールを作成してください。</li>
         </ul>
@@ -159,7 +154,7 @@ export default function Client(): JSX.Element {
         iconAlt="グループで共有する"
         palette={PALETTES.share}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>作成したチャットルールを、ぜひ友だちと共有しましょう！</li>
           <li>
             このトークルームで作ったルールを、友だちと共有したいときは、
@@ -181,7 +176,7 @@ export default function Client(): JSX.Element {
         iconAlt="編集・確認する"
         palette={PALETTES.edit}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>画面下のメニュー「編集・選択」から、これまでに作ったルールを確認できます。</li>
           <li>ルールの内容を変更したり、使うルールを切り替えたり、スケジュールの時間を調整することもできます。</li>
         </ul>
@@ -195,7 +190,7 @@ export default function Client(): JSX.Element {
         iconAlt="困ったときは"
         palette={PALETTES.trouble}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>返信がこない場合は、少し時間をおいてもう一度話しかけてみてください。</li>
           <li>スケジュールを保存したばかりのときは、次の実行時間から配信されます。</li>
           <li>
@@ -212,16 +207,12 @@ export default function Client(): JSX.Element {
         iconAlt="安心して使ってください"
         palette={PALETTES.safe}
       >
-        <ul className="list-disc list-inside">
+        <ul className="list-inside" style={{ listStyleType: "circle" }}>
           <li>あなたが話しかけた内容は、よりよいお手伝いをするために使います。</li>
           <li>個人情報や大事な内容は送らないように気をつけてくださいね。</li>
           <li>トークを削除したり、友だち解除をすれば、いつでも利用をやめられます。</li>
         </ul>
       </Section>
-
-      <footer className="mt-12 border-t border-gray-200 pt-6 text-xs text-gray-500">
-        <p>© {new Date().getFullYear()} LINE チャットBOT</p>
-      </footer>
     </main>
   );
 }
@@ -253,7 +244,14 @@ function Section(props: SectionProps): JSX.Element {
           />
         ) : null}
         <h3 className="text-lg font-semibold">
+          <span
+            className="rounded-lg px-2 py-1"
+            style={{
+              backgroundColor: palette?.bg ?? "transparent"
+            }}
+          >
           {index}. {title}
+          </span>
         </h3>
       </div>
 
