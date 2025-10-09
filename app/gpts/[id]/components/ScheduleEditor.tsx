@@ -1,6 +1,5 @@
 import React, { type JSX } from "react";
 import styles from "../Client.module.css";
-import SegmentedSwitch from "@/components/SegmentedSwitch";
 import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/scheduleValidators";
 import { formatNextRunJa } from "@/utils/schedulerTime";
@@ -27,16 +26,29 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
       <h2 className={styles.title}>スケジュール</h2>
 
       {/* 登録ずみ｜未登録 */}
-      <SegmentedSwitch
-        className="mt-3"
-        value={schedToggle}
-        onChange={(v: boolean) => void onToggleSchedule(v)}
-        groupLabel="スケジュールの有無"
-        options={[
-          { value: true, label: "登録ずみ" },
-          { value: false, label: "未登録" },
-        ]}
-      />
+      <div className="mt-3">
+        <div className={styles.fieldLabel}>スケジュール</div>
+        <div className={styles.freqGroup} role="radiogroup" aria-label="スケジュール">
+          {([
+            { val: true as boolean, label: "登録ずみ" },
+            { val: false as boolean, label: "未登録" },
+          ] as ReadonlyArray<{ val: boolean; label: string }>).map((o) => {
+            const on: boolean = schedToggle === o.val;
+            return (
+              <button
+                key={String(o.val)}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                className={`${styles.pill} ${on ? styles.pillOn : styles.pillOff}`}
+                onClick={() => void onToggleSchedule(o.val)}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* 登録ずみ（ON）のときのみ編集UIを表示 */}
       {schedToggle && sched && (
@@ -151,27 +163,39 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
           </div>
 
           {/* 実施中｜停止中 */}
-          <SegmentedSwitch
-            className="mt-1"
-            value={Boolean(sched.enabled)}
-            onChange={(v: boolean) => {
-              if (v) {
-                const chk = canEnableSchedule(sched); // 未設定なら有効化しない
-                if (!chk.ok) {
-                  alert(chk.message);
-                  return;
-                }
-                void enableSchedule();
-              } else {
-                void disableScheduleOnly();
-              }
-            }}
-            groupLabel="実行状態"
-            options={[
-              { value: true, label: "実施中" },
-              { value: false, label: "停止中" },
-            ]}
-          />
+          <div className="mt-1">
+            <div className={styles.freqGroup} role="radiogroup" aria-label="状態">
+              {([
+                { val: true as boolean, label: "実施中" },
+                { val: false as boolean, label: "停止中" },
+              ] as ReadonlyArray<{ val: boolean; label: string }>).map((o) => {
+                const on: boolean = Boolean(sched.enabled) === o.val;
+                return (
+                  <button
+                    key={String(o.val)}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    className={`${styles.pill} ${on ? styles.pillOn : styles.pillOff}`}
+                    onClick={() => {
+                      if (o.val) {
+                        const chk = canEnableSchedule(sched);
+                        if (!chk.ok) {
+                          alert(chk.message);
+                          return;
+                        }
+                        void enableSchedule();
+                      } else {
+                        void disableScheduleOnly();
+                      }
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* 要約（未設定を明示） */}
           <p className={styles.helpText}>
