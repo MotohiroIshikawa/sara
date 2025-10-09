@@ -78,11 +78,28 @@ export async function updateGpts(params: {
     return colGpts.findOne({ gptsId: params.gptsId, userId: params.userId });
   }
 
+  // DEBUG
+  const before: Pick<GptsDoc, "gptsId" | "userId" | "isPublic"> | null =
+    await colGpts.findOne(
+      { gptsId: params.gptsId },
+      { projection: { _id: 0, gptsId: 1, userId: 1, isPublic: 1 } }
+    );
+
   const res = await colGpts.findOneAndUpdate(
     { gptsId: params.gptsId, userId: params.userId },
     { $set: touchForUpdate($set) },
     { returnDocument: "after" }
   );
+
+  // DEBUG: 調査ログ（必要がなくなったら外す）
+  if (!res?.value) {
+    console.warn("[gpts.update:debug] not_matched", {
+      filter: { gptsId: params.gptsId, userId: params.userId },
+      beforeOwner: before?.userId ?? null,
+      beforeIsPublic: before?.isPublic ?? null,
+    });
+  }
+
   return res?.value ?? null;
 }
 
