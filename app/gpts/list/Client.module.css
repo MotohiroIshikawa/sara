@@ -48,11 +48,13 @@
 .itemUpdated {
   @apply mt-1 text-xs text-gray-500;
 }
+
+/* バッジ */
 .itemBadgeApplied {
   @apply shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700;
 }
 .itemBadgePrivate {
-  @apply shrink-0 rounded-full px-2.5 py-1 text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200;
+  @apply shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500;
 }
 .itemBadges {
   @apply flex flex-col items-end gap-1;
