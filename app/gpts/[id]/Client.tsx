@@ -406,7 +406,7 @@ export default function Client({ id }: { id: string }) {
       <RuleSection inst={inst} onChange={setInst} count={counts.inst} />
 
       {/* ★ 公開/非公開（NameSection, RuleSection のあとに配置） */}
-      <VisibilitySection value={isPublic} onChange={setIsPublic} className="mt-3" />
+      <VisibilitySection isPublic={isPublic} onChange={setIsPublic} />
 
       {/* === スケジュール === */}
       <ScheduleEditor

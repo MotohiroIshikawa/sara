@@ -74,70 +74,15 @@ export async function updateGpts(params: {
   if (typeof params.isPublic === "boolean") {
     $set.isPublic = params.isPublic;
   }
-
- // DEBUG
-  console.info("[gpts.update:debug] recv_params", {
-    gptsId: params.gptsId,
-    userId: params.userId,
-    hasName: typeof params.name === "string",
-    hasInst: typeof params.instpack === "string",
-    isPublic: typeof params.isPublic === "boolean" ? params.isPublic : "(unset)",
-  });
-
   if (Object.keys($set).length === 0) {
     return colGpts.findOne({ gptsId: params.gptsId, userId: params.userId });
   }
-
-  // DEBUG
-  const before: Pick<GptsDoc, "userId" | "isPublic"> | null = await colGpts.findOne(
-    { gptsId: params.gptsId },
-    { projection: { _id: 0, userId: 1, isPublic: 1 } }
-  );
-
-  // DEBUG
-  console.info("[gpts.update:debug] $set", { $set });
 
   const res = await colGpts.findOneAndUpdate(
     { gptsId: params.gptsId, userId: params.userId },
     { $set: touchForUpdate($set) },
     { returnDocument: "after" }
   );
-
-  // DEBUG
-  const rawUnknown: unknown = res;
-  const hasWrapper: boolean =
-    rawUnknown !== null &&
-    typeof rawUnknown === "object" &&
-    "value" in (rawUnknown as Record<string, unknown>);
-  let updatedIsPublic: boolean | null = null;
-  if (hasWrapper) {
-    const v: unknown = (rawUnknown as { value: unknown }).value;
-    if (v && typeof v === "object" && "isPublic" in (v as Record<string, unknown>)) {
-      const ip: unknown = (v as { isPublic?: unknown }).isPublic;
-      updatedIsPublic = typeof ip === "boolean" ? ip : null;
-    }
-  } else if (rawUnknown && typeof rawUnknown === "object" && "isPublic" in (rawUnknown as Record<string, unknown>)) {
-    const ip: unknown = (rawUnknown as { isPublic?: unknown }).isPublic;
-    updatedIsPublic = typeof ip === "boolean" ? ip : null;
-  }
-  console.info("[gpts.update:debug] after_update", {
-    hasWrapper,
-    beforeIsPublic: before?.isPublic ?? null,
-    updatedIsPublic,
-  });
-
-  // DEBUG
-  if (typeof params.isPublic === "boolean" && updatedIsPublic !== null && updatedIsPublic !== params.isPublic) {
-    const afterRead: Pick<GptsDoc, "isPublic"> | null = await colGpts.findOne(
-      { gptsId: params.gptsId },
-      { projection: { _id: 0, isPublic: 1 } }
-    );
-    console.warn("[gpts.update:debug] mismatch_after_update", {
-      expected: params.isPublic,
-      updatedIsPublic,
-      afterReadIsPublic: afterRead?.isPublic ?? null,
-    });
-  }
 
   return res;
 }

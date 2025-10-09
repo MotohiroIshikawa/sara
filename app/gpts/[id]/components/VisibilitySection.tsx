@@ -1,43 +1,45 @@
 "use client";
 
-import SegmentedSwitch, { type SegmentedSwitchOption } from "@/components/SegmentedSwitch";
-import { memo } from "react";
+import React, { type JSX } from "react";
+import styles from "../Client.module.css";
 
-export type VisibilitySectionProps = {
-  /** true=公開 / false=非公開 */
-  value: boolean;
-  /** 変更ハンドラ */
+export interface VisibilitySectionProps {
+  isPublic: boolean;
   onChange: (next: boolean) => void;
-  /** 追加クラス（任意） */
-  className?: string;
-};
+}
 
-/**
- * 公開/非公開 切替セクション
- * - 指定の SegmentedSwitch を内部で利用
- * - グループラベル: 「公開設定」
- * - オプション: 「公開」/「非公開」
- */
-function VisibilitySectionBase(props: VisibilitySectionProps) {
-  const { value, onChange, className = "" } = props;
-
-  const options: [SegmentedSwitchOption, SegmentedSwitchOption] = [
-    { value: true, label: "公開", ariaLabel: "公開にする" },
-    { value: false, label: "非公開", ariaLabel: "非公開にする" },
-  ];
+export default function VisibilitySection(props: VisibilitySectionProps): JSX.Element {
+  const { isPublic, onChange } = props;
 
   return (
-    <section className={className}>
-      <SegmentedSwitch
-        className="mt-3"
-        value={value}
-        onChange={onChange}
-        groupLabel="公開設定"
-        options={options}
-      />
+    <section className={styles.card}>
+      <h2 className={styles.title}>公開設定</h2>
+
+      {/* 公開｜非公開 */}
+      <div className="mt-3">
+        <div className={styles.freqGroup} role="radiogroup" aria-label="公開設定">
+          {([
+            { val: true as boolean, label: "公開" },
+            { val: false as boolean, label: "非公開" },
+          ] as ReadonlyArray<{ val: boolean; label: string }>).map((opt) => {
+            const active: boolean = isPublic === opt.val;
+            return (
+              <button
+                key={String(opt.val)}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`${styles.pill} ${active ? styles.pillOn : styles.pillOff}`}
+                onClick={() => {
+                  if (!active) onChange(opt.val);
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }
-
-const VisibilitySection = memo(VisibilitySectionBase);
-export default VisibilitySection;

@@ -85,18 +85,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "not_applied" }, { status: 403 });
     }
 
-    // DEBUG
-    console.info(`[gpts.update:${rid}] recv`, { gptsId, userId, hasName: name !== undefined, hasInst: instpack !== undefined, isPublic });
-
     const updated = await updateGpts({ gptsId, userId, name, instpack, isPublic });
     if (!updated) {
       // 所有者でない / もしくは存在しない
       console.warn(`[gpts.update:${rid}] forbidden_or_not_found`, { userId, gptsId });
       return NextResponse.json({ error: "forbidden_or_not_found" }, { status: 403 });
     }
-
-    // DEBUG
-    console.info(`[gpts.update:${rid}] done`, { gptsId: updated.gptsId, isPublic: updated.isPublic });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
