@@ -11,11 +11,15 @@ export interface ConfirmModalProps {
   inst: string;
   schedToggle: boolean;
   sched: ScheduleDto | null;
+  isPublic?: boolean;
 }
 
 export default function ConfirmModal(props: ConfirmModalProps): JSX.Element | null {
-  const { open, onClose, onSave, name, inst, schedToggle, sched } = props;
+  const { open, onClose, onSave, name, inst, schedToggle, sched, isPublic } = props;
   if (!open) return null;
+
+  const visibilityLabel: string | null =
+    typeof isPublic === "boolean" ? (isPublic ? "公開" : "非公開") : null;
 
   return (
     <div className={styles.modal}>
@@ -28,6 +32,12 @@ export default function ConfirmModal(props: ConfirmModalProps): JSX.Element | nu
 
           <div className="mt-4 text-sm font-medium">ルール</div>
           <pre className={styles.codeBlock}>{inst}</pre>
+          {visibilityLabel !== null ? (
+            <>
+              <div className="mt-4 text-sm font-medium">公開設定</div>
+              <div className="mt-1 text-sm">{visibilityLabel}</div>
+            </>
+          ) : null}
 
           <div className="mt-4 text-sm font-medium">スケジュール</div>
           {schedToggle && sched ? (
@@ -37,7 +47,7 @@ export default function ConfirmModal(props: ConfirmModalProps): JSX.Element | nu
               </div>
               {sched.enabled && (
                 <div className="mt-1 text-xs text-gray-600">
-                  次回実施日時: {sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : "-"} {/* ★ ラベル変更を維持 */}
+                  次回実施日時: {sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : "-"}
                 </div>
               )}
             </div>

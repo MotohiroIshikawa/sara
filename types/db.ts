@@ -50,6 +50,7 @@ export interface GptsDoc extends Document {
   originalGptsId?: string;      // コピー元の gptsId（機能拡張用）
   authorUserId?: string;        // コピー元の作者ユーザID（機能拡張用）
   deletedAt?: Date;
+  isPublic: boolean;            // 公開/非公開フラグ
 }
 
 // ユーザが保存しているチャットルールのテーブル

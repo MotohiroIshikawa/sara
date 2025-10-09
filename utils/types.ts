@@ -19,6 +19,10 @@ export function isNumber(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }
 
+export function isBoolean(x: unknown): x is boolean {
+  return typeof x === "boolean";
+}
+
 /** createAgent に渡せるツール: そのまま or { definition } ラッパー */
 export type ToolLike = ToolDefinitionUnion | { definition: ToolDefinitionUnion };
 
@@ -79,6 +83,7 @@ type GptsItemDetail = {
   name: string;
   instpack: string;
   updatedAt: string; // ISO8601
+  isPublic: boolean;
 };
 
 /** 詳細取得レスポンス */
@@ -90,6 +95,7 @@ export type GptsDetailResponse = {
 export type GptsUpdateRequest = {
   name?: string;
   instpack?: string;
+  isPublic?: boolean;
 };
 
 /** 型ガード */
@@ -99,7 +105,8 @@ function isGptsItemDetail(v: unknown): v is GptsItemDetail {
     isString(v.gptsId) &&
     isString(v.name) &&
     isString(v.instpack) &&
-    isString(v.updatedAt)
+    isString(v.updatedAt) &&
+    isBoolean((v as { isPublic?: unknown }).isPublic)
   );
 }
 
@@ -112,6 +119,7 @@ export type GptsListItem = {
   id: string;
   name: string;
   updatedAt: string; // ISO8601
+  isPublic: boolean;
 };
 
 /** 一覧レスポンス */
@@ -133,7 +141,8 @@ function isGptsListItem(v: unknown): v is GptsListItem {
     isRecord(v) &&
     isString((v as Record<string, unknown>).id) &&
     isString((v as Record<string, unknown>).name) &&
-    isString((v as Record<string, unknown>).updatedAt)
+    isString((v as Record<string, unknown>).updatedAt) &&
+    isBoolean((v as { isPublic?: unknown }).isPublic)
   );
 }
 

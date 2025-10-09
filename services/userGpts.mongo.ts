@@ -124,11 +124,11 @@ export async function softDeleteUserGpts(input: { userId: string; gptsId: string
 
 export async function listUserGptsByUpdatedDesc(
   userId: string
-): Promise<Array<{ gptsId: string; name: string; updatedAt: Date }>> {
+): Promise<Array<{ gptsId: string; name: string; updatedAt: Date; isPublic: boolean }>> {
   await ensureIndexes();
   const userCol = await getUserGptsCollection();
 
-  type AggOut = Pick<UserGptsDoc, "gptsId" | "updatedAt"> & { name: string };
+  type AggOut = Pick<UserGptsDoc, "gptsId" | "updatedAt"> & { name: string; isPublic: boolean };
 
   const pipeline: object[] = [
     { $match: { userId, deletedAt: { $exists: false } } },
@@ -141,19 +141,20 @@ export async function listUserGptsByUpdatedDesc(
       },
     },
     { $unwind: "$gpts" },
-    { $project: { _id: 0, gptsId: 1, updatedAt: 1, name: "$gpts.name" } },
+    { $project: { _id: 0, gptsId: 1, updatedAt: 1, name: "$gpts.name", isPublic: "$gpts.isPublic" } },
     { $match: { name: { $type: "string", $ne: "" } } },
   ];
 
   const docs = await userCol.aggregate<AggOut>(pipeline).toArray();
 
-  type Listed = { gptsId: string; name: string; updatedAt: Date };
+  type Listed = { gptsId: string; name: string; updatedAt: Date; isPublic: boolean };
+  
   const out: Listed[] = docs.map((d) => {
     if (!isNonEmptyString(d.name)) {
       throw new Error(`[listUserGptsByUpdatedDesc] gpts.name missing (gptsId=${d.gptsId})`);
     }
     const updatedAt = d.updatedAt instanceof Date ? d.updatedAt : new Date(d.updatedAt);
-    return { gptsId: d.gptsId, name: d.name, updatedAt };
+    return { gptsId: d.gptsId, name: d.name, updatedAt, isPublic: d.isPublic };
   });
 
   out.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
