@@ -16,10 +16,13 @@ export async function GET(request: Request) {
     ]);
     const appliedId = binding?.gptsId ?? null;
 
-    const itemsCompat = items.map((it) => ({
+    type SvcItem = { gptsId: string; name?: string; updatedAt: Date; isPublic: boolean };
+
+    const itemsCompat = (items as SvcItem[]).map((it) => ({
       id: it.gptsId,
       name: it.name,
       updatedAt: it.updatedAt.toISOString(),
+      isPublic: it.isPublic,
     }));
     
     console.info(`[gpts.list:${rid}] done`, {
@@ -27,6 +30,10 @@ export async function GET(request: Request) {
       count: itemsCompat.length,
       appliedId,
       firstId: itemsCompat[0]?.id ?? null,
+      pubStats: {
+        public: itemsCompat.filter(i => i.isPublic).length,
+        private: itemsCompat.filter(i => !i.isPublic).length,
+      },
     });
     return NextResponse.json({ items: itemsCompat, appliedId });
   } catch (e) {

@@ -11,6 +11,7 @@ import RuleSection from "./components/RuleSection";
 import ScheduleEditor from "./components/ScheduleEditor";
 import FooterActions from "./components/FooterActions";
 import ConfirmModal from "./components/ConfirmModal";
+import VisibilitySection from "./components/VisibilitySection";
 import { sanitizeSchedulePatch } from "@/utils/schedulerTime";
 
 interface ApiErrorJson {
@@ -49,6 +50,7 @@ async function  readServerError(res: Response, fallback: string): Promise<string
 export default function Client({ id }: { id: string }) {
   const [name, setName] = useState<string>("");
   const [inst, setInst] = useState<string>("");
+  const [isPublic, setIsPublic] = useState<boolean>(true);
   const [sched, setSched] = useState<ScheduleDto | null>(null);
   const [schedToggle, setSchedToggle] = useState<boolean>(false); // 「登録ずみ｜未登録」の左（登録ずみ）= true
   const [loading, setLoading] = useState<boolean>(true);
@@ -99,6 +101,7 @@ export default function Client({ id }: { id: string }) {
         const data: GptsDetailResponse = j;
         setName(data.item.name);
         setInst(data.item.instpack);
+        setIsPublic(data.item.isPublic);
 
         // スケジュールは一覧を取得→先頭を編集対象に
         await refreshSchedules();
@@ -213,8 +216,8 @@ export default function Client({ id }: { id: string }) {
         }
       }
 
-      // 3. GPTS本体を保存（名前・ルール）
-      const body: GptsUpdateRequest = { name, instpack: inst };
+      // 3. GPTS本体を保存（名前・ルール・公開状態）
+      const body: GptsUpdateRequest = { name, instpack: inst, isPublic };
       const r = await fetch(`/api/gpts/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -402,6 +405,9 @@ export default function Client({ id }: { id: string }) {
       {/* === ルール === */}
       <RuleSection inst={inst} onChange={setInst} count={counts.inst} />
 
+      {/* ★ 公開/非公開（NameSection, RuleSection のあとに配置） */}
+      <VisibilitySection value={isPublic} onChange={setIsPublic} className="mt-3" />
+
       {/* === スケジュール === */}
       <ScheduleEditor
         sched={sched}
@@ -425,6 +431,7 @@ export default function Client({ id }: { id: string }) {
         onSave={() => void onSave()}
         name={name}
         inst={inst}
+        isPublic={isPublic}
         schedToggle={schedToggle}
         sched={sched}
       />

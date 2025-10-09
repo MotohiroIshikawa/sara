@@ -31,6 +31,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       gptsId: g.gptsId,
       name: g.name ?? "",
       inst_len: g.instpack.length,
+      isPublic: g.isPublic,
     });
 
     return NextResponse.json({
@@ -39,6 +40,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         name: g.name,
         instpack: g.instpack,
         updatedAt: new Date(g.updatedAt).toISOString(),
+        isPublic: g.isPublic,
       },
     });
   } catch (e) {
@@ -59,14 +61,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const name = 
       typeof (body as { name?: unknown }).name === "string" 
-      ? (body as { name: string }).name 
-      : undefined;
+        ? (body as { name: string }).name 
+        : undefined;
     const instpack = 
       typeof (body as { instpack?: unknown }).instpack === "string" 
-      ? (body as { instpack: string }).instpack 
-      : undefined;
+        ? (body as { instpack: string }).instpack 
+        : undefined;
+    const isPublic =
+      typeof (body as { isPublic?: unknown }).isPublic === "boolean"
+        ? (body as { isPublic: boolean }).isPublic
+        : undefined;
 
-    if (name === undefined && instpack === undefined) {
+    if (name === undefined && instpack === undefined && isPublic === undefined) {
       console.warn(`[gpts.update:${rid}] no_fields`, { userId, gptsId });
       return NextResponse.json({ error: "no_fields" }, { status: 400 });
     }

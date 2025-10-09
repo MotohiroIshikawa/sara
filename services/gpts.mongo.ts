@@ -30,6 +30,7 @@ export async function createGpts(input: {
     instpack: input.instpack,
     hash: sha256(input.instpack),
     // originalGptsId / autherUserId は作成時は未設定
+    isPublic: true,
   });
 
   const res = await colGpts.insertOne(doc as GptsDoc);
@@ -60,6 +61,7 @@ export async function updateGpts(params: {
   userId: string; // 所有者
   name?: string;
   instpack?: string;
+  isPublic?: boolean;
 }): Promise<GptsDoc | null> {
   const colGpts = await getGptsCollection();
 
@@ -68,6 +70,9 @@ export async function updateGpts(params: {
   if (typeof params.instpack === "string") {
     $set.instpack = params.instpack;
     $set.hash = sha256(params.instpack);
+  }
+  if (typeof params.isPublic === "boolean") {
+    $set.isPublic = params.isPublic;
   }
   if (Object.keys($set).length === 0) {
     return colGpts.findOne({ gptsId: params.gptsId, userId: params.userId });
@@ -112,6 +117,8 @@ export async function listGptsIdsByUser(userId: string): Promise<string[]> {
 
 /** コピー：正本を複製し、originalGptsId / autherUserId を付与。user_gpts にリンク作成 */
 /* TODO: コピーを作るようになったら復活
+/* ※isPublicをfalseにすること
+
 export async function copyGpts(params: {
   originalGptsId: string;       // コピー元
   userId: string;               // コピーする人
@@ -135,6 +142,7 @@ export async function copyGpts(params: {
     hash: src.hash ?? sha256(src.instpack),
     originalGptsId: src.gptsId,
     autherUserId: src.userId,
+    isPublic: src.isPublic ?? false,
   });
 
   const res = await colGpts.insertOne(cloned as GptsDoc);
