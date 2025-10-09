@@ -27,7 +27,6 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
 
       {/* 登録ずみ｜未登録 */}
       <div className="mt-3">
-        <div className={styles.fieldLabel}>スケジュール</div>
         <div className={styles.freqGroup} role="radiogroup" aria-label="スケジュール">
           {([
             { val: true as boolean, label: "登録ずみ" },

@@ -6,9 +6,9 @@ export interface ListItemProps {
   item: GptsListItem;
   applied: boolean;
   busy: boolean;
-  onEdit: (id: string) => void;   // ★ 親で router.push などを実行
-  onApply: (id: string) => void;  // ★ 親で fetch /use を実行
-  onDelete: (id: string) => void; // ★ 親で fetch DELETE を実行
+  onEdit: (id: string) => void;
+  onApply: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 
 export default function ListItem(props: ListItemProps): JSX.Element {
@@ -24,8 +24,11 @@ export default function ListItem(props: ListItemProps): JSX.Element {
           </div>
           <div className={styles.itemUpdated}>更新: {new Date(item.updatedAt).toLocaleString()}</div>
         </div>
-        {/* 選択中バッジ */}
-        {applied && <span className={styles.itemBadgeApplied}>選択中</span>}
+        {/* バッジ */}
+        <div className={styles.itemBadges}>
+          {applied && <span className={styles.itemBadgeApplied}>選択中</span>}
+          {!item.isPublic && <span className={styles.itemBadgePrivate}>非公開</span>}
+        </div>
       </div>
 
       {/* ボタン列 */}
