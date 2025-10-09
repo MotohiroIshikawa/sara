@@ -74,39 +74,28 @@ export async function updateGpts(params: {
   if (typeof params.isPublic === "boolean") {
     $set.isPublic = params.isPublic;
   }
+
+ // DEBUG
+  console.info("[gpts.update:debug] recv_params", {
+    gptsId: params.gptsId,
+    userId: params.userId,
+    hasName: typeof params.name === "string",
+    hasInst: typeof params.instpack === "string",
+    isPublic: typeof params.isPublic === "boolean" ? params.isPublic : "(unset)",
+  });
+
   if (Object.keys($set).length === 0) {
     return colGpts.findOne({ gptsId: params.gptsId, userId: params.userId });
   }
 
   // DEBUG
-  const pre = await colGpts.findOne(
-    { gptsId: params.gptsId, userId: params.userId },
-    { projection: { _id: 1, gptsId: 1, userId: 1, isPublic: 1 } }
+  const before: Pick<GptsDoc, "userId" | "isPublic"> | null = await colGpts.findOne(
+    { gptsId: params.gptsId },
+    { projection: { _id: 0, userId: 1, isPublic: 1 } }
   );
 
   // DEBUG
-  const before: Pick<GptsDoc, "gptsId" | "userId" | "isPublic"> | null =
-    await colGpts.findOne(
-      { gptsId: params.gptsId },
-      { projection: { _id: 0, gptsId: 1, userId: 1, isPublic: 1 } }
-    );
-
-  // DEBUG
-  const dbg = (s: string): number[] => Array.from(s).map(c => c.codePointAt(0) ?? 0);
-
-  // DEBUG
-  if (!pre) {
-    console.warn("[gpts.update:debug] pre_filter_miss", {
-      filter: { gptsId: params.gptsId, userId: params.userId },
-      beforeOwner: before?.userId ?? null,
-      // 差分チェック用（長さ・コードポイント）
-      len_client: params.userId.length,
-      len_db: before?.userId ? before.userId.length : null,
-      eq: before?.userId ? (params.userId === before.userId) : null,
-      cp_client: dbg(params.userId),
-      cp_db: before?.userId ? dbg(before.userId) : null,
-    });
-  }
+  console.info("[gpts.update:debug] $set", { $set });
 
   const res = await colGpts.findOneAndUpdate(
     { gptsId: params.gptsId, userId: params.userId },
@@ -115,20 +104,42 @@ export async function updateGpts(params: {
   );
 
   // DEBUG
-  console.info("[gpts.update:debug] raw_result:start");
-  console.dir(res, { depth: 5 });
-  console.info("[gpts.update:debug] raw_result:end");
+  const rawUnknown: unknown = res;
+  const hasWrapper: boolean =
+    rawUnknown !== null &&
+    typeof rawUnknown === "object" &&
+    "value" in (rawUnknown as Record<string, unknown>);
+  let updatedIsPublic: boolean | null = null;
+  if (hasWrapper) {
+    const v: unknown = (rawUnknown as { value: unknown }).value;
+    if (v && typeof v === "object" && "isPublic" in (v as Record<string, unknown>)) {
+      const ip: unknown = (v as { isPublic?: unknown }).isPublic;
+      updatedIsPublic = typeof ip === "boolean" ? ip : null;
+    }
+  } else if (rawUnknown && typeof rawUnknown === "object" && "isPublic" in (rawUnknown as Record<string, unknown>)) {
+    const ip: unknown = (rawUnknown as { isPublic?: unknown }).isPublic;
+    updatedIsPublic = typeof ip === "boolean" ? ip : null;
+  }
+  console.info("[gpts.update:debug] after_update", {
+    hasWrapper,
+    beforeIsPublic: before?.isPublic ?? null,
+    updatedIsPublic,
+  });
 
   // DEBUG
-  if (!res?.value) {
-    console.warn("[gpts.update:debug] not_matched", {
-      filter: { gptsId: params.gptsId, userId: params.userId },
-      beforeOwner: before?.userId ?? null,
-      beforeIsPublic: before?.isPublic ?? null,
+  if (typeof params.isPublic === "boolean" && updatedIsPublic !== null && updatedIsPublic !== params.isPublic) {
+    const afterRead: Pick<GptsDoc, "isPublic"> | null = await colGpts.findOne(
+      { gptsId: params.gptsId },
+      { projection: { _id: 0, isPublic: 1 } }
+    );
+    console.warn("[gpts.update:debug] mismatch_after_update", {
+      expected: params.isPublic,
+      updatedIsPublic,
+      afterReadIsPublic: afterRead?.isPublic ?? null,
     });
   }
 
-  return res?.value ?? null;
+  return res;
 }
 
 // 指定ユーザのgptsをすべて論理削除
