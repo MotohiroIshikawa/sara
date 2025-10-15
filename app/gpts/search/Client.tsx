@@ -56,13 +56,6 @@ export default function Client(): JSX.Element {
       setLoading(true);
       setErr(null);
 
-      // DEBUG
-      if (!liffId) {
-        setErr("LIFF設定エラー: NEXT_PUBLIC_LIFF_ID_SEARCH が未設定です"); // ★ UIに即出す
-        setLoading(false);
-        return;
-      }
-
       try {
         const sess = await ensureLiffSession({ liffId });
         if (!sess.ok) {

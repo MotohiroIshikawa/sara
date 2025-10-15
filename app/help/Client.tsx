@@ -34,13 +34,13 @@ export default function Client(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const liffIdHelp: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_HELP as string | undefined;
+  const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_HELP as string | undefined;
 
   // 初回：LIFFセッション→/api/help
   useEffect(() => {
     void (async () => {
       try {
-        const sess = await ensureLiffSession({ liffId: liffIdHelp });
+        const sess = await ensureLiffSession({ liffId });
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return;
           setErr("ログインに失敗しました");
@@ -66,7 +66,7 @@ export default function Client(): JSX.Element {
         setLoading(false);
       }
     })();
-  }, [liffIdHelp]);
+  }, [liffId]);
 
   // ===== Skeleton（listのSkeletonCard相当） =====
   if (loading) {
