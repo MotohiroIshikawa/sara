@@ -3,8 +3,6 @@ import { randomUUID } from "crypto";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { getPublicGptsDetail } from "@/services/gpts.mongo";
 
-type Params = { params: { id: string } };
-
 type PublicDetailItem = {
   id: string;
   name: string;
@@ -17,9 +15,12 @@ type PublicDetailResponse =
   | { item: PublicDetailItem }
   | { error: string };
 
-export async function GET(request: Request, ctx: Params) {
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const rid: string = randomUUID().slice(0, 8);
-  const gptsId: string = ctx.params.id;
+  const { id: gptsId } = await params;
 
   try {
     // 既存APIに合わせて要ログイン

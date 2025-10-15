@@ -77,7 +77,7 @@ export default function Client() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [liffId]);
 
   // 検索フィルタ（名前・ID・タグ）
   const filtered = useMemo<GptsListItem[]>(() => {
