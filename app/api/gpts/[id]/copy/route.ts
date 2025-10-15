@@ -5,19 +5,18 @@ import { copyGpts } from "@/services/gpts.mongo";
 import { isNonEmptyString } from "@/utils/types";
 import { setBinding } from "@/services/gptsBindings.mongo";
 
-type Params = { params: { id: string } };
-
-type CopyRequest = {
-  renameTo?: string;
-};
+type CopyRequest = { renameTo?: string; };
 
 type CopyResponse =
   | { ok: true; gptsId: string; name: string }
   | { error: string };
 
-export async function POST(request: Request, ctx: Params) {
+export async function POST(
+  request: Request, 
+  { params }: { params: Promise<{ id: string }> }
+) {
   const rid: string = randomUUID().slice(0, 8);
-  const originalGptsId: string = ctx.params.id;
+  const { id: originalGptsId } = await params;
 
   try {
     const userId: string = await requireLineUser(request);
@@ -42,14 +41,14 @@ export async function POST(request: Request, ctx: Params) {
     // 実行：公開かつ削除されていない元だけコピー可能（services 側で検証済み）
     const cloned = await copyGpts({ originalGptsId, userId, renameTo });
 
-    // コピーした GPTS をこのユーザに「適用」する
-    await setBinding({ type: "user", targetId: userId }, cloned.gptsId, cloned.instpack);
-
     if (!cloned) {
       console.warn(`[gpts.copy:${rid}] not_found_or_forbidden orig=${originalGptsId}`);
       const body: CopyResponse = { error: "not_found_or_forbidden" };
       return NextResponse.json(body, { status: 404 });
     }
+
+    // コピーした GPTS をこのユーザに「適用」する
+    await setBinding({ type: "user", targetId: userId }, cloned.gptsId, cloned.instpack);
 
     console.info(`[gpts.copy:${rid}] done`, {
       newId: cloned.gptsId,

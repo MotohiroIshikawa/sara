@@ -83,7 +83,7 @@ export default function Client(): JSX.Element {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, liffId]);
 
   // コピー開始
   const onStartCopy = useCallback((): void => {

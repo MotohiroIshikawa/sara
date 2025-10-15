@@ -105,7 +105,7 @@ export default function Client(): JSX.Element {
         setLoading(false);
       }
     })();
-  }, [qApplied, sort]);
+  }, [liffId, qApplied, sort]);
 
   // 一覧クリック → 詳細へ
   const onOpen = useCallback((id: string): void => {
