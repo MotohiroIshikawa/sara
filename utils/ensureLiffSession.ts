@@ -55,14 +55,14 @@ export async function ensureLiffSession(
   try {
     const liffId = options.liffId;
 
-    console.debug("[ensureLiffSession] start", {
+    console.info("[ensureLiffSession] start", {
       hasLiffId: !!liffId,
       loginIfNeeded: options.loginIfNeeded ?? true,
       loginUrl,
     });
 
     if (!liffId) {
-      console.warn("[ensureLiffSession] no_liff_id");
+      console.info("[ensureLiffSession] no_liff_id");
       return { ok: false, reason: "no_liff_id", detail: "liffId is required in options" };
     }
 
