@@ -57,6 +57,8 @@ export default function Client({ id }: { id: string }) {
   const [confirming, setConfirming] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_LIST as string | undefined;
+
   // スケジュール一覧の再取得
   const refreshSchedules = useCallback(async (opts?: { preserveToggle?: boolean }): Promise<void> => {
     const sres = await fetch(`/api/schedules?gptsId=${encodeURIComponent(id)}`, {
@@ -79,7 +81,7 @@ export default function Client({ id }: { id: string }) {
   useEffect(() => {
     void (async () => {
       try {
-        const sess = await ensureLiffSession();
+        const sess = await ensureLiffSession({ liffId });
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return;
           setErr("ログインに失敗しました");
@@ -111,7 +113,7 @@ export default function Client({ id }: { id: string }) {
         setLoading(false);
       }
     })();
-  }, [id, refreshSchedules]);
+  }, [id, liffId, refreshSchedules]);
 
   // 保存時の最終確定ロジックを追加（スケジュール → GPTS本体の順で確定）
   async function onSave(): Promise<void> {
