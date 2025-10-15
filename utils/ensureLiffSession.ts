@@ -39,6 +39,7 @@ async function logLiffIds(liff: Liff) {
       }
     } catch (e) {
       // getProfile は権限や環境で失敗することがある
+      console.debug("[ensureLiffSession] cannot get profile", e);
     }
     console.debug("[ensureLiffSession] LIFF IDs", { sub, msgUserId });
   } catch (e) {
@@ -52,8 +53,7 @@ export async function ensureLiffSession(
   options: EnsureLiffSessionOptions = {}
 ): Promise<EnsureLiffSessionResult> {
   try {
-    const liffId =
-      options.liffId ?? (process.env.NEXT_PUBLIC_LIFF_ID as string | undefined);
+    const liffId = options.liffId;
 
     console.debug("[ensureLiffSession] start", {
       hasLiffId: !!liffId,
@@ -63,7 +63,7 @@ export async function ensureLiffSession(
 
     if (!liffId) {
       console.warn("[ensureLiffSession] no_liff_id");
-      return { ok: false, reason: "no_liff_id", detail: "NEXT_PUBLIC_LIFF_ID is empty" };
+      return { ok: false, reason: "no_liff_id", detail: "liffId is required in options" };
     }
 
     const liffMod = await import("@line/liff");
