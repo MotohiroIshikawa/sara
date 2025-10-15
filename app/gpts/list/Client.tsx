@@ -25,6 +25,8 @@ export default function Client() {
   const [keyword, setKeyword] = useState(""); // 検索キーワード
   const [appliedId, setAppliedId] = useState<string | null>(null); // 選択中ハイライト
 
+  const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_LIST as string | undefined;
+
   // 成功表示用のトースト
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastOpen, setToastOpen] = useState(false);
@@ -37,10 +39,20 @@ export default function Client() {
     }, 1600);
   }
 
+  // 自前の削除確認モーダル用ステート
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState<boolean>(false);
+  const confirmName: string = useMemo<string>(() => {
+    if (!confirmId) return "";
+    const it = items.find((x) => x.id === confirmId);
+    return it?.name ?? "";
+  }, [confirmId, items]); 
+
   useEffect(() => {
     void (async () => {
       try {
-        const sess = await ensureLiffSession();
+        const sess = await ensureLiffSession({ liffId });
+
         if (!sess.ok) {
           if (sess.reason === "login_redirected") return; // ここで終了（復帰後に再実行される）
           setErr("ログインに失敗しました");
@@ -83,11 +95,18 @@ export default function Client() {
     router.push(href);
   }
   
-  // 削除
+  // 削除モーダルを開く
   async function onDelete(id: string): Promise<void> {
-    if (!confirm("このチャットルールを削除します。よろしいですか？")) return;
+    setConfirmId(id);
+  }
+
+  // 削除
+  async function doDelete(): Promise<void> {
+    const id: string | null = confirmId;
+    if (!id) return;
+    setConfirmBusy(true);
     setBusyId(id);
-    try {
+    try {                                                               
       const r = await fetch(`/api/gpts/${encodeURIComponent(id)}`, {
         method: "DELETE",
         credentials: "include",
@@ -102,6 +121,8 @@ export default function Client() {
       alert("削除時にエラーが発生しました");
     } finally {
       setBusyId((prev) => (prev === id ? null : prev));
+      setConfirmBusy(false);
+      setConfirmId(null);
     }
   }
 
@@ -198,6 +219,82 @@ export default function Client() {
           );
         })}
       </ul>
+
+      {/* 削除モーダル */}
+      {confirmId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-title"
+          className={styles.toastWrap}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+          onClick={() => { if (!confirmBusy) setConfirmId(null); }}
+        >
+          <div
+            className={styles.toast}
+            style={{
+              background: "#fff",
+              color: "#111",
+              minWidth: "280px",
+              maxWidth: "90vw",
+              borderRadius: "12px",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+              padding: "16px",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="confirm-title" className={styles.toastBody} style={{ fontWeight: 600, marginBottom: 8 }}>
+              このチャットルールを削除します。よろしいですか？
+            </h2>
+            <p className={styles.toastBody} style={{ marginBottom: 16, wordBreak: "break-word" }}>
+              {confirmName ? `対象: 「${confirmName}」` : `ID: ${confirmId}`}
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                disabled={confirmBusy}
+                onClick={() => setConfirmId(null)}
+                className={styles.searchInput}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  cursor: "pointer",
+                  opacity: confirmBusy ? 0.6 : 1,
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => { void doDelete(); }}
+                disabled={confirmBusy}
+                className={styles.searchInput}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #0ea5a4",
+                  background: "#10b981",
+                  color: "#fff",
+                  cursor: "pointer",
+                  opacity: confirmBusy ? 0.7 : 1,
+                }}
+              >
+                {confirmBusy ? "削除中…" : "削除する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 成功時のみ表示するトースト（下部固定） */}
       {toastOpen && toastMsg && (

@@ -25,17 +25,25 @@ export async function GET(request: Request) {
       isPublic: it.isPublic,
     }));
     
+    // 「適用中」を先頭に、それ以外は既存（更新降順）を維持
+    const sorted = (() => {
+      if (!appliedId) return itemsCompat;
+      const head = itemsCompat.find((x) => x.id === appliedId);
+      const tail = itemsCompat.filter((x) => x.id !== appliedId);
+      return head ? [head, ...tail] : itemsCompat;
+    })();
+
     console.info(`[gpts.list:${rid}] done`, {
       userId,
-      count: itemsCompat.length,
+      count: sorted.length,
       appliedId,
-      firstId: itemsCompat[0]?.id ?? null,
+      firstId: sorted[0]?.id ?? null,
       pubStats: {
-        public: itemsCompat.filter(i => i.isPublic).length,
-        private: itemsCompat.filter(i => !i.isPublic).length,
+        public: sorted.filter(i => i.isPublic).length,
+        private: sorted.filter(i => !i.isPublic).length,
       },
     });
-    return NextResponse.json({ items: itemsCompat, appliedId });
+    return NextResponse.json({ items: sorted, appliedId });
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 500;
     const msg = e instanceof HttpError ? e.message : "internal_error";
