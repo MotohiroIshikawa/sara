@@ -38,6 +38,7 @@ export default function Client(): JSX.Element {
   const [items, setItems] = useState<PublicSearchItem[]>([]);
   const [qApplied, setQApplied] = useState<string>(""); // 実際にAPIへ投げたキーワード表示用
 
+  const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_SEARCH as string | undefined;
 
   const [pendingQ, setPendingQ] = useState<string>("");
   useEffect(() => {
@@ -54,7 +55,6 @@ export default function Client(): JSX.Element {
     void (async () => {
       setLoading(true);
       setErr(null);
-      const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_SEARCH as string | undefined;
 
       // DEBUG
       if (!liffId) {
