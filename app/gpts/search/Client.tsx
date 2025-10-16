@@ -162,7 +162,16 @@ export default function Client(): JSX.Element {
       <SearchHeader />
       {/* 検索ボックス */}
       <div className={styles.searchWrap}>
-        <SearchBox value={keyword} onChange={setKeyword} placeholder={placeholder} />
+        <input
+          value={keyword}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            const v: string = e.target.value;
+            setKeyword(v);
+          }}
+          placeholder="チャットルール名で検索"
+          className={styles.searchInput}
+        />
+        <span className={styles.searchIcon}>🔎</span>
       </div>
       {/* ソートボタン */}
       <div className={styles.sortRow}>
