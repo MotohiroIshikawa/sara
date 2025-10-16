@@ -13,13 +13,18 @@ export default function SearchBox(props: SearchBoxProps): JSX.Element {
   const { value, onChange, placeholder } = props;
   const [local, setLocal] = useState<string>(value);
 
-  // 入力→遅延で親に反映（IME制御をやめてタイマーで吸収）
+  // 親valueが外部から更新されたときは同期
+  useEffect(() => {
+    setLocal(value);
+  }, [value]);
+
+  // 入力→0.3秒停止で親へ反映（debounce）
   useEffect(() => {
     const h = window.setTimeout(() => {
       if (local !== value) onChange(local);
-    }, 300); // ★ 300ms 停止したら反映
+    }, 300);
     return () => window.clearTimeout(h);
-  }, [local]);
+  }, [local, value, onChange]); // 依存を明示して警告を解消
 
   return (
     <div className={styles.searchWrap}>
