@@ -1,7 +1,7 @@
 // app/api/gpts/search/route.ts
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { searchPublicGpts, type PublicGptsSort } from "@/services/gpts.mongo";
+import { searchPublicGptsWithAuthor, type PublicGptsSort } from "@/services/gpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 
 type Query = {
@@ -17,6 +17,9 @@ type PublicSearchItem = {
   updatedAt: string;      // ISO8601
   isPublic: boolean;
   usageCount: number;
+  authorName: string;
+  isPopular: boolean;
+  isNew: boolean;
 };
 
 type PublicSearchResponse = {
@@ -51,7 +54,10 @@ export async function GET(request: Request) {
     const q: Query = parseQuery(request.url);
     console.info(`[gpts.search:${rid}] query`, q);
 
-    const results = await searchPublicGpts(q);
+    const results = await searchPublicGptsWithAuthor({
+      ...q,
+      excludeUserId: userId,
+    });
 
     const items: PublicSearchItem[] = results.map((r) => ({
       id: r.gptsId,
@@ -59,6 +65,9 @@ export async function GET(request: Request) {
       updatedAt: (r.updatedAt instanceof Date ? r.updatedAt : new Date(r.updatedAt)).toISOString(),
       isPublic: r.isPublic,
       usageCount: r.usageCount,
+      authorName: r.authorName,
+      isPopular: r.isPopular,
+      isNew: r.isNew,
     }));
 
     console.info(`[gpts.search:${rid}] done`, {

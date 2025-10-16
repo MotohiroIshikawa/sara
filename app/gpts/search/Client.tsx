@@ -16,6 +16,9 @@ type PublicSearchItem = {
   updatedAt: string;   // ISO8601
   isPublic: boolean;
   usageCount: number;
+  authorName: string;
+  isPopular: boolean;
+  isNew: boolean;
 };
 
 // レスポンス
@@ -191,7 +194,10 @@ export default function Client(): JSX.Element {
               name={it.name}
               updatedAt={it.updatedAt}
               usageCount={it.usageCount}
-              onOpen={onOpen}
+              authorName={it.authorName}
+              isPopular={it.isPopular}
+              isNew={it.isNew}
+              onOpen={onOpen} 
             />
           ))}
         </ul>
