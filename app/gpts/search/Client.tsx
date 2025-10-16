@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState, useCallback, type JSX } from "react";
 import { useRouter } from "next/navigation";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 import SearchHeader from "./components/SearchHeader";
-import SearchBox from "./components/SearchBox";
 import SortButtons, { type SortKey } from "./components/SortButtons";
 import SearchCard from "./components/SearchCard";
 import styles from "@/app/gpts/Client.module.css";
+import SearchBox from "@/components/SearchBox";
 
 // 検索レスポンス1件
 type PublicSearchItem = {
