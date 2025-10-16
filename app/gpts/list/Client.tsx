@@ -139,7 +139,7 @@ export default function Client(): JSX.Element {
             setKeyword(v);
             sessionStorage.setItem(STORE_KEYWORD, v);
           }}
-          placeholder="名前・IDで絞り込み"
+          placeholder="チャットルール名で検索"
           className={styles.searchInput}
         />
         <span className={styles.searchIcon}>🔎</span>

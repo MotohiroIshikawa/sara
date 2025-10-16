@@ -131,7 +131,9 @@
 .itemUpdated {
   @apply mt-1 text-xs text-gray-500;
 }
-
+.itemHover:hover {
+  @apply bg-gray-50 cursor-pointer transition;
+}
 /* バッジ */
 .itemBadgeApplied {
   @apply shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700;
