@@ -1,4 +1,5 @@
 import React, { type JSX } from "react";
+import styles from "@/app/gpts/Client.module.css";
 
 export type SortKey = "latest" | "popular";
 
@@ -10,39 +11,30 @@ export interface SortButtonsProps {
 export default function SortButtons(props: SortButtonsProps): JSX.Element {
   const { value, onChange } = props;
 
-  return (
-    <div className="flex gap-2">
-      <SortButton
-        active={value === "latest"}
-        onClick={() => onChange("latest")}
-      >
-        新着順
-      </SortButton>
-      <SortButton
-        active={value === "popular"}
-        onClick={() => onChange("popular")}
-      >
-        人気順
-      </SortButton>
-    </div>
-  );
-}
+  const options: Array<{ val: SortKey; label: string }> = [
+    { val: "latest", label: "新着順" },
+    { val: "popular", label: "人気順" },
+  ];
 
-function SortButton(props: { active: boolean; onClick: () => void; children: React.ReactNode }): JSX.Element {
-  const { active, onClick, children } = props;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        "px-3 py-2 rounded-md text-sm border " +
-        (active
-          ? "bg-emerald-600 text-white border-emerald-600"
-          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50")
-      }
-      aria-pressed={active}
-    >
-      {children}
-    </button>
+return (
+    <div className={styles.freqGroup} role="radiogroup" aria-label="ソート順">
+      {options.map((opt) => {
+        const active: boolean = value === opt.val;
+        return (
+          <button
+            key={opt.val}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            className={`${styles.pill} ${active ? styles.pillOn : styles.pillOff}`}
+            onClick={() => {
+              if (!active) onChange(opt.val);
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
