@@ -1,5 +1,5 @@
 import React, { type JSX } from "react";
-import styles from "../Client.module.css";
+import styles from "@/app/gpts/Client.module.css";
 
 export interface RuleSectionProps {
   inst: string;

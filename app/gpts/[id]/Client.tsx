@@ -5,14 +5,15 @@ import { ensureLiffSession } from "@/utils/ensureLiffSession";
 import { type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { isScheduleDto, isScheduleList } from "@/utils/scheduleGuards";
 import { canEnableSchedule } from "@/utils/scheduleValidators";
-import styles from "./Client.module.css";
+import styles from "@/app/gpts/Client.module.css";
 import NameSection from "./components/NameSection";
 import RuleSection from "./components/RuleSection";
 import ScheduleEditor from "./components/ScheduleEditor";
-import FooterActions from "./components/FooterActions";
+import FooterEditActions from "./components/FooterEditActions";
 import ConfirmModal from "./components/ConfirmModal";
 import VisibilitySection from "./components/VisibilitySection";
 import { sanitizeSchedulePatch } from "@/utils/schedulerTime";
+import { setFlash, showToastNow } from "@/utils/flashToast";
 
 interface ApiErrorJson {
   error?: string;
@@ -47,6 +48,42 @@ async function  readServerError(res: Response, fallback: string): Promise<string
   return `${fallback}\n詳細: ${String(res.status)} ${res.statusText}`;
 }
 
+// 保存完了時のトースト文言を状況に応じて最適化
+function buildUpdateFlashMessage(
+  initialName: string | null,
+  initialIsPublic: boolean | null,
+  initialSchedToggle: boolean | null,
+  name: string,
+  isPublic: boolean,
+  schedToggle: boolean
+): string {
+  const changedName: boolean = initialName !== null ? (name !== initialName) : false;
+  const changedPublish: boolean = initialIsPublic !== null ? (isPublic !== initialIsPublic) : false;
+  const changedSched: boolean = initialSchedToggle !== null ? (schedToggle !== initialSchedToggle) : false;
+
+  if (!changedName && !changedPublish && !changedSched) return "変更はありません。";
+
+  // 単独変更
+  if (changedName && !changedPublish && !changedSched) return "名前を更新しました。";
+  if (!changedName && changedPublish && !changedSched) return isPublic ? "公開にしました。" : "非公開にしました。";
+  if (!changedName && !changedPublish && changedSched) return schedToggle ? "スケジュールを有効にしました。" : "スケジュールを無効にしました。";
+
+  // 2項目変更
+  if (changedName && changedPublish && !changedSched) {
+    return isPublic ? "名前を更新し、公開にしました。" : "名前を更新し、非公開にしました。";
+  }
+  if (changedName && !changedPublish && changedSched) {
+    return schedToggle ? "名前を更新し、スケジュールを有効にしました。" : "名前を更新し、スケジュールを無効にしました。";
+  }
+  if (!changedName && changedPublish && changedSched) {
+    const pub: string = isPublic ? "公開にしました。" : "非公開にしました。";
+    const sch: string = schedToggle ? "スケジュールを有効にしました。" : "スケジュールを無効にしました。";
+    return `${pub}${sch}`;
+  }
+  // 3項目すべて変更
+  return "複数の設定を更新しました。";
+}
+
 export default function Client({ id }: { id: string }) {
   const [name, setName] = useState<string>("");
   const [inst, setInst] = useState<string>("");
@@ -56,6 +93,10 @@ export default function Client({ id }: { id: string }) {
   const [loading, setLoading] = useState<boolean>(true);
   const [confirming, setConfirming] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const [initialName, setInitialName] = useState<string | null>(null);
+  const [initialIsPublic, setInitialIsPublic] = useState<boolean | null>(null);
+  const [initialSchedToggle, setInitialSchedToggle] = useState<boolean | null>(null);
 
   const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_LIST as string | undefined;
 
@@ -74,9 +115,12 @@ export default function Client({ id }: { id: string }) {
         if (!opts?.preserveToggle) {
           setSchedToggle(Boolean(first));
         }
+        if (initialSchedToggle === null) {
+          setInitialSchedToggle(Boolean(first));
+        }
       }
     }
-  }, [id]);
+  }, [id, initialSchedToggle]);
 
   useEffect(() => {
     void (async () => {
@@ -105,6 +149,10 @@ export default function Client({ id }: { id: string }) {
         setInst(data.item.instpack);
         setIsPublic(data.item.isPublic);
 
+        // 初回のみスナップショットを記録
+        if (initialName === null) setInitialName((data.item.name ?? "") as string);
+        if (initialIsPublic === null) setInitialIsPublic(Boolean(data.item.isPublic));
+
         // スケジュールは一覧を取得→先頭を編集対象に
         await refreshSchedules();
       } catch {
@@ -113,7 +161,7 @@ export default function Client({ id }: { id: string }) {
         setLoading(false);
       }
     })();
-  }, [id, liffId, refreshSchedules]);
+  }, [id, initialIsPublic, initialName, liffId, refreshSchedules]);
 
   // 保存時の最終確定ロジックを追加（スケジュール → GPTS本体の順で確定）
   async function onSave(): Promise<void> {
@@ -134,7 +182,7 @@ export default function Client({ id }: { id: string }) {
           });
           if (!delRes.ok) {
             const msg: string = await readServerError(delRes, "スケジュールを未登録にできませんでした。通信環境をご確認のうえ、再度お試しください。");
-            alert(msg);
+            showToastNow(msg);
             return;
           }
         }
@@ -168,12 +216,12 @@ export default function Client({ id }: { id: string }) {
           });
           if (!cRes.ok) {
             const msg: string = await readServerError(cRes, "スケジュールの作成に失敗しました。通信環境をご確認のうえ、再度お試しください。");
-            alert(msg);
+            showToastNow(msg);
             return;
           }
           const createdJson: unknown = await cRes.json();
           if (!isScheduleDto(createdJson)) {
-            alert("サーバ応答が不正です（スケジュール作成）");
+            showToastNow("サーバ応答が不正です（スケジュール作成）");
             return;
           }
           current = createdJson as ScheduleDto;
@@ -183,7 +231,7 @@ export default function Client({ id }: { id: string }) {
         if (current.enabled) {
           const chk = canEnableSchedule(current);
           if (!chk.ok) {
-            alert(chk.message);
+            showToastNow(chk.message);
             return;
           }
           const eRes = await fetch(`/api/schedules/${current._id}/enable`, {
@@ -192,12 +240,12 @@ export default function Client({ id }: { id: string }) {
           });
           if (!eRes.ok) {
             const msg: string = await readServerError(eRes, "スケジュールの有効化に失敗しました。設定内容をご確認のうえ、再度お試しください。");
-            alert(msg);
+            showToastNow(msg);
             return;
           }
           const eJson: unknown = await eRes.json();
           if (!isScheduleDto(eJson)) {
-            alert("サーバ応答が不正です（有効化）");
+            showToastNow("サーバ応答が不正です（有効化）");
             return;
           }
         } else {
@@ -207,12 +255,12 @@ export default function Client({ id }: { id: string }) {
           });
           if (!dRes.ok) {
             const msg: string = await readServerError(dRes, "スケジュールの無効化に失敗しました。通信環境をご確認のうえ、再度お試しください。");
-            alert(msg);
+            showToastNow(msg);
             return;
           }
           const dJson: unknown = await dRes.json();
           if (!isScheduleDto(dJson)) {
-            alert("サーバ応答が不正です（無効化）");
+            showToastNow("サーバ応答が不正です（無効化）");
             return;
           }
         }
@@ -228,14 +276,25 @@ export default function Client({ id }: { id: string }) {
       });
       if (!r.ok) {
         const msg: string = await readServerError(r, "チャットルールの保存に失敗しました。通信環境をご確認のうえ、再度お試しください。");
-        alert(msg);
+        showToastNow(msg);
         return;
       }
+
+      // 単独変更の種類を判定してフラッシュ文言を決定
+      const flashMsg: string = buildUpdateFlashMessage(
+        initialName,
+        initialIsPublic,
+        initialSchedToggle,
+        name,
+        isPublic,
+        schedToggle
+      );
+      setFlash(flashMsg);     
 
       // 完了 → 一覧へ
       window.location.href = "/gpts/list";
     } catch {
-      alert("保存処理中にエラーが発生しました。時間をおいて再度お試しください。");
+      showToastNow("保存処理中にエラーが発生しました。時間をおいて再度お試しください。");
     }
   }
 
@@ -270,13 +329,13 @@ export default function Client({ id }: { id: string }) {
             body: JSON.stringify(payload),
           });
           if (!res.ok) {
-            alert("スケジュールの作成に失敗しました");
+            showToastNow("スケジュールの作成に失敗しました");
             setSchedToggle(false);
             return;
           }
           const created: unknown = await res.json();
           if (!isScheduleDto(created)) {
-            alert("スケジュール応答形式が不正です");
+            showToastNow("スケジュール応答形式が不正です");
             setSchedToggle(false);
             return;
           }
@@ -293,13 +352,13 @@ export default function Client({ id }: { id: string }) {
             credentials: "include",
           });
           if (!res.ok) {
-            alert("スケジュールの無効化に失敗しました");
+            showToastNow("スケジュールの無効化に失敗しました");
             setSchedToggle(true);
             return;
           }
           const j: unknown = await res.json();
           if (!isScheduleDto(j)) {
-            alert("スケジュール応答形式が不正です");
+            showToastNow("スケジュール応答形式が不正です");
             setSchedToggle(true);
             return;
           }
@@ -310,7 +369,7 @@ export default function Client({ id }: { id: string }) {
         }
       }
     } catch {
-      alert("スケジュール切替に失敗しました");
+      showToastNow("スケジュール切替に失敗しました");
       setSchedToggle(Boolean(sched));
     }
   }
@@ -327,18 +386,18 @@ export default function Client({ id }: { id: string }) {
         body: JSON.stringify(normalized),
       });
       if (!res.ok) {
-        alert("更新に失敗しました");
+        showToastNow("更新に失敗しました");
         return;
       }
       const j: unknown = await res.json();
       if (!isScheduleDto(j)) {
-        alert("スケジュール応答形式が不正です");
+        showToastNow("スケジュール応答形式が不正です");
         return;
       }
       setSched(j as ScheduleDto);
       await refreshSchedules({ preserveToggle: true });
     } catch {
-      alert("スケジュール更新時にエラーが発生しました");
+      showToastNow("スケジュール更新時にエラーが発生しました");
     }
   }
 
@@ -351,18 +410,18 @@ export default function Client({ id }: { id: string }) {
         credentials: "include",
       });
       if (!res.ok) {
-        alert("有効化に失敗しました");
+        showToastNow("有効化に失敗しました");
         return;
       }
       const j: unknown = await res.json();
       if (!isScheduleDto(j)) {
-        alert("スケジュール応答形式が不正です");
+        showToastNow("スケジュール応答形式が不正です");
         return;
       }
       setSched(j as ScheduleDto);
       await refreshSchedules({ preserveToggle: true });
     } catch {
-      alert("有効化でエラーが発生しました");
+      showToastNow("有効化でエラーが発生しました");
     }
   }
 
@@ -375,18 +434,18 @@ export default function Client({ id }: { id: string }) {
         credentials: "include",
       });
       if (!res.ok) {
-        alert("無効化に失敗しました");
+        showToastNow("無効化に失敗しました");
         return;
       }
       const j: unknown = await res.json();
       if (!isScheduleDto(j)) {
-        alert("スケジュール応答形式が不正です");
+        showToastNow("スケジュール応答形式が不正です");
         return;
       }
       setSched(j as ScheduleDto);
       await refreshSchedules({ preserveToggle: true });
     } catch {
-      alert("無効化でエラーが発生しました");
+      showToastNow("無効化でエラーが発生しました");
     }
   }
 
@@ -407,7 +466,7 @@ export default function Client({ id }: { id: string }) {
       {/* === ルール === */}
       <RuleSection inst={inst} onChange={setInst} count={counts.inst} />
 
-      {/* ★ 公開/非公開（NameSection, RuleSection のあとに配置） */}
+      {/* 公開/非公開（NameSection, RuleSection のあとに配置） */}
       <VisibilitySection isPublic={isPublic} onChange={setIsPublic} />
 
       {/* === スケジュール === */}
@@ -421,7 +480,7 @@ export default function Client({ id }: { id: string }) {
       />
 
       {/* フッター操作 */}
-      <FooterActions
+      <FooterEditActions
         onBack={() => window.history.back()}
         onConfirm={() => setConfirming(true)}
       />
