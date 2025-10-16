@@ -144,6 +144,12 @@
 .itemBadges {
   @apply flex flex-col items-end gap-1;
 }
+.itemBadgePopular {
+  @apply inline-block rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700; /* ★ 赤 */
+}
+.itemBadgeNew {
+  @apply inline-block rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700; /* ★ 青 */
+}
 
 /* =========================================
    search ページ固有（search/Client.module.css 由来）

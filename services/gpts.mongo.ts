@@ -4,9 +4,15 @@ import type { GptsDoc, UserGptsDoc } from "@/types/db";
 import { 
   getGptsCollection, 
   getUserGptsCollection,
+  getUsersCollection,
   touchForUpdate,
   withTimestampsForCreate
 } from "@/utils/mongo";
+import { envInt } from "@/utils/env";
+
+// チャットルール検索の閾値定義
+const POPULAR_TOP_N: number = envInt("SEARCH_POPULAR_TOP", 10);
+const NEW_DAYS: number = envInt("SEARCH_NEW_DAYS", 3);
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -254,12 +260,111 @@ export async function searchPublicGpts(params: {
   return out;
 }
 
-// 公開GPTSの詳細（存在しない/非公開/削除済みは null） 
-export async function getPublicGptsDetail(gptsId: string): Promise<Pick<GptsDoc, "gptsId" | "name" | "instpack" | "updatedAt" | "isPublic"> | null> {
-  const colGpts = await getGptsCollection();
-  const doc = await colGpts.findOne(
-    { gptsId, isPublic: true, deletedAt: { $exists: false } },
+// 公開GPTSの詳細
+export async function getPublicGptsDetail(gptsId: string): Promise<Pick<GptsDoc, "gptsId" | "name" | "instpack" | "updatedAt" | "isPublic"> | null>{
+  const colGpts = await getGptsCollection(); 
+  const doc = await colGpts.findOne( 
+    { gptsId, isPublic: true, deletedAt: { $exists: false } }, 
     { projection: { _id: 0, gptsId: 1, name: 1, instpack: 1, updatedAt: 1, isPublic: 1 } }
   );
   return doc ?? null;
+}
+
+// 公開GPTSを検索（作者名・人気・NEWバッジ付きの拡張版）
+export async function searchPublicGptsWithAuthor(params: {
+  q?: string;
+  sort?: PublicGptsSort;
+  limit?: number;
+  offset?: number;
+  excludeUserId?: string;
+}): Promise<
+  Array<
+    PublicGptsSearchItem & {
+      authorName: string;
+      isPopular: boolean;
+      isNew: boolean;
+    }
+  >
+> {
+  const gptsCol = await getGptsCollection();
+  const usersCol = await getUsersCollection();
+
+  const q: string | undefined = params.q;
+  const sort: PublicGptsSort = params.sort ?? "latest";
+  const limit: number = Math.min(Math.max(params.limit ?? 20, 1), 50);
+  const offset: number = Math.max(params.offset ?? 0, 0);
+
+  // 検索条件
+  const match: Record<string, unknown> = {
+    isPublic: true,
+    deletedAt: { $exists: false },
+    name: { $type: "string", $ne: "" },
+  };
+  if (q) {
+    match.name = { $regex: q, $options: "i" };
+  }
+  if (params.excludeUserId) {
+    match.userId = { $ne: params.excludeUserId }; // 自分のものを除外
+  }
+
+  const pipeline: Document[] = [
+    { $match: match },
+    {
+      $lookup: {
+        from: "gpts",
+        localField: "gptsId",
+        foreignField: "originalGptsId",
+        as: "children",
+      },
+    },
+    {
+      $addFields: {
+        usageCount: {
+          $size: {
+            $filter: {
+              input: { $ifNull: ["$children", []] },
+              as: "c",
+              cond: { $eq: [{ $ifNull: ["$$c.deletedAt", null] }, null] },
+            },
+          },
+        },
+      },
+    },
+    { $project: { _id: 0, gptsId: 1, name: 1, updatedAt: 1, isPublic: 1, usageCount: 1, userId: 1 } },
+    ...(sort === "popular"
+      ? [{ $sort: { usageCount: -1, updatedAt: -1 } } as Document]
+      : [{ $sort: { updatedAt: -1 } } as Document]),
+    { $skip: offset },
+    { $limit: limit },
+  ];
+
+  type Row = {
+    gptsId: string;
+    name: string;
+    updatedAt: Date;
+    isPublic: boolean;
+    usageCount: number;
+    userId: string;
+  };
+  const docs = await gptsCol.aggregate<Row>(pipeline).toArray();
+
+  // 人気判定用 threshold
+  const counts = docs.map((d) => d.usageCount);
+  const popularThreshold = 
+    counts.sort((a, b) => b - a)[POPULAR_TOP_N - 1] ?? Math.max(...counts, 0);
+
+  const now = Date.now();
+  const newLimitMs = NEW_DAYS * 24 * 60 * 60 * 1000;
+
+  const out = await Promise.all(
+    docs.map(async (d) => {
+      const user = await usersCol.findOne({ userId: d.userId });
+      const authorName = user?.displayName ?? "不明";
+      const isPopular = d.usageCount >= popularThreshold && d.usageCount > 0;
+      const isNew = now - new Date(d.updatedAt).getTime() < newLimitMs;
+      return { ...d, authorName, isPopular, isNew };
+    })
+  );
+
+  return out;
 }
