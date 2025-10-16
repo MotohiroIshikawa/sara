@@ -1,7 +1,7 @@
 @reference "../globals.css";
 
 /* =========================================
-   共通
+   共通（list を正）
    ========================================= */
 
 /* レイアウト */
@@ -19,16 +19,16 @@
   @apply text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3;
 }
 
-/* リスト */
+/* リスト（list を正） */
 .list {
   @apply space-y-3;
 }
-/* search 用のグリッド表現 */
+/* ★ search 用のグリッド表現（既存互換用） */
 .listGrid {
   @apply grid gap-3;
 }
 
-/* スケルトン / 空表示 */
+/* スケルトン / 空表示（list を正） */
 .skelLine1 {
   @apply h-4 w-40 animate-pulse rounded bg-gray-200;
 }
@@ -48,7 +48,7 @@
   @apply mt-1 text-sm text-gray-500;
 }
 
-/* search 側で使っていた単一クラス名互換 */
+/* ★ search 側で使っていた単一クラス名互換 */
 .skeleton {
   @apply rounded-2xl border border-gray-200 bg-white p-4 shadow-sm animate-pulse;
 }
@@ -88,7 +88,7 @@
 }
 
 /* =========================================
-   list ページ固有
+   list ページ固有（list/Client.module.css 由来）
    ========================================= */
 
 .header {
@@ -109,5 +109,172 @@
   @apply relative;
 }
 .searchInput {
-  @apply w-full rounded-xl border px-4 py-3 pr-10 text-[15px];
+  @apply w-full rounded-xl border px-4 py-3 pr-10 text-[15px] outline-none focus:ring-2 focus:ring-blue-500;
+}
+.searchIcon {
+  @apply pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm;
+}
+
+/* リスト行（item カード） */
+.item {
+  @apply rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:scale-[0.995];
+}
+.itemApplied {
+  @apply border-green-500 ring-1 ring-green-200;
+}
+.itemHeader {
+  @apply flex items-start justify-between gap-3 min-w-0;
+}
+.itemTitle {
+  @apply font-medium max-w-full truncate;
+}
+.itemUpdated {
+  @apply mt-1 text-xs text-gray-500;
+}
+
+/* バッジ */
+.itemBadgeApplied {
+  @apply shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700;
+}
+.itemBadgePrivate {
+  @apply shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500;
+}
+.itemBadges {
+  @apply flex flex-col items-end gap-1;
+}
+
+/* =========================================
+   search ページ固有（search/Client.module.css 由来）
+   ※ list を正に寄せつつ、クラス名は維持
+   ========================================= */
+
+/* 見出し（SearchHeader で使用想定） */
+.searchHeader { /* ★ 元: .header（search）と衝突するため改名 */
+  @apply flex items-end justify-between;
+}
+.searchHeaderTitle { /* ★ 元: .headerTitle（search） */
+  @apply text-2xl font-bold tracking-tight;
+}
+.searchHeaderSub { /* ★ 元: .headerSub（search） */
+  @apply text-sm text-gray-500 mt-1;
+}
+
+/* 検索ボックス（search 専用サイズ感） */
+.searchBoxWrap { /* ★ 元: .searchWrap（search と衝突回避） */
+  @apply relative;
+}
+.searchBoxInput { /* ★ 元: .searchInput（search と衝突回避） */
+  @apply w-full rounded-md border border-gray-300 pl-10 pr-3 py-2 text-[14px] outline-none focus:ring-2 focus:ring-emerald-500;
+}
+.searchBoxIcon { /* ★ 元: .searchIcon（search と衝突回避） */
+  @apply absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 select-none;
+}
+
+/* ソートボタン行 */
+.sortRow {
+  @apply flex gap-2;
+}
+
+/* カードホバー */
+.cardHover {
+  @apply hover:shadow-md transition-shadow;
+}
+
+/* エラー/空 */
+.empty {
+  @apply rounded-md border border-gray-200 bg-gray-50 px-3 py-8 text-center text-sm text-gray-500;
+}
+
+/* =========================================
+   [id] ページ固有（[id]/Client.module.css 由来）
+   ※ list を正に合わせつつ、クラス名は維持
+   ========================================= */
+
+.title {
+  @apply text-base font-semibold;
+}
+
+.inputText {
+  @apply mt-2 w-full rounded-xl border px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-green-500;
+}
+
+.textarea {
+  @apply mt-2 w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:ring-2 focus:ring-green-500 min-h-[55vh] md:min-h-[60vh] resize-y;
+}
+
+.counter {
+  @apply mt-1 text-right text-[11px] text-gray-500;
+}
+
+.pill {
+  @apply px-4 py-2 rounded-full border text-sm;
+}
+.pillOn {
+  @apply bg-emerald-700 text-white border-emerald-700;
+}
+.pillOff {
+  @apply bg-white text-gray-700 border-gray-300 hover:bg-gray-50;
+}
+
+.numberInput {
+  @apply mt-2 w-24 px-3 py-2 border rounded-lg h-10 text-sm;
+}
+.timeInput {
+  @apply px-3 py-2 border rounded-lg h-10 text-sm;
+}
+
+.footer {
+  @apply sticky bottom-2 z-10 mt-2 flex gap-2;
+}
+.footerBtnGray {
+  @apply flex-1 rounded-full bg-gray-200 px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-400;
+}
+.footerBtnGreen {
+  @apply flex-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600;
+}
+.footerBtnYellowDisabled {
+  @apply flex-1 rounded-full bg-yellow-300 px-4 py-2 text-sm font-medium text-black cursor-not-allowed opacity-90 focus:outline-none focus:ring-2 focus:ring-yellow-400;
+}
+.footerBtnDanger {
+  @apply flex-1 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500;
+}
+.footerBtnBack {
+  @apply flex-1 rounded-full bg-gray-200 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400;
+}
+
+.dialogNote {
+  @apply mt-2 text-[12px] text-amber-700;
+}
+
+.modal {
+  @apply fixed inset-0 z-50 bg-white overflow-auto;
+}
+
+.codeBlock {
+  @apply mt-1 max-h-[60vh] overflow-auto rounded-md bg-gray-50 p-3 text-[14px] leading-relaxed whitespace-pre-wrap break-words overflow-x-hidden;
+}
+
+.helpText {
+  @apply text-sm text-gray-600;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[11px] font-medium;
+}
+
+.fieldLabel {
+  @apply text-sm font-medium;
+}
+
+.freqGroup {
+  @apply mt-2 flex gap-2 flex-wrap;
+}
+.freqPill {
+  @apply px-4 py-2 rounded-full border text-sm;
+}
+.freqPillOn {
+  @apply bg-emerald-700 text-white border-emerald-700;
+}
+.freqPillOff {
+  @apply bg-white text-gray-700 border-gray-300 hover:bg-gray-50;
 }
