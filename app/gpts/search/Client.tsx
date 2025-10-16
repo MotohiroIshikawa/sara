@@ -1,19 +1,20 @@
+// app/gpts/search/Client.tsx
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, type JSX } from "react";
+import { useEffect, useState, useCallback, type JSX } from "react";
 import { useRouter } from "next/navigation";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 import SearchHeader from "./components/SearchHeader";
 import SortButtons, { type SortKey } from "./components/SortButtons";
 import SearchCard from "./components/SearchCard";
-import styles from "@/app/gpts/Client.module.css";
 import SearchBox from "@/components/SearchBox";
+import styles from "@/app/gpts/Client.module.css";
 
 // 検索レスポンス1件
 type PublicSearchItem = {
   id: string;
   name: string;
-  updatedAt: string;   // ISO8601
+  updatedAt: string; // ISO8601
   isPublic: boolean;
   usageCount: number;
   authorName: string;
@@ -40,22 +41,14 @@ export default function Client(): JSX.Element {
   const [sort, setSort] = useState<SortKey>("latest");
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // API結果（原本）とフィルタ後
+  const [itemsAll, setItemsAll] = useState<PublicSearchItem[]>([]);
   const [items, setItems] = useState<PublicSearchItem[]>([]);
-  const [qApplied, setQApplied] = useState<string>(""); // 実際にAPIへ投げたキーワード表示用
 
   const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_SEARCH as string | undefined;
 
-  const [pendingQ, setPendingQ] = useState<string>("");
-  useEffect(() => {
-    setPendingQ(keyword);
-    const h: number = window.setTimeout(() => {
-      setQApplied((prev) => (prev !== pendingQ ? pendingQ : prev)); // 変更時のみ更新
-    }, 300);
-    return () => window.clearTimeout(h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyword]);
-
-  // 初回 & 条件変更時のロード
+  // 初回・ソート変更時にだけAPI呼び出し（キーワードでは呼ばない）
   useEffect(() => {
     void (async () => {
       setLoading(true);
@@ -71,9 +64,8 @@ export default function Client(): JSX.Element {
         }
 
         const sp: URLSearchParams = new URLSearchParams();
-        if (qApplied.trim().length > 0) sp.set("q", qApplied.trim());
         sp.set("sort", sort);
-        sp.set("limit", "30");
+        sp.set("limit", "50");
         sp.set("offset", "0");
 
         const url: string = `/api/gpts/search?${sp.toString()}`;
@@ -85,6 +77,7 @@ export default function Client(): JSX.Element {
             (typeof (j as ApiErrorResponse)?.error === "string" && (j as ApiErrorResponse).error) ||
             "検索に失敗しました";
           setErr(msg);
+          setItemsAll([]);
           setItems([]);
           setLoading(false);
           return;
@@ -97,21 +90,43 @@ export default function Client(): JSX.Element {
 
         if (!ok) {
           setErr("予期しない応答形式です");
+          setItemsAll([]);
           setItems([]);
           setLoading(false);
           return;
         }
 
         const body: PublicSearchResponse = j as PublicSearchResponse;
-        setItems(body.items);
+        setItemsAll(body.items);
+        setItems(body.items); // 初期は全件表示
       } catch {
         setErr("検索に失敗しました");
+        setItemsAll([]);
         setItems([]);
       } finally {
         setLoading(false);
       }
     })();
-  }, [liffId, qApplied, sort]);
+  }, [liffId, sort]);
+
+  // 内部フィルタ処理（API呼び出しなし）
+  useEffect(() => {
+    const k: string = keyword.trim().toLowerCase();
+    if (k.length === 0) {
+      setItems(itemsAll);
+      return;
+    }
+
+    const filtered: PublicSearchItem[] = itemsAll.filter((it: PublicSearchItem) => {
+      const pool: string[] = [
+        it.name ?? "",
+        it.id ?? "",
+        it.authorName ?? "",
+      ];
+      return pool.some((v: string) => v.toLowerCase().includes(k));
+    });
+    setItems(filtered);
+  }, [keyword, itemsAll]);
 
   // カードの「開く」→ 詳細へ
   const onOpen = useCallback((id: string): void => {
@@ -119,27 +134,17 @@ export default function Client(): JSX.Element {
     router.push(href);
   }, [router]);
 
-  // 検索ボックスのプレースホルダ（ヒント表示）
-  const placeholder: string = useMemo<string>(() => {
-    return sort === "popular" ? "タイトルで検索（人気順）" : "タイトルで検索（新着順）";
-  }, [sort]);
-
-   // ローディング表示
+  // ローディング
   if (loading) {
     return (
       <main className={styles.container}>
         <SearchHeader />
-        {/* 検索ボックス */}
-        <div className={styles.searchWrap}>
-          <SearchBox value={keyword} onChange={setKeyword} placeholder={placeholder} />
-        </div>
-        {/* ソートボタン */}
+        <SearchBox value={keyword} onChange={setKeyword} placeholder="チャットルール名で検索" />
         <div className={styles.sortRow}>
           <SortButtons value={sort} onChange={setSort} />
         </div>
-        {/* Skeleton 的な簡易プレースホルダ */}
         <ul className={styles.listGrid}>
-          {Array.from({ length: 5 }).map((_, i) => (
+          {Array.from({ length: 5 }).map((_, i: number) => (
             <li key={i} className={styles.skeleton}>
               <div className="h-4 w-1/3 bg-gray-200 rounded mb-2" />
               <div className="h-3 w-1/2 bg-gray-200 rounded" />
@@ -150,7 +155,7 @@ export default function Client(): JSX.Element {
     );
   }
 
-  // エラー表示
+  // エラー
   if (err) {
     return (
       <main className={styles.container}>
@@ -160,29 +165,20 @@ export default function Client(): JSX.Element {
     );
   }
 
+  // 本体
   return (
     <main className={styles.container}>
       <SearchHeader />
-      {/* 検索ボックス */}
-      <SearchBox
-        value={keyword}
-        onChange={(v) => setKeyword(v)}
-        placeholder="チャットルール名で検索"
-      />
-
-      {/* ソートボタン */}
+      <SearchBox value={keyword} onChange={setKeyword} placeholder="チャットルール名で検索" />
       <div className={styles.sortRow}>
         <SortButtons value={sort} onChange={setSort} />
       </div>
 
-      {/* 結果カード */}
       {items.length === 0 ? (
-        <div className={styles.empty}>
-          見つかりませんでした。キーワードやソートを変更してお試しください。
-        </div>
+        <div className={styles.empty}>見つかりませんでした。キーワードやソートを変更してお試しください。</div>
       ) : (
         <ul className={styles.listGrid}>
-          {items.map((it) => (
+          {items.map((it: PublicSearchItem) => (
             <SearchCard
               key={it.id}
               id={it.id}
@@ -192,7 +188,7 @@ export default function Client(): JSX.Element {
               authorName={it.authorName}
               isPopular={it.isPopular}
               isNew={it.isNew}
-              onOpen={onOpen} 
+              onOpen={onOpen}
             />
           ))}
         </ul>
