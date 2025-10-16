@@ -1,52 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 import { useRouter } from "next/navigation";
 import {
   type GptsListItem,
   type GptsListResponse,
-  type GptsApplyResponse,
   isGptsListResponse,
-  isGptsApplyResponse,
 } from "@/utils/types";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
-import styles from "./Client.module.css";
+import styles from "@/app/gpts/Client.module.css";
 import Header from "./components/Header";
 import SkeletonCard from "./components/SkeletonCard";
 import EmptyCard from "./components/EmptyCard";
 import ListItem from "./components/ListItem";
 
-export default function Client() {
+const STORE_KEYWORD: string = "gptsList.keyword";
+const STORE_SCROLLY: string = "gptsList.scrollY";
+
+export default function Client(): JSX.Element {
   const router = useRouter();
   const [items, setItems] = useState<GptsListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null); // 連打防止
-  const [keyword, setKeyword] = useState(""); // 検索キーワード
+  const [keyword, setKeyword] = useState<string>(""); // 検索キーワード
   const [appliedId, setAppliedId] = useState<string | null>(null); // 選択中ハイライト
 
   const liffId: string | undefined = process.env.NEXT_PUBLIC_LIFF_ID_LIST as string | undefined;
-
-  // 成功表示用のトースト
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [toastOpen, setToastOpen] = useState(false);
-  function openToast(msg: string): void {
-    setToastMsg(msg);
-    setToastOpen(true);
-    setTimeout(() => {
-      setToastOpen(false);
-      setToastMsg(null);
-    }, 1600);
-  }
-
-  // 自前の削除確認モーダル用ステート
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [confirmBusy, setConfirmBusy] = useState<boolean>(false);
-  const confirmName: string = useMemo<string>(() => {
-    if (!confirmId) return "";
-    const it = items.find((x) => x.id === confirmId);
-    return it?.name ?? "";
-  }, [confirmId, items]); 
 
   useEffect(() => {
     void (async () => {
@@ -75,11 +54,29 @@ export default function Client() {
         setErr("読み込みに失敗しました");
       } finally {
         setLoading(false);
+
+        const savedKw: string | null = sessionStorage.getItem(STORE_KEYWORD);
+        if (typeof savedKw === "string") {
+          setKeyword(savedKw);
+        }
       }
     })();
   }, [liffId]);
 
-  // 検索フィルタ（名前・ID・タグ）
+  // スクロール位置復元（loading解除後 & items反映後）
+  useEffect(() => {
+    if (loading) return;
+    const yStr: string | null = sessionStorage.getItem(STORE_SCROLLY);
+    const y: number = yStr ? Number(yStr) : 0;
+    if (!Number.isNaN(y) && y > 0) {
+      // DOM描画完了後に復元
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: y, behavior: "auto" });
+      });
+    }
+  }, [loading, items.length]);
+
+  // 検索フィルタ（名前・ID）
   const filtered = useMemo<GptsListItem[]>(() => {
     if (!keyword.trim()) return items;
     const k: string = keyword.trim().toLowerCase();
@@ -89,68 +86,11 @@ export default function Client() {
     });
   }, [items, keyword]);
 
-  // 編集（親で遷移実行）
-  function onEdit(id: string): void {
-    const href: string = `/gpts/${encodeURIComponent(id)}`;
+  // カードタップで詳細へ遷移
+  function onOpen(id: string): void {
+    sessionStorage.setItem(STORE_SCROLLY, String(window.scrollY));
+    const href: string = `/gpts/${encodeURIComponent(id)}/detail`;
     router.push(href);
-  }
-  
-  // 削除モーダルを開く
-  async function onDelete(id: string): Promise<void> {
-    setConfirmId(id);
-  }
-
-  // 削除
-  async function doDelete(): Promise<void> {
-    const id: string | null = confirmId;
-    if (!id) return;
-    setConfirmBusy(true);
-    setBusyId(id);
-    try {                                                               
-      const r = await fetch(`/api/gpts/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!r.ok) {
-        alert("削除に失敗しました");
-        return;
-      }
-      setItems((prev) => prev.filter((x) => x.id !== id));
-      if (appliedId === id) setAppliedId(null); // 選択中の場合は選択中を消す
-    } catch {
-      alert("削除時にエラーが発生しました");
-    } finally {
-      setBusyId((prev) => (prev === id ? null : prev));
-      setConfirmBusy(false);
-      setConfirmId(null);
-    }
-  }
-
-  // 選択中
-  async function onApply(id: string): Promise<void> {
-    setBusyId(id);
-    try {
-      const r = await fetch(`/api/gpts/${encodeURIComponent(id)}/use`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const j: unknown = await r.json();
-      if (!r.ok) {
-        alert("選択に失敗しました");
-        return;
-      }
-      if (isGptsApplyResponse(j)) {
-        const data: GptsApplyResponse = j;
-        setAppliedId(id);
-        openToast(`「${data.name || "選択したルール"}」を選択しました。`);
-      } else {
-        alert("応答形式が不正です");
-      }
-    } catch {
-      alert("選択時にエラーが発生しました");
-    } finally {
-      setBusyId((prev) => (prev === id ? null : prev));
-    }
   }
 
   // ローディング
@@ -194,7 +134,11 @@ export default function Client() {
       <div className={styles.searchWrap}>
         <input
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => {
+            const v: string = e.target.value;
+            setKeyword(v);
+            sessionStorage.setItem(STORE_KEYWORD, v);
+          }}
           placeholder="名前・IDで絞り込み"
           className={styles.searchInput}
         />
@@ -204,107 +148,17 @@ export default function Client() {
       {/* リスト */}
       <ul className={styles.list}>
         {filtered.map((it) => {
-          const isBusy: boolean = busyId === it.id;
           const applied: boolean = appliedId === it.id;
           return (
             <ListItem
               key={it.id}
               item={it}
               applied={applied}
-              busy={isBusy}
-              onEdit={onEdit}
-              onApply={onApply}
-              onDelete={onDelete}
+              onOpen={onOpen}
             />
           );
         })}
       </ul>
-
-      {/* 削除モーダル */}
-      {confirmId && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="confirm-title"
-          className={styles.toastWrap}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.35)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-          }}
-          onClick={() => { if (!confirmBusy) setConfirmId(null); }}
-        >
-          <div
-            className={styles.toast}
-            style={{
-              background: "#fff",
-              color: "#111",
-              minWidth: "280px",
-              maxWidth: "90vw",
-              borderRadius: "12px",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-              padding: "16px",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="confirm-title" className={styles.toastBody} style={{ fontWeight: 600, marginBottom: 8 }}>
-              このチャットルールを削除します。よろしいですか？
-            </h2>
-            <p className={styles.toastBody} style={{ marginBottom: 16, wordBreak: "break-word" }}>
-              {confirmName ? `対象: 「${confirmName}」` : `ID: ${confirmId}`}
-            </p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                disabled={confirmBusy}
-                onClick={() => setConfirmId(null)}
-                className={styles.searchInput}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #ddd",
-                  background: "#fff",
-                  cursor: "pointer",
-                  opacity: confirmBusy ? 0.6 : 1,
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => { void doDelete(); }}
-                disabled={confirmBusy}
-                className={styles.searchInput}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #0ea5a4",
-                  background: "#10b981",
-                  color: "#fff",
-                  cursor: "pointer",
-                  opacity: confirmBusy ? 0.7 : 1,
-                }}
-              >
-                {confirmBusy ? "削除中…" : "削除する"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 成功時のみ表示するトースト（下部固定） */}
-      {toastOpen && toastMsg && (
-        <div className={styles.toastWrap} onClick={() => { setToastOpen(false); setToastMsg(null); }}>
-          <div role="status" aria-live="polite" className={styles.toast}>
-            <div className={styles.toastBody}>{toastMsg}</div>
-          </div>
-        </div>
-      )}
-      {/* ここまでトースト */}
     </main>
   );
 }

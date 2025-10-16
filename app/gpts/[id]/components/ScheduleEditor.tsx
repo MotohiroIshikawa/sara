@@ -1,8 +1,9 @@
 import React, { type JSX } from "react";
-import styles from "../Client.module.css";
+import styles from "@/app/gpts/Client.module.css";
 import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/scheduleValidators";
 import { formatNextRunJa } from "@/utils/schedulerTime";
+import { showToastNow } from "@/utils/flashToast";
 
 export interface ScheduleEditorProps {
   sched: ScheduleDto | null;
@@ -180,7 +181,7 @@ export default function ScheduleEditor(props: ScheduleEditorProps): JSX.Element 
                       if (o.val) {
                         const chk = canEnableSchedule(sched);
                         if (!chk.ok) {
-                          alert(chk.message);
+                          showToastNow(chk.message);
                           return;
                         }
                         void enableSchedule();

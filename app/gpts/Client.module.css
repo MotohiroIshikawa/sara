@@ -1,0 +1,113 @@
+@reference "../globals.css";
+
+/* =========================================
+   共通
+   ========================================= */
+
+/* レイアウト */
+.container {
+  @apply mx-auto max-w-screen-sm p-4 space-y-4;
+}
+
+/* カード */
+.card {
+  @apply rounded-2xl border border-gray-200 bg-white p-4 shadow-sm;
+}
+
+/* ステータス */
+.alertError {
+  @apply text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3;
+}
+
+/* リスト */
+.list {
+  @apply space-y-3;
+}
+/* search 用のグリッド表現 */
+.listGrid {
+  @apply grid gap-3;
+}
+
+/* スケルトン / 空表示 */
+.skelLine1 {
+  @apply h-4 w-40 animate-pulse rounded bg-gray-200;
+}
+.skelLine2 {
+  @apply mt-2 h-3 w-24 animate-pulse rounded bg-gray-200;
+}
+.skelBar {
+  @apply mt-3 h-8 w-full animate-pulse rounded bg-gray-200;
+}
+.emptyCard {
+  @apply rounded-2xl border border-dashed border-gray-300 bg-white p-6 text-center;
+}
+.emptyTitle {
+  @apply text-base font-medium;
+}
+.emptyHelp {
+  @apply mt-1 text-sm text-gray-500;
+}
+
+/* search 側で使っていた単一クラス名互換 */
+.skeleton {
+  @apply rounded-2xl border border-gray-200 bg-white p-4 shadow-sm animate-pulse;
+}
+
+/* ボタン（list を正） */
+.btn {
+  @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium focus:outline-none;
+}
+.btnPrimary {
+  @apply bg-green-600 text-white hover:bg-green-700 focus:ring-2 focus:ring-green-500;
+}
+.btnPrimaryBusy {
+  @apply bg-green-300 text-white;
+}
+.btnBlue {
+  @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500;
+}
+.btnBlueBusy {
+  @apply bg-blue-300 text-white;
+}
+.btnGray {
+  @apply bg-gray-200 hover:bg-gray-300 focus:ring-2 focus:ring-gray-400;
+}
+.btnGrayBusy {
+  @apply bg-gray-300 text-gray-600;
+}
+
+/* トースト（list を正） */
+.toastWrap {
+  @apply fixed inset-x-0 bottom-4 z-50 flex justify-center px-4;
+}
+.toast {
+  @apply max-w-screen-sm w-full rounded-2xl bg-black/85 text-white shadow-lg backdrop-blur-sm;
+}
+.toastBody {
+  @apply p-4 text-sm leading-relaxed;
+}
+
+/* =========================================
+   list ページ固有
+   ========================================= */
+
+.header {
+  @apply flex items-center justify-between;
+}
+.headerTitle {
+  @apply text-2xl font-bold tracking-tight;
+}
+.headerSub {
+  @apply text-[13px] text-gray-500;
+}
+.headerBadge {
+  @apply hidden sm:inline-block rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700;
+}
+
+/* 検索（listヘッダー内フィールド想定） */
+.searchWrap {
+  @apply relative;
+}
+.searchInput {
+  @apply w-full rounded-xl border px-4 py-3 pr-10 text-[15]()
+}

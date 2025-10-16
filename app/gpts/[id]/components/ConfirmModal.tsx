@@ -1,5 +1,5 @@
 import React, { type JSX } from "react";
-import styles from "../Client.module.css";
+import styles from "@/app/gpts/Client.module.css";
 import { type ScheduleDto } from "@/types/schedule";
 import { summarizeScheduleJa } from "@/utils/scheduleValidators";
 
