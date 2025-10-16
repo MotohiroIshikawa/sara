@@ -13,21 +13,33 @@ export default function SearchBox(props: SearchBoxProps): JSX.Element {
   const { value, onChange, placeholder } = props;
   const [composing, setComposing] = useState<boolean>(false);
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    if (composing) return; // IME変換中はスキップ
+    onChange(e.target.value);
+  };
+
+  const handleCompositionStart = (): void => {
+    setComposing(true);
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>): void => {
+    setComposing(false);
+    onChange(e.currentTarget.value); // IME確定後に値を送る
+  };
+
   return (
     <div className={styles.searchWrap}>
       <input
         value={value}
-        onChange={(e) => {
-          if (composing) return; // IME中は反応しない
-          onChange(e.target.value);
-        }}
-        onCompositionStart={() => setComposing(true)}  // IME開始
-        onCompositionEnd={(e) => {                     // IME確定
-          setComposing(false);
-          onChange(e.currentTarget.value);
-        }}
+        onChange={handleChange}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         placeholder={placeholder ?? "チャットルール名で検索"}
         className={styles.searchInput}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
       />
       <span className={styles.searchIcon}>🔎</span>
     </div>
