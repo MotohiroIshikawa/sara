@@ -13,6 +13,7 @@ import Header from "./components/Header";
 import SkeletonCard from "./components/SkeletonCard";
 import EmptyCard from "./components/EmptyCard";
 import ListItem from "./components/ListItem";
+import SearchBox from "@/components/SearchBox";
 
 const STORE_KEYWORD: string = "gptsList.keyword";
 const STORE_SCROLLY: string = "gptsList.scrollY";
@@ -131,19 +132,14 @@ export default function Client(): JSX.Element {
     <main className={styles.container}>
       <Header appliedId={appliedId} />
       {/* 検索ボックス */}
-      <div className={styles.searchWrap}>
-        <input
-          value={keyword}
-          onChange={(e) => {
-            const v: string = e.target.value;
-            setKeyword(v);
-            sessionStorage.setItem(STORE_KEYWORD, v);
-          }}
-          placeholder="チャットルール名で検索"
-          className={styles.searchInput}
-        />
-        <span className={styles.searchIcon}>🔎</span>
-      </div>
+      <SearchBox
+        value={keyword}
+        onChange={(v) => {
+          setKeyword(v);
+          sessionStorage.setItem(STORE_KEYWORD, v);
+        }}
+        placeholder="チャットルール名で検索"
+      />
 
       {/* リスト */}
       <ul className={styles.list}>
