@@ -109,5 +109,5 @@
   @apply relative;
 }
 .searchInput {
-  @apply w-full rounded-xl border px-4 py-3 pr-10 text-[15]()
+  @apply w-full rounded-xl border px-4 py-3 pr-10 text-[15px];
 }
