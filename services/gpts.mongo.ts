@@ -14,6 +14,11 @@ import { envInt } from "@/utils/env";
 const POPULAR_TOP_N: number = envInt("SEARCH_POPULAR_TOP", 10);
 const NEW_DAYS: number = envInt("SEARCH_NEW_DAYS", 3);
 
+// ページング既定（20）と上限（.env 未設定時は 50）
+const PAGE_DEFAULT_LIMIT: number = envInt("SEARCH_PAGE_LIMIT", 20, { min: 1, max: 1000 });
+const PAGE_MAX_LIMIT_ENV: number = envInt("SEARCH_PAGE_LIMIT_MAX", 50, { min: 1, max: 1000 });
+const PAGE_MAX_LIMIT: number = Math.max(PAGE_MAX_LIMIT_ENV, PAGE_DEFAULT_LIMIT);
+
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 function newGptsId() {
@@ -196,8 +201,12 @@ export async function searchPublicGpts(params: {
 
   const q: string | undefined = typeof params.q === "string" && params.q.trim() ? params.q.trim() : undefined;
   const sort: PublicGptsSort = params.sort ?? "latest";
-  const limit: number = Math.min(Math.max(params.limit ?? 20, 1), 50); // 1..50
-  const offset: number = Math.max(params.offset ?? 0, 0);
+
+  const reqLimit: number = typeof params.limit === "number" ? Math.trunc(params.limit) : PAGE_DEFAULT_LIMIT;
+  const limit: number = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
+
+  const offsetRaw: number = typeof params.offset === "number" ? Math.trunc(params.offset) : 0;
+  const offset: number = Math.max(offsetRaw, 0);
 
   const match: Record<string, unknown> = {
     isPublic: true,
@@ -235,8 +244,9 @@ export async function searchPublicGpts(params: {
     },
     { $project: { _id: 0, gptsId: 1, name: 1, updatedAt: 1, isPublic: 1, usageCount: 1 } },
     ...(sort === "popular"
-      ? [{ $sort: { usageCount: -1, updatedAt: -1 } } as Document]
-      : [{ $sort: { updatedAt: -1 } } as Document]),
+      ? [{ $sort: { usageCount: -1, updatedAt: -1, gptsId: -1 } } as Document]
+      : [{ $sort: { updatedAt: -1, gptsId: -1 } } as Document]
+    ),
     { $skip: offset },
     { $limit: limit },
   ];
@@ -289,10 +299,16 @@ export async function searchPublicGptsWithAuthor(params: {
   const gptsCol = await getGptsCollection();
   const usersCol = await getUsersCollection();
 
-  const q: string | undefined = params.q;
+  const q: string | undefined = 
+    typeof params.q === "string" && params.q.trim() ? params.q.trim() : undefined;
+  const qEscaped: string | undefined = q ? escapeRegexFragment(q) : undefined;
   const sort: PublicGptsSort = params.sort ?? "latest";
-  const limit: number = Math.min(Math.max(params.limit ?? 20, 1), 50);
-  const offset: number = Math.max(params.offset ?? 0, 0);
+
+  const reqLimit: number = typeof params.limit === "number" ? Math.trunc(params.limit) : PAGE_DEFAULT_LIMIT;
+  const limit: number = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
+
+  const offsetRaw: number = typeof params.offset === "number" ? Math.trunc(params.offset) : 0;
+  const offset: number = Math.max(offsetRaw, 0);
 
   // 検索条件
   const match: Record<string, unknown> = {
@@ -300,8 +316,8 @@ export async function searchPublicGptsWithAuthor(params: {
     deletedAt: { $exists: false },
     name: { $type: "string", $ne: "" },
   };
-  if (q) {
-    match.name = { $regex: q, $options: "i" };
+  if (qEscaped) {
+    match.name = { $regex: qEscaped, $options: "i" };
   }
   if (params.excludeUserId) {
     match.userId = { $ne: params.excludeUserId }; // 自分のものを除外
@@ -332,8 +348,9 @@ export async function searchPublicGptsWithAuthor(params: {
     },
     { $project: { _id: 0, gptsId: 1, name: 1, updatedAt: 1, isPublic: 1, usageCount: 1, userId: 1 } },
     ...(sort === "popular"
-      ? [{ $sort: { usageCount: -1, updatedAt: -1 } } as Document]
-      : [{ $sort: { updatedAt: -1 } } as Document]),
+      ? [{ $sort: { usageCount: -1, updatedAt: -1, gptsId: -1 } } as Document]
+      : [{ $sort: { updatedAt: -1, gptsId: -1 } } as Document]
+    ),
     { $skip: offset },
     { $limit: limit },
   ];
