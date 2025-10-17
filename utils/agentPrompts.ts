@@ -6,7 +6,7 @@ import { getBinding } from '@/services/gptsBindings.mongo';
 
 const P = (p: string) => fs.readFileSync(path.resolve(process.cwd(), p), 'utf8');
 
-// 4分割したファイルを読み込む
+// 3分割（instpackはbaseなし）したファイルを読み込む
 const BASE = P('config/prompts/base.md');
 const REPLY = P('config/prompts/reply.md');
 const META = P('config/prompts/meta.md');
