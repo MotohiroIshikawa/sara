@@ -94,3 +94,58 @@ curl -vk https://127.0.0.1:3000/
 - `server.mjs` が `https.createServer` で証明書（`./certificates/*.pem`）を読み、Next を `dev:false` で準備して公開。
 - `ecosystem.config.cjs` は CommonJS 形式（`"type":"module"` 環境でも PM2 が読めるように）。
 - 本番ビルドは `npm run stg:build`（= `next build`）。
+
+# 🧩 Agents Instructions 構造図
+
+```mermaid
+flowchart TD
+
+%% ========== Reply Agent ==========
+subgraph Reply_Agent["🟢 Reply Agent（回答生成）"]
+    direction TB
+    A1["BASE.md\n（文体・安全・禁止事項）"]
+    A2["＋ REPLY.md\n（本文生成ルール / URL / フォローアップ）"]
+    A3["または instpackFromBinding\n（ユーザ保存ルール）"]
+    A1 --> A2
+    A2 -->|"bindingあり"| A3
+
+    subgraph Result_R1["出力: ユーザ向け本文"]
+        R1["Bing Grounding に基づく短文回答\n＋必要に応じて確認質問1行"]
+    end
+end
+
+%% ========== Meta Agent ==========
+subgraph Meta_Agent["🟡 Meta Agent（構造情報抽出）"]
+    direction TB
+    B1["BASE.md"]
+    B2["＋ META.md\n(intent / slots / complete / followups)"]
+    B1 --> B2
+
+    subgraph Result_R2["出力: emit_meta"]
+        R2["meta = { intent, slots, complete, followups }"]
+    end
+end
+
+%% ========== Instpack Agent ==========
+subgraph Instpack_Agent["🔵 Instpack Agent（差分ルール生成）"]
+    direction TB
+    C1["INSTPACK.md\n（差分ロジック指示のみ）"]
+
+    subgraph Result_R3["出力: emit_instpack"]
+        R3["instpack = '<保存・再利用する差分指示>'"]
+    end
+end
+
+%% ========== Flow ==========
+Reply_Agent -->|"ユーザ質問\n(reply結果を基に)"| Meta_Agent
+Meta_Agent -->|"metaがcomplete\nかつ保存条件を満たす"| Instpack_Agent
+
+style Reply_Agent fill:#e8ffe8,stroke:#00a000,stroke-width:1.5px
+style Meta_Agent fill:#fff9d9,stroke:#c0a000,stroke-width:1.5px
+style Instpack_Agent fill:#e8f0ff,stroke:#0040a0,stroke-width:1.5px
+
+| Agent | 主な責務 | 使用ファイル |
+|--------|-----------|---------------|
+| 🟢 Reply Agent | Bing Groundingを利用してユーザー向け本文を生成 | `base.md + reply.md`（または + instpackFromBinding） |
+| 🟡 Meta Agent | intent / slots / complete / followups の抽出 | `base.md + meta.md` |
+| 🔵 Instpack Agent | 差分ルール（再利用用最終指示）の生成 | `instpack.md` |
