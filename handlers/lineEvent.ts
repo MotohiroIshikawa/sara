@@ -29,26 +29,26 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   // followイベント
   if (event.type === "follow" && event.source.type === "user" && event.source.userId) {
     try {
-    await handleFollowEvent(event as Extract<WebhookEvent, { type: "follow" }>, recipientId);
-  } catch (e) {
-    console.warn("[lineEvent] follow handler error", { err: String(e) });
+      await handleFollowEvent(event as Extract<WebhookEvent, { type: "follow" }>, recipientId);
+    } catch (e) {
+      console.warn("[lineEvent] follow handler error", { err: String(e) });
+    }
+    return;
   }
-  return;
-}
 
   // unfollowイベント
   if (event.type === "unfollow" && event.source.type === "user" && event.source.userId) {
     try {
-    await handleUnfollowEvent(
-      event as Extract<WebhookEvent, { type: "unfollow" }>,
-      recipientId,
-      threadOwnerId
-    );
-  } catch (e) {
-    console.warn("[lineEvent] unfollow handler error", { err: String(e) });
+      await handleUnfollowEvent(
+        event as Extract<WebhookEvent, { type: "unfollow" }>,
+        recipientId,
+        threadOwnerId
+      );
+    } catch (e) {
+      console.warn("[lineEvent] unfollow handler error", { err: String(e) });
+    }
+    return;
   }
-  return;
-}
 
   // joinイベント
   if (event.type === "join") {
@@ -103,8 +103,8 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   if (event.type === "message" && event.message.type === "text") {
     try {
       await handleMessageText(
-        event as MessageEvent, 
-        recipientId, 
+        event as Extract<WebhookEvent, { type: "message" }>,
+        recipientId,
         threadOwnerId
       );
     } catch(err) {
