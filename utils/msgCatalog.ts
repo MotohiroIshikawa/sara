@@ -68,7 +68,9 @@ export type MsgKey =
   | "UI_ROUND_TEXT_CHANGED_TPL" // {HH},{MM},{STEP},{MMR}
   | "UI_ROUND_TEXT_OK_TPL"      // {HH},{MM}
   | "UI_ROUND_OK"
-  | "UI_ROUND_REDO";
+  | "UI_ROUND_REDO"
+  // グループでの呼びかけの返信
+  | "WAKE_ACK";
 
 // デフォルトの日本語文言（環境変数が無い場合に使用）
 const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
@@ -163,6 +165,8 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   UI_ROUND_TEXT_OK_TPL: "「{HH}:{MM}」で実施します。よろしいですか？",
   UI_ROUND_OK: "OK",
   UI_ROUND_REDO: "修正",
+  // グループでの呼びかけの返信
+  WAKE_ACK: "はい！",
 } as const;
 
 // メッセージ本文を取得。

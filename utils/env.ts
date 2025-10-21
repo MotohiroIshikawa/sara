@@ -28,6 +28,22 @@ function envReqStr(name: string): string {
   return v;
 }
 
+export function envCsv(name: string, defCsv: string): string[] {
+  const raw: string = process.env[name] ?? defCsv;
+  // カンマ（, ／ 全角，）、改行、全角読点（、）を区切りとして分割
+  const parts: string[] = raw.split(/[,\n，、]+/);
+  const out: string[] = [];
+  const seen: Set<string> = new Set();
+  for (const p of parts) {
+    const v: string = p.trim();
+    if (v.length === 0) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
 /** REDIS 接続設定（ioredis想定） */
 export const REDIS = {
   HOST: envReqStr("REDIS_HOSTNAME"),
@@ -78,4 +94,9 @@ export const MAIN_TIMERS = {
 /** デバッグ系 */
 export const DEBUG = {
   BING: envBool("DEBUG_BING", false),
+};
+
+export const WAKE = {
+  REPLY_MODE_TTL_SEC: envInt("WAKE_REPLY_MODE_TTL_SEC", 120),
+  ALIASES: envCsv("WAKE_ALIASES", "さら,サラ,sara,Sara"),
 };
