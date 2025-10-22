@@ -13,9 +13,11 @@ import {
   isSingleWordWake,
   startsWithWake,
   DEFAULT_WAKE_SEP_RE,
+  type ReplyMode,
 } from "@/utils/wakeState";
 
 const replyMax: number = LINE.REPLY_MAX;
+const REPLY_MODE: ReplyMode = "session";
 const REPLY_MODE_TTL_SEC: number = WAKE.REPLY_MODE_TTL_SEC;
 const WAKE_ALIASES: readonly string[] = WAKE.ALIASES as readonly string[];
 const WAKE_SEP_RE: RegExp = DEFAULT_WAKE_SEP_RE;
@@ -155,7 +157,7 @@ export async function handleMessageText(
     // 単発呼びかけ → 返信モードON＋案内のみ返して終了
     if (questionTrimmed.length > 0 && isSingleWordWake(questionTrimmed, WAKE_ALIASES)) {
       if (scopeId && speakerUserId) {
-        await activateReplyMode(scopeId, speakerUserId, REPLY_MODE_TTL_SEC);
+        await activateReplyMode(scopeId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
       }
       const ackText: string = getMsg("WAKE_ACK") ?? "はい！どうぞ";
       await sendMessagesReplyThenPush({
@@ -172,6 +174,9 @@ export async function handleMessageText(
     let question: string = questionTrimmed;
     if (head.matched) {
       question = (head.cleaned ?? "").trim();
+      if (scopeId && speakerUserId) {
+        await activateReplyMode(scopeId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
+      }
     } else {
       //  呼びかけ無し → 返信モードを消費できれば本文処理、できなければスキップ
       const allowedByReplyMode: boolean =

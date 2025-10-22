@@ -191,6 +191,6 @@ export function formatMsg(template: string, tokens: Readonly<Record<string, stri
 }
 
 // 正規表現用エスケープ
-function escapeRegExp(raw: string): string {
+export function escapeRegExp(raw: string): string {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
