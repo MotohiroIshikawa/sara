@@ -47,7 +47,7 @@ export default function Client(): JSX.Element {
   const [offset, setOffset] = useState<number>(0);
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
-  const limit: number = CLIENT_PAGE_LIMIT; // ★ クライアント環境変数
+  const limit: number = CLIENT_PAGE_LIMIT; // クライアント環境変数
 
   // 無限スクロール監視
   const sentinelRef = useRef<HTMLDivElement | null>(null);
