@@ -4,7 +4,7 @@ import type { AgentsClient as AzureAgentsClient } from "@azure/ai-agents";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
-import type { Meta, ConnectBingResult, SourceType } from "@/types/gpts";
+import type { Meta, ConnectBingResult, SourceType, MetaComputeResult, EmitMetaPayload } from "@/types/gpts";
 import { agentsClient as client, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstructions, type ReplyInsOrigin } from "@/utils/agentPrompts";
 import { withTimeout } from "@/utils/async";
@@ -12,7 +12,7 @@ import { LINE, DEBUG, AZURE, MAIN_TIMERS } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/fence";
 import { toScopedOwnerIdFromPlainId } from "@/utils/lineSource";
 import { toLineTextsFromMessage } from "@/utils/lineMessage";
-import { buildFollowup, looksLikeFollowup, normalizeMeta, shouldSave, type EmitMetaPayload } from "@/utils/meta";
+import { computeMeta, looksLikeFollowup } from "@/utils/meta";
 import { withLock } from "@/utils/redis";
 import { toToolCalls, type ToolCall, isFunctionToolCall } from "@/utils/types";
 
@@ -155,6 +155,20 @@ function normalizeOwnerIds(inputId: string, type: SourceType): { scopedOwnerId: 
     return { scopedOwnerId: inputId, plainId: m[2] };
   }
   return { scopedOwnerId: toScopedOwnerIdFromPlainId(type, inputId), plainId: inputId };
+}
+
+// 末尾にフォローアップを重複なく1行追加するヘルパー
+function appendFollowupIfNeeded(texts: string[], ask: string | undefined, meta: Meta): string[] {
+  if (typeof ask !== "string") return texts;
+  const t: string = ask.trim();
+  if (t.length === 0) return texts;
+
+  const last: string = texts[texts.length - 1] ?? "";
+  const eqLite = (a: string, b: string): boolean =>
+    a.replace(/\s+/g, "").trim() === b.replace(/\s+/g, "").trim();
+
+  const already: boolean = eqLite(last, t) || looksLikeFollowup(last, meta);
+  return already ? texts : [...texts, t];
 }
 
 /**
@@ -307,7 +321,7 @@ export async function connectBing(
             await new Promise(r => setTimeout(r, MAIN_TIMERS.POLL_SLEEP));
           }
         }
-        return normalizeMeta(captured);
+        return captured;
       };
 
       mergedMeta = await getMetaOnce();
@@ -316,20 +330,22 @@ export async function connectBing(
       }
     }
 
-    // meta 不足なら最後に1行の確認を付与 = userのみ
-    if (isUserSource && mergedMeta?.complete === false) {
-      const ask = buildFollowup(mergedMeta);
-      const last = texts[texts.length - 1] ?? "";
-      const already =
-        last.replace(/\s+/g,"").trim() === ask.replace(/\s+/g,"").trim() ||
-        looksLikeFollowup(last, mergedMeta);
-      if (!already) texts = [...texts, ask];
+    let metaEval: MetaComputeResult | undefined = undefined;
+    if (isUserSource && mergedMeta) {
+      metaEval = computeMeta(mergedMeta, replyTextJoined);
+      mergedMeta = metaEval.metaNorm;
+    }
+    
+    // meta 不足（complete_norm=false）のときだけ、確認用フォローアップを1行だけ追記する
+    if (isUserSource && metaEval && metaEval.complete_norm === false) {
+      const ask: string | undefined = metaEval.metaNorm.followups?.[0]?.text;
+      texts = appendFollowupIfNeeded(texts, ask, metaEval.metaNorm);
     }
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
     // run3. instpack（保存条件を満たす場合のみ）用 = userのみ
     let mergedInst: string | undefined = undefined;
-    if (isUserSource && shouldSave(mergedMeta, replyTextJoined)) {
+    if (isUserSource && (metaEval?.saveable === true)) {
       const instTools = [emitInstpackTool];
       const instAgentId = await getOrCreateAgentIdWithTools(ins.instpack, instTools);
       const instpackRun = await withTimeout(

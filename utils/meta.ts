@@ -1,94 +1,167 @@
-import type { Meta } from "@/types/gpts";
+import type { FollowupAsk, Meta, MetaComputeResult, MetaFollowup } from "@/types/gpts";
 import { envInt, NEWS } from "@/utils/env";
 
-export type EmitMetaPayload = { meta?: Meta; instpack?: string };
+//const followupMaxLen: number = envInt("FOLLOWUP_MAX_LEN", 80, { min: 20, max: 200 });
+const replyMinLen: number = envInt("REPLY_MIN_LEN", 40, { min: 0, max: 2000 });
 
-export function isTrackable(meta?: Meta): boolean {
-  if (!meta) return false;
-  if (meta.intent && meta.intent !== "generic") return true;
-  const s = meta.slots ?? {};
-  const hasTopic = !!(s.topic && s.topic.trim());
-  const hasPlace = typeof s.place === "string" && s.place.trim().length > 0;
-  const hasDate  = !!(s.date_range && String(s.date_range).trim().length > 0);
-  // 変更: generic は topic があれば保存対象
-  return hasTopic || (hasPlace || hasDate);
-}
-
-// normalizeMeta: Metaの正規化（newsのdate_rangeを既定補正、completeフラグの正規化）
-export function normalizeMeta(meta?: Meta): Meta | undefined {
-  if (!meta) return meta;
-  const out: Meta = { ...meta, slots: { ...(meta.slots ?? {}) } };
-  
-  if (out.intent === "event") {
-    const r = out.slots?.date_range?.trim().toLowerCase();
-    out.complete = !!out.slots?.topic && out.slots!.topic.trim().length > 0;
-    if (!r) out.slots!.date_range = "ongoing"; // 仕様: 未指定は ongoing
-  }
-  
-  if (out.intent === "news") {
-    const r = out.slots?.date_range?.trim().toLowerCase();
-    if (!r || r === "ongoing" || r === "upcoming_30d") {
-      out.slots!.date_range = `last_${NEWS.DEFAULT_DAYS}d`;
-      // topic が特定できていれば news は complete
-      out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
-    }
-  }
- 
-  if (out.intent === "buy") {
-    // topic があれば complete 扱いにする
-    out.complete = !!out.slots?.topic && out.slots.topic.trim().length > 0;
-  }
-
-  // generic&topicなし: 追質問。generic&topicあり: 追質問なし->保存しますか？ダイアログ
-  const isNonEmpty = (v: unknown): v is string =>
-    typeof v === "string" && v.trim().length > 0;
-  if (out.intent === "generic"){
-    out.complete = isNonEmpty(out.slots?.topic);
-  }
-  return out;
-}
-
-// 「保存する」判定（instpack取得を実施するかどうか）
-export function shouldSave(meta?: Meta, replyText?: string): boolean {
-  if (!meta) return false;
-  const replyOk = (replyText?.length ?? 0) >= 80;
-  return meta.complete === true && isTrackable(meta) && replyOk;
-}
-
-// スロット不足時の追質問テキスト生成->不足スロットを1つだけ尋ねる簡潔な質問を用意
-export function buildFollowup(meta?: Meta): string {
-  const slots = meta?.slots ?? {};
-  const intent = meta?.intent;
-
-  if (intent === "generic") {
-    if (!slots.topic) return "対象（作品名など）を教えてください。";
-    return meta?.followups?.[0]
-      ?? "どんな会話にする（入門ガイド / 考察相棒 / ニュース速報 / クイズ作成 / グッズ案内）？";
-  }
-
-  const missing: string[] = [];
-  if (!slots.topic) missing.push("対象（作品名など）");
-  if (intent === "news" && !slots.date_range) missing.push("期間");
-  if (missing.length === 0 && slots.topic && !slots.place) missing.push("場所（任意）");
-
-  const lead = missing.length ? `不足: ${missing.join(" / ")}。` : "";
-  if (intent === "event") return `${lead}ひとつだけ教えてください。`;
-  return meta?.followups?.[0] ?? `${lead}ひとつだけ教えてください。`;
-}
-
-const followupMaxLen = envInt("FOLLOWUP_MAX_LEN", 80, { min: 20, max: 200 });
-function trimLite(s: string) {
+function trimLite(s: string): string {
   return s.replace(/\s+/g, "").trim();
 }
 
-// looksLikeFollowup: 追質問の形状判定ヘルパー
+export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResult {
+  // meta の補完
+  const m: Meta = {
+    intent: rawMeta?.intent ?? undefined,
+    modality: rawMeta?.modality ?? "text",  // 既定は "text"
+    domain: rawMeta?.domain ?? undefined,
+    slots: { ...(rawMeta?.slots ?? {}) },
+    complete: !!rawMeta?.complete,
+    followups: rawMeta?.followups ?? [],
+  };
+
+  const s = m.slots ?? {};
+  const reasons: string[] = [];
+
+    // domain による補正
+  if (m.domain === "event" && !s.date_range) {
+    // event: 期間未指定は "ongoing"
+    s.date_range = "ongoing";
+  }
+  if (m.domain === "news" && !s.date_range) {
+    // news: 期間未指定は既定日数（env）→ last_${DAYS}d
+    const days: number = Number.isFinite(NEWS.DEFAULT_DAYS) ? Number(NEWS.DEFAULT_DAYS) : 7;
+    s.date_range = `last_${days}d`;
+  }
+
+  // intent 別 complete_norm 判定、不足スロット検出
+  let complete_norm: boolean = false;
+  let genFollowup: MetaFollowup | null = null;
+
+  switch (m.intent) {
+    case "lookup": {
+      // 情報検索系。「教えて」「探して」など。topic があれば十分とみなす。
+      const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      complete_norm = hasTopic;
+      if (!hasTopic){
+        reasons.push("lookup:topic_missing");
+        genFollowup = { ask: "topic", text: "対象（固有名詞やキーワード）を教えてください。" };
+      }
+      break;
+    }
+    case "qa": {
+      // 知識・説明要求。「これは何？」「なぜ？」など。topic または image_task のどちらかがあれば true。
+      const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      complete_norm = hasTopic || hasImageTask;
+      if (!complete_norm){
+        reasons.push("qa:topic_or_image_task_missing");
+        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+        genFollowup = prefersImageTask
+          ? { ask: "image_task", text: "画像で何をしますか？（識別・文字読み取り・説明・要約・顔検出）" }
+          : { ask: "topic", text: "対象（固有名詞やキーワード）を1つ教えてください。" };
+      }
+      break;
+    }
+    case "summarize": {
+      // 要約・整理。「まとめて」「要点」など。topic または image_task のどちらかがあれば true。
+      const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      complete_norm = hasTopic || hasImageTask;
+      if (!complete_norm){
+        reasons.push("summarize:topic_or_image_task_missing");
+        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+        genFollowup = prefersImageTask
+          ? { ask: "image_task", text: "画像の要約対象や目的を指定してください。（例：説明・文字起こし）" }
+          : { ask: "topic", text: "要約したい対象（資料名や話題）を教えてください。" };
+      }
+      break;
+    }
+    case "classify": {
+      // 分類・判定。「どの種類」「カテゴリ分け」など。topic または image_task のどちらかがあれば true。
+      const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      complete_norm = hasTopic || hasImageTask;
+      if (!complete_norm){
+        reasons.push("classify:topic_or_image_task_missing");
+        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+        genFollowup = prefersImageTask
+          ? { ask: "image_task", text: "画像の分類目的を指定してください。（例：品目分類・品質判定）" }
+          : { ask: "topic", text: "分類したい対象（品目名や文書名など）を教えてください。" };
+      }
+      break;
+    }
+    case "react": {
+      // 感想・反応。「どう？」「コメントして」など。topic または image_task のどちらかがあれば true。
+      const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      complete_norm = hasTopic || hasImageTask;
+      if (!complete_norm){
+        reasons.push("react:topic_or_image_task_missing");
+        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+        genFollowup = prefersImageTask
+          ? { ask: "image_task", text: "画像のどんな点にコメントすれば良いですか？" }
+          : { ask: "topic", text: "反応・コメントする対象（話題や作品名）を教えてください。" };
+      }
+      break;
+    }
+    default: {
+      // 未知 intent は不完全
+      complete_norm = false;
+      reasons.push("intent_unknown");
+      break;
+    }
+  }
+
+  // 返信本文の品質チェック
+  const replyLen: number = (replyText?.trim().length ?? 0);
+  const reply_ok: boolean = replyMinLen > 0 ? (replyLen >= replyMinLen) : true;
+  if (!reply_ok) reasons.push("reply_text_too_short");
+
+  // 保存可否
+  const saveable: boolean = complete_norm && reply_ok;
+
+  // followups の最終決定
+  const existingNormalized: MetaFollowup[] =
+    (m.followups ?? []).map((f) =>
+      typeof f === "string"
+        ? { ask: "topic" as FollowupAsk, text: f }
+        : { ask: (f?.ask ?? "topic") as FollowupAsk, text: (f?.text ?? "") }
+    );
+
+  const existingFirst: MetaFollowup | null =
+    existingNormalized.find((f) => {
+      const t: string = (f.text ?? "").trim();
+      return t.length > 0;
+    }) ?? null;
+
+  // 既存がなければ、intent 判定時に用意した生成候補を使う
+  const finalFollowup: MetaFollowup | null =
+    existingFirst ?? (genFollowup ? { ask: genFollowup.ask, text: genFollowup.text } : null);
+
+  m.followups = finalFollowup ? [finalFollowup] as MetaFollowup[] : [];
+
+  // meta.complete を complete_norm で上書き
+  m.complete = complete_norm;
+
+  return { metaNorm: m, complete_norm, reply_ok, saveable, reasons };
+}
+
+// looksLikeFollowup: 構造化 followups へ対応（必要に応じてUI側の“重複判定”に利用）
 export function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   if (!line) return false;
-  const s = line.trim();
+  const s: string = line.trim();
   if (!s) return false;
-  if (s.length > followupMaxLen) return false;
-  const endsWithQ = /[?？]\s*$/.test(s);
-  const hasLead = /^不足[:：]/.test(s);
-  const equalsMeta = meta?.followups?.some(f => trimLite(f) === trimLite(s)) ?? false;
-  return endsWithQ || hasLead || equalsMeta;
+
+  // 末尾「?」「？」の疑問形、または meta.followups に一致する文なら true
+  const endsWithQ: boolean = /[?？]\s*$/.test(s);
+  const equalsMeta: boolean =
+    (meta?.followups ?? []).some((f) => {
+      const t: string = typeof f === "string" ? f : (f?.text ?? "");
+      return trimLite(t) === trimLite(s);
+    }) ?? false;
+
+  // 過去の「不足:」形式も一応サポート（将来削除可）
+  const hasLegacyLead: boolean = /^不足[:：]/.test(s);
+
+  return endsWithQ || equalsMeta || hasLegacyLead;
 }
