@@ -19,6 +19,7 @@
     "@azure/functions": "^4.8.0",
     "@azure/identity": "^4.11.1",
     "@azure/openai": "^2.0.0",
+    "@azure/storage-blob": "^12.29.1",
     "@line/bot-sdk": "^10.1.0",
     "@line/liff": "^2.27.2",
     "ioredis": "^5.7.0",

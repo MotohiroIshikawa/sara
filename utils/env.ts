@@ -62,6 +62,11 @@ export const AZURE = {
   AI_MODEL_DEPLOYMENT: envStr("AZURE_AI_MODEL_DEPLOYMENT", ""),
   API_TIMEOUT_MS: envInt("API_TIMEOUT_MS", 20_000, { min: 1_000 }),
   AGENT_NAME_PREFIX: envStr("AZURE_AI_PRJ_AGENT_NAME", "lineai-bing-agent"),
+  // imageアップロード関係
+  BLOB_CONNECTION_STRING: envStr("AZURE_BLOB_CONNECTION_STRING", ""),
+  BLOB_CONTAINER: envStr("AZURE_BLOB_CONTAINER", "images"),
+  BLOB_SAS_TTL_SEC: envInt("AZURE_BLOB_SAS_TTL_SEC", 600, {min: 60, max: 7 * 24 * 60 * 60,}),
+  BLOB_UPLOAD_PREFIX: envStr("AZURE_BLOB_UPLOAD_PREFIX", "line-images"),
 };
 
 /** Thread TTL */
