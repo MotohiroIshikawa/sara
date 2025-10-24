@@ -32,12 +32,29 @@ function defaultTitleFromMeta(meta?: Meta): string {
 
   const t = meta?.slots?.topic;
   const p = meta?.slots?.place ?? undefined;
-  const intent = meta?.intent;
-  if (intent === "event" && t) return sanitizeTitle(`${t}のイベント情報${p ? `（${p}）` : ""}`);
-  if (intent === "news"  && t) return sanitizeTitle(`${t}の最新ニュース`);
-  if (intent === "buy"   && t) return sanitizeTitle(`${t}の購入情報${p ? `（${p}）` : ""}`);
-  if (t && p) return sanitizeTitle(`${t}（${p}）`);
-  if (t) return sanitizeTitle(t);
+  const domain = meta?.domain ?? null;
+
+  switch (domain) {
+    case "event":
+      if (t) return sanitizeTitle(`${t}のイベント情報${p ? `（${p}）` : ""}`);
+      break;
+    case "news":
+      if (t) return sanitizeTitle(`${t}の最新ニュース`);
+      break;
+    case "shopping":
+      if (t) return sanitizeTitle(`${t}の購入情報${p ? `（${p}）` : ""}`);
+      break;
+    case "local":
+      if (t || p) return sanitizeTitle(`${p || ""}${t ? (p ? `の${t}` : t) : ""}`);
+      break;
+    case "object":
+      if (t) return sanitizeTitle(`${t}について`);
+      break;
+    default:
+      if (t && p) return sanitizeTitle(`${t}（${p}）`);
+      if (t) return sanitizeTitle(t);
+      break;
+  }
   return "未命名ルール";
 }
 

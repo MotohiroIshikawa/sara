@@ -4,7 +4,6 @@ import { LINE, WAKE } from "@/utils/env";
 import { toTextMessages, sendMessagesReplyThenPush, buildSaveOrContinueConfirm } from "@/utils/lineSend";
 import { encodePostback } from "@/utils/postback";
 import { getMsg } from "@/utils/msgCatalog";
-import { isTrackable } from "@/utils/meta";
 import { upsertThreadInst } from "@/services/threadInst.mongo";
 import {
   activateReplyMode,
@@ -28,7 +27,7 @@ function shouldShowConfirm(meta: unknown, instpack: string | undefined, threadId
   if (!instpack?.trim()) return false;
   const m = meta as { complete?: boolean } | undefined;
   if (!m || m.complete !== true) return false;
-  if (!isTrackable(m as unknown as Record<string, unknown>)) return false;
+  if (m.complete !== true) return false;
   return true;
 }
 
@@ -38,7 +37,6 @@ function finalCheckBeforeConfirm(
   instpack: string | undefined
 ): { ok: boolean; reason?: string } {
   if (!meta) return { ok: false, reason: "meta:undefined" };
-  if (!isTrackable(meta as unknown as Record<string, unknown>)) return { ok: false, reason: "meta:not_trackable" };
   if (meta.complete !== true) return { ok: false, reason: "meta:incomplete" };
   const s: string = instpack?.trim() ?? "";
   if (!s) return { ok: false, reason: "instpack:empty" };
