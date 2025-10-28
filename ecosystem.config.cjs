@@ -10,13 +10,16 @@ module.exports = {
       NODE_ENV: "production",
       APP_ENV: "stg",
       PORT: "3000",
-      HOST: "0.0.0.0"
+      HOST: "0.0.0.0",
+      PINO_LOG_LEVEL: "info",
+      LOG_LEVEL: "info"
     },
     exec_mode: "fork",
     instances: 1,
     watch: false,
     out_file: "/home/azureuser/pm2logs/sara-stg.out.log",
     error_file: "/home/azureuser/pm2logs/sara-stg.err.log",
-    merge_logs: true
+    merge_logs: true,
+    time: true
   }]
 };
