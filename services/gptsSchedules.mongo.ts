@@ -271,9 +271,9 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
   const col = await getGptsSchedulesCollection();
 
   const filter: Filter<GptsScheduleDoc> = {
-  enabled: true,
-  deletedAt: null,
-  nextRunAt: { $lte: now },
+    enabled: true,
+    deletedAt: null,
+    nextRunAt: { $lte: now },
   };
   const update: UpdateFilter<GptsScheduleDoc> = {
     $set: { claimedAt: new Date(), updatedAt: new Date() },
