@@ -1,6 +1,15 @@
 import type { FollowupAsk, Meta, MetaComputeResult, MetaFollowup } from "@/types/gpts";
 import { envInt, NEWS } from "@/utils/env";
 
+// 判定の可視化用トレース型
+type DecisionTrace = {
+  intent: Meta["intent"] | null;
+  hasTopic?: boolean;
+  hasImageTask?: boolean;
+  prefersImageTask?: boolean;
+  replyLen?: number;
+};
+
 //const followupMaxLen: number = envInt("FOLLOWUP_MAX_LEN", 80, { min: 20, max: 200 });
 const replyMinLen: number = envInt("REPLY_MIN_LEN", 40, { min: 0, max: 2000 });
 
@@ -22,7 +31,9 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
   const s = m.slots ?? {};
   const reasons: string[] = [];
 
-    // domain による補正
+  const trace: DecisionTrace = { intent: m.intent ?? null,};
+
+  // domain による補正
   if (m.domain === "event" && !s.date_range) {
     // event: 期間未指定は "ongoing"
     s.date_range = "ongoing";
@@ -41,9 +52,15 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
     case "lookup": {
       // 情報検索系。「教えて」「探して」など。topic があれば十分とみなす。
       const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      trace.hasTopic = hasTopic;
+      if (hasTopic) {
+        reasons.push("lookup:topic_present");
+      } else {
+        reasons.push("lookup:topic_missing");
+      }
+
       complete_norm = hasTopic;
       if (!hasTopic){
-        reasons.push("lookup:topic_missing");
         genFollowup = { ask: "topic", text: "対象（固有名詞やキーワード）を教えてください。" };
       }
       break;
@@ -52,10 +69,16 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
       // 知識・説明要求。「これは何？」「なぜ？」など。topic または image_task のどちらかがあれば true。
       const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
       const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+      trace.hasTopic = hasTopic;
+      trace.hasImageTask = hasImageTask;
+      trace.prefersImageTask = prefersImageTask;
+      if (hasTopic) reasons.push("qa:topic_present");
+      if (hasImageTask) reasons.push("qa:image_task_present");
+      if (!hasTopic && !hasImageTask) reasons.push("qa:topic_or_image_task_missing");
+
       complete_norm = hasTopic || hasImageTask;
       if (!complete_norm){
-        reasons.push("qa:topic_or_image_task_missing");
-        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
         genFollowup = prefersImageTask
           ? { ask: "image_task", text: "画像で何をしますか？（識別・文字読み取り・説明・要約・顔検出）" }
           : { ask: "topic", text: "対象（固有名詞やキーワード）を1つ教えてください。" };
@@ -66,10 +89,16 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
       // 要約・整理。「まとめて」「要点」など。topic または image_task のどちらかがあれば true。
       const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
       const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+      trace.hasTopic = hasTopic;
+      trace.hasImageTask = hasImageTask;
+      trace.prefersImageTask = prefersImageTask;
+      if (hasTopic) reasons.push("summarize:topic_present");
+      if (hasImageTask) reasons.push("summarize:image_task_present");
+      if (!hasTopic && !hasImageTask) reasons.push("summarize:topic_or_image_task_missing");
+
       complete_norm = hasTopic || hasImageTask;
       if (!complete_norm){
-        reasons.push("summarize:topic_or_image_task_missing");
-        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
         genFollowup = prefersImageTask
           ? { ask: "image_task", text: "画像の要約対象や目的を指定してください。（例：説明・文字起こし）" }
           : { ask: "topic", text: "要約したい対象（資料名や話題）を教えてください。" };
@@ -80,10 +109,16 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
       // 分類・判定。「どの種類」「カテゴリ分け」など。topic または image_task のどちらかがあれば true。
       const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
       const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+      trace.hasTopic = hasTopic;
+      trace.hasImageTask = hasImageTask;
+      trace.prefersImageTask = prefersImageTask;
+      if (hasTopic) reasons.push("classify:topic_present");
+      if (hasImageTask) reasons.push("classify:image_task_present");
+      if (!hasTopic && !hasImageTask) reasons.push("classify:topic_or_image_task_missing");
+
       complete_norm = hasTopic || hasImageTask;
       if (!complete_norm){
-        reasons.push("classify:topic_or_image_task_missing");
-        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
         genFollowup = prefersImageTask
           ? { ask: "image_task", text: "画像の分類目的を指定してください。（例：品目分類・品質判定）" }
           : { ask: "topic", text: "分類したい対象（品目名や文書名など）を教えてください。" };
@@ -94,10 +129,16 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
       // 感想・反応。「どう？」「コメントして」など。topic または image_task のどちらかがあれば true。
       const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
       const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+      trace.hasTopic = hasTopic;
+      trace.hasImageTask = hasImageTask;
+      trace.prefersImageTask = prefersImageTask;
+      if (hasTopic) reasons.push("react:topic_present");
+      if (hasImageTask) reasons.push("react:image_task_present");
+      if (!hasTopic && !hasImageTask) reasons.push("react:topic_or_image_task_missing");
+
       complete_norm = hasTopic || hasImageTask;
       if (!complete_norm){
-        reasons.push("react:topic_or_image_task_missing");
-        const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
         genFollowup = prefersImageTask
           ? { ask: "image_task", text: "画像のどんな点にコメントすれば良いですか？" }
           : { ask: "topic", text: "反応・コメントする対象（話題や作品名）を教えてください。" };
@@ -114,6 +155,7 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
 
   // 返信本文の品質チェック
   const replyLen: number = (replyText?.trim().length ?? 0);
+  trace.replyLen = replyLen;
   const reply_ok: boolean = replyMinLen > 0 ? (replyLen >= replyMinLen) : true;
   if (!reply_ok) reasons.push("reply_text_too_short");
 
@@ -142,6 +184,19 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
 
   // meta.complete を complete_norm で上書き
   m.complete = complete_norm;
+
+  console.info("[meta] computeMeta", {
+    intent: m.intent ?? null,
+    modality: m.modality,
+    domain: m.domain ?? null,
+    complete_norm,              // 決定
+    reply_ok,
+    saveable,
+    followups_len: m.followups.length,
+    followup_ask: m.followups[0]?.ask ?? null,
+    reasons,  // 判定の根拠（present/missing を含む）
+    trace,    // hasTopic / hasImageTask / prefersImageTask / replyLen 等の生値
+  });
 
   return { metaNorm: m, complete_norm, reply_ok, saveable, reasons };
 }
