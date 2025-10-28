@@ -3,6 +3,7 @@ import { handleFollowEvent } from "@/handlers/events/follow";
 import { handleJoinEvent } from "@/handlers/events/join";
 import { handleLeaveEvent } from "@/handlers/events/leave";
 import { handleMessageText } from "@/handlers/events/messageText";
+import { handleMessageImage } from "@/handlers/events/messageImage";
 import { handleMemberLeftEvent } from "@/handlers/events/memberLeft";
 import { handleUnfollowEvent } from "@/handlers/events/unfollow";
 import { handlePostback } from "@/handlers/postbacks/route";
@@ -116,7 +117,34 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
             messages: toTextMessages([getMsg("INTERNAL_ERROR")]),
             delayMs: 250,
           });
-      } catch {}
+      } catch(e) {
+        console.warn("[lineEvent] message handler (Text) error", { err: String(e) });
+      }
     }
+    return;
   }
+
+  if (event.type === "message" && event.message.type === "image") {
+    try {
+      await handleMessageImage(
+        event as Extract<WebhookEvent, { type: "message"; message: { type: "image" } }>,
+        recipientId,
+        threadOwnerId
+      );
+    } catch (err) {
+      console.error("[lineEvent] image handler error:", err);
+      try {
+        await sendMessagesReplyThenPush({
+            replyToken: event.replyToken,
+            to: recipientId,
+            messages: toTextMessages([getMsg("INTERNAL_ERROR")]),
+            delayMs: 250,
+          });
+      } catch(e) {
+          console.warn("[lineEvent] message handler (Image) error", { err: String(e) });
+      }
+    }
+    return;
+  }
+
 }

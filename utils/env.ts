@@ -62,6 +62,11 @@ export const AZURE = {
   AI_MODEL_DEPLOYMENT: envStr("AZURE_AI_MODEL_DEPLOYMENT", ""),
   API_TIMEOUT_MS: envInt("API_TIMEOUT_MS", 20_000, { min: 1_000 }),
   AGENT_NAME_PREFIX: envStr("AZURE_AI_PRJ_AGENT_NAME", "lineai-bing-agent"),
+  // imageアップロード関係
+  BLOB_CONNECTION_STRING: envStr("AZURE_BLOB_CONNECTION_STRING", ""),
+  BLOB_CONTAINER: envStr("AZURE_BLOB_CONTAINER", "images"),
+  BLOB_SAS_TTL_SEC: envInt("AZURE_BLOB_SAS_TTL_SEC", 600, {min: 60, max: 7 * 24 * 60 * 60,}),
+  BLOB_UPLOAD_PREFIX: envStr("AZURE_BLOB_UPLOAD_PREFIX", "line-images"),
 };
 
 /** Thread TTL */
@@ -76,6 +81,15 @@ export const LINE = {
   TEXT_LIMIT: envInt("LINE_TEXT_LIMIT", 2000, { min: 200, max: 5000 }),
   MAX_URLS_PER_BLOCK: envInt("LINE_MAX_URLS_PER_BLOCK", 3, { min: 0, max: 10 }),
   MIN_SECTION_LENGTH: envInt("MIN_SECTION_LENGTH", 8, { min: 0, max: 20 }),
+};
+
+// 画像処理の通知しきい値（秒）
+export const IMAGE = {
+  PROCESSING_NOTIFY_THRESHOLD_SEC: envInt(
+    "IMAGE_PROCESSING_NOTIFY_THRESHOLD_SEC",
+    60,
+    { min: 5, max: 600 }
+  ),
 };
 
 /** NEWS 関連 */

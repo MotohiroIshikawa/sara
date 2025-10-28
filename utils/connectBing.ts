@@ -178,11 +178,6 @@ function appendFollowupIfNeeded(texts: string[], ask: string | undefined, meta: 
  *  3. requires_actionでツール出力をsubmit（emit_metaのpayloadを回収） = userのみ
  *  4. 応答本文から内部ブロック除去、必要ならrepair runで meta/instpack回収 = userのみ
  *  5. LINE用に本文整形して返却
- * 
- * @param userId 
- * @param question 
- * @param opts 
- * @returns 
  */
 export async function connectBing(
   userId: string, 
@@ -190,15 +185,21 @@ export async function connectBing(
   opts?: {
     // 修復runの回収結果を保存するためのコールバック
     onRepair?: (p: { userId: string; threadId: string; meta?: Meta; instpack?: string; }) => Promise<void>;
-    // metaの再試行回数
-    maxMetaRetry?: number;
-    // 発話元の種別（デフォルト "user"）。group/room のときは meta/instpack を実行しない。
-    sourceType?: SourceType; // 既定: "user"
+    maxMetaRetry?: number;          // metaの再試行回数
+    sourceType?: SourceType;        // 発話元の種別（デフォルト "user"）
+    imageUrls?: readonly string[];  // 画像URL（署名付きなど外部から取得可能なURL）
   }
 ): Promise<ConnectBingResult> {
   const q = question.trim();
-  console.log("[question] " + q);
-  if (!q) return { texts: ["⚠️メッセージが空です。"], agentId: "", threadId: "" };
+  const hasImage: boolean = Array.isArray(opts?.imageUrls) && (opts?.imageUrls?.length ?? 0) > 0;
+
+  if (q) {
+    console.log("[question] " + q);
+  } else if (hasImage) {
+    console.log("[question] (image-only)");
+  } else {
+    return { texts: ["⚠️メッセージが空です。"], agentId: "", threadId: "" };
+  }
 
   // 認証・認証チェック
   await preflightAuth();
@@ -224,7 +225,16 @@ export async function connectBing(
     const threadId = await getOrCreateThreadId(scopedOwnerId);
 
     // ユーザーの質問をスレッドへ投入
-    await client.messages.create(threadId, "user", [{ type: "text", text: q }]);
+    if (q) {
+      await client.messages.create(threadId, "user", q);
+    }
+    if (hasImage) {
+      const imageBlocks = opts!.imageUrls!.map((u) => ({
+        type: "image_url" as const,
+        imageUrl: { url: u, detail: "high" as const },
+      })) satisfies readonly MessageContentUnion[];;
+      await client.messages.create(threadId, "user", imageBlocks);
+    }
 
     // run1. 返信用
     const replyTools = [bingTool];
@@ -327,6 +337,9 @@ export async function connectBing(
       mergedMeta = await getMetaOnce();
       for (let i = 1; !mergedMeta && i <= (opts?.maxMetaRetry ?? 2); i++) {
         mergedMeta = await getMetaOnce();
+      }
+      if (mergedMeta && hasImage) {
+        mergedMeta = { ...mergedMeta, modality: "image" };
       }
     }
 
