@@ -57,9 +57,14 @@ export async function findOneAndUpdateCompat<T extends Document>(
     ...nativeOptsRaw,
   };
 
+  // optimisticFilter を filter に結合
+  const mergedFilter: Filter<T> = optimisticFilter
+    ? ({ $and: [filter as Filter<T>, optimisticFilter as Filter<T>] } as Filter<T>)
+    : (filter as Filter<T>);
+
   // 1. 元々のfindOneAndUpdateを試す
   try {
-    const nativeRes = await col.findOneAndUpdate(filter, update, nativeOpts);
+    const nativeRes = await col.findOneAndUpdate(mergedFilter, update, nativeOpts);
     const norm = normalizeNativeResult<T>(nativeRes);
     if (norm.value) {
       if (DEBUG) console.info("[compat] native hit", { collection: col.collectionName });

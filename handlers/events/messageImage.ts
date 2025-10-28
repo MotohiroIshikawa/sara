@@ -6,6 +6,23 @@ import { connectBing } from "@/utils/connectBing";
 import { compressIfNeeded } from "@/utils/imageProcessor";
 import { IMAGE } from "@/utils/env";
 
+const imageDedupMap: Map<string, number> = new Map();
+const IMAGE_DEDUP_TTL_MS: number = 5 * 60 * 1000;
+
+function isDuplicateAndMark(messageId: string): boolean {
+  const now: number = Date.now();
+  // 期限切れ掃除（軽量）
+  for (const [k, exp] of imageDedupMap) {
+    if (exp < now) imageDedupMap.delete(k);
+  }
+  const existsUntil: number | undefined = imageDedupMap.get(messageId);
+  if (typeof existsUntil === "number" && existsUntil > now) {
+    return true; // 直近で処理中/処理済み
+  }
+  imageDedupMap.set(messageId, now + IMAGE_DEDUP_TTL_MS);
+  return false;
+}
+
 // バリデーション
 const ALLOWED_MIME: readonly string[] = [
   "image/jpeg",
@@ -58,6 +75,12 @@ export async function handleMessageImage(
 
   const messageId: string = event.message.id;
   const srcType: "user" | "group" | "room" = event.source.type;
+
+  // 同一 messageId の多重実行を抑止（TTL内は即return）
+  if (isDuplicateAndMark(messageId)) {
+    console.info?.("[messageImage] duplicate suppressed", { messageId, recipientId });
+    return;
+  }
 
   let notifyTimer: NodeJS.Timeout | undefined;
   let processingNotified = false;
