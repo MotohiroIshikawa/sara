@@ -83,6 +83,15 @@ export const LINE = {
   MIN_SECTION_LENGTH: envInt("MIN_SECTION_LENGTH", 8, { min: 0, max: 20 }),
 };
 
+// 画像処理の通知しきい値（秒）
+export const IMAGE = {
+  PROCESSING_NOTIFY_THRESHOLD_SEC: envInt(
+    "IMAGE_PROCESSING_NOTIFY_THRESHOLD_SEC",
+    60,
+    { min: 5, max: 600 }
+  ),
+};
+
 /** NEWS 関連 */
 export const NEWS = {
   DEFAULT_DAYS: envInt("NEWS_DEFAULT_DAYS", 7, { min: 1, max: 30 }),

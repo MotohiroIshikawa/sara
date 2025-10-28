@@ -26,7 +26,7 @@ function parseAccountCredsFromConnStr(conn: string): { accountName: string; acco
   const accountName = parts["AccountName"];
   const accountKey = parts["AccountKey"];
   if (!accountName || !accountKey) {
-    throw new Error("Invalid AZURE_BLOB_CONNECTION_STRING: AccountName/AccountKey missing"); // ★
+    throw new Error("Invalid AZURE_BLOB_CONNECTION_STRING: AccountName/AccountKey missing");
   }
   return { accountName, accountKey };
 }

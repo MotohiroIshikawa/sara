@@ -70,7 +70,10 @@ export type MsgKey =
   | "UI_ROUND_OK"
   | "UI_ROUND_REDO"
   // グループでの呼びかけの返信
-  | "WAKE_ACK";
+  | "WAKE_ACK"
+  // 画像入力関係
+  | "IMAGE_UNSUPPORTED"
+  | "IMAGE_PROCESSING_WAIT";
 
 // デフォルトの日本語文言（環境変数が無い場合に使用）
 const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
@@ -167,6 +170,9 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   UI_ROUND_REDO: "修正",
   // グループでの呼びかけの返信
   WAKE_ACK: "はい！",
+  // 画像入力関係
+  IMAGE_UNSUPPORTED: "⚠️ この形式の画像には対応していません。JPEG, PNG, WEBP, GIF, HEIC 形式をご利用ください。",
+  IMAGE_PROCESSING_WAIT: "画像を処理しています。しばらくお待ちください！",
 } as const;
 
 // メッセージ本文を取得。
