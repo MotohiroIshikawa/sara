@@ -1,8 +1,8 @@
 import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { BindingTarget } from '@/types/db';
 import { getBinding } from '@/services/gptsBindings.mongo';
+import type { SourceType } from '@/types/gpts';
 
 const P = (p: string) => fs.readFileSync(path.resolve(process.cwd(), p), 'utf8');
 
@@ -16,7 +16,9 @@ export type ReplyInsOrigin = 'binding' | 'base';
 
 export const getBaseReplyInstruction = () => `${BASE}\n\n${REPLY}`.trim();
 
-export function getInstructionsWithInstpack(instpack: string): {
+export function getInstructionsWithInstpack(
+  instpack: string
+): {
   reply: string;   // BASE + instpack
   meta: string;    // BASE + META
   inst: string;    // INST (BASEは混ぜない)
@@ -27,37 +29,42 @@ export function getInstructionsWithInstpack(instpack: string): {
   return { reply, meta, inst };
 }
 
-export async function getInstructions(
-  target: BindingTarget
-): Promise<{
-  reply: string;
-  meta: string;
-  instpack: string;
-  origin: ReplyInsOrigin;
-}> {
-  let origin: ReplyInsOrigin = 'base';
-  let instpackFromBinding = '';
+export async function getInstruction(
+  sourceType: SourceType,
+  sourceId: string,
+  kind: "reply" | "meta" | "instpack"
+): Promise<{ instruction: string; origin: ReplyInsOrigin }> {
+  let origin: ReplyInsOrigin = "base";
+  let instpackFromBinding = "";
 
-  // binding を見にいって、あれば優先
-  try {
-    const b = await getBinding(target);
-    const s = b?.instpack?.trim();
-    if (s) {
-      origin = 'binding';
-      instpackFromBinding = s;
-    }
-  } catch {}
+  // bindingを見にいって、replyのときだけ優先
+  if (kind === "reply") {
+    try {
+      const b = await getBinding(sourceType, sourceId);
+      const s = b?.instpack?.trim();
+      if (s) {
+        origin = "binding";
+        instpackFromBinding = s;
+      }
+    } catch {}
+  }
 
-  // reply
-  const reply =
-    origin === 'binding'
-      ? `${BASE}\n\n${instpackFromBinding}`.trim()
-      : `${BASE}\n\n${REPLY}`.trim();
+  // 各種instructionを構築
+  let instruction: string;
+  switch (kind) {
+    case "reply":
+      instruction =
+        origin === "binding"
+          ? `${BASE}\n\n${instpackFromBinding}`.trim()
+          : `${BASE}\n\n${REPLY}`.trim();
+      break;
+    case "meta":
+      instruction = `${BASE}\n\n${META}`.trim();
+      break;
+    case "instpack":
+      instruction = `${INST}`.trim();
+      break;
+  }
 
-  // meta
-  const meta = `${BASE}\n\n${META}`.trim();
-  // instpack
-  const instpack = `${INST}`.trim();
-
-  return { reply, meta, instpack, origin };
+  return { instruction, origin };
 }

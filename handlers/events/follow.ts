@@ -7,19 +7,19 @@ import { getMsg } from "@/utils/msgCatalog";
 // followイベント
 export async function handleFollowEvent(
   event: Extract<WebhookEvent, { type: "follow" }>,
-  recipientId: string
+  sourceType: "user",
+  sourceId: string
 ): Promise<void> {
-  // LINE Platform 仕様上、follow は user のみ
-  const uid: string | undefined = event.source.type === "user" ? event.source.userId : undefined;
-  if (!uid) return;
+  if (sourceType !== "user") return;
+  if (!sourceId) return;
 
-  const profile = await fetchLineUserProfile(uid).catch(() => null);
-  await followUser({ userId: uid, profile: profile ?? undefined });
+  const profile = await fetchLineUserProfile(sourceId).catch(() => null);
+  await followUser(sourceId, profile ?? undefined);
 
   // 挨拶メッセージ
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken,
-    to: recipientId,
+    to: sourceId,
     messages: toTextMessages([getMsg("FOLLOW_GREETING")]),
     delayMs: 250,
   });

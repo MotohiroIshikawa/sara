@@ -93,7 +93,10 @@ export async function listActiveUserGptsIds(userId: string): Promise<string[]> {
 */
 
 /** リンク存在チェック（アクティブのみ） */
-export async function hasUserGptsLink(userId: string, gptsId: string): Promise<boolean> {
+export async function hasUserGptsLink(
+  userId: string, 
+  gptsId: string
+): Promise<boolean> {
   await ensureIndexes();
   const col = await getUserGptsCollection();
   const found = await col.findOne(
@@ -104,7 +107,11 @@ export async function hasUserGptsLink(userId: string, gptsId: string): Promise<b
 }
 
 /** 論理削除（ユーザーの所持リンクだけを非表示にする。正本 gpts は残す） */
-export async function softDeleteUserGpts(input: { userId: string; gptsId: string }): Promise<boolean> {
+// TODO: 配列引数をやめる
+export async function softDeleteUserGpts(input: {
+  userId: string;
+  gptsId: string;
+}): Promise<boolean> {
   await ensureIndexes();
   const col = await getUserGptsCollection();
 
@@ -124,7 +131,12 @@ export async function softDeleteUserGpts(input: { userId: string; gptsId: string
 
 export async function listUserGptsByUpdatedDesc(
   userId: string
-): Promise<Array<{ gptsId: string; name: string; updatedAt: Date; isPublic: boolean }>> {
+): Promise<Array<{ 
+  gptsId: string; 
+  name: string; 
+  updatedAt: Date; 
+  isPublic: boolean 
+}>> {
   await ensureIndexes();
   const userCol = await getUserGptsCollection();
 
@@ -162,7 +174,9 @@ export async function listUserGptsByUpdatedDesc(
 }
 
 // 論理削除（ユーザのすべてのリンク）
-export async function softDeleteAllUserGptsByUser(userId: string): Promise<number> {
+export async function softDeleteAllUserGptsByUser(
+  userId: string
+): Promise<number> {
   await ensureIndexes();
   const col = await getUserGptsCollection();
 

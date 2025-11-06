@@ -73,7 +73,10 @@ export type MsgKey =
   | "WAKE_ACK"
   // 画像入力関係
   | "IMAGE_UNSUPPORTED"
-  | "IMAGE_PROCESSING_WAIT";
+  | "IMAGE_PROCESSING_WAIT"
+  | "ASK_IMAGE_GENERIC"
+  | "IMAGE_GENERIC_REACT"
+  | "ASK_IMAGE_PURPOSE";
 
 // デフォルトの日本語文言（環境変数が無い場合に使用）
 const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
@@ -95,10 +98,8 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   FOLLOW_GREETING: "友だち追加ありがとうございます！\n（使い方の説明文）\n質問をどうぞ🙌",
   JOIN_GREETING_1: "グループに参加させていただきありがとうございます！",
   JOIN_GREETING_2: "このグループにチャットルールを適用しますか？",
-  MEMBERLEFT_NOTIFY:
-    "このルームのチャットルールの作成者が退出されたので退室しますね。またこんど誘ってください！",
-  UNFOLLOW_TARGET_NOTIFY:
-    "このルームのチャットルールの作成者に友だち解除されちゃったので退室しますね。またこんど誘ってください！",
+  MEMBERLEFT_NOTIFY: "このルームのチャットルールの作成者が退出されたので退室しますね。またこんど誘ってください！",
+  UNFOLLOW_TARGET_NOTIFY: "このルームのチャットルールの作成者に友だち解除されちゃったので退室しますね。またこんど誘ってください！",
   MESSAGE_EMPTY_WARN: "⚠️メッセージが空です。",
   INTERNAL_ERROR: "⚠️内部エラーが発生しました。時間をおいてもう一度お試しください。",
 
@@ -130,8 +131,7 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   // ui.ts関係 ここから
   //// 保存→定期実施確認
   UI_SAVEDASK_ALT: "定期実施の設定",
-  UI_SAVEDASK_TEXT_TPL:
-    "保存しました：{NAME}\nこのトークではこのルールを使います。\n\nこのルールを自動で定期的に実施しますか？",
+  UI_SAVEDASK_TEXT_TPL: "保存しました：{NAME}\nこのトークではこのルールを使います。\n\nこのルールを自動で定期的に実施しますか？",
   UI_SAVEDASK_YES: "定期実施する",
   UI_SAVEDASK_NO: "しない",
   //// 頻度選択
@@ -163,8 +163,7 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   UI_FINAL_RESTART: "修正",
   //// 分丸め確認
   UI_ROUND_ALT: "分丸めの確認",
-  UI_ROUND_TEXT_CHANGED_TPL:
-    "「{HH}:{MM}」で受け取りましたが、{STEP}分単位に丸めて「{HH}:{MMR}」で実施します。よろしいですか？",
+  UI_ROUND_TEXT_CHANGED_TPL: "「{HH}:{MM}」で受け取りましたが、{STEP}分単位に丸めて「{HH}:{MMR}」で実施します。よろしいですか？",
   UI_ROUND_TEXT_OK_TPL: "「{HH}:{MM}」で実施します。よろしいですか？",
   UI_ROUND_OK: "OK",
   UI_ROUND_REDO: "修正",
@@ -173,6 +172,9 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   // 画像入力関係
   IMAGE_UNSUPPORTED: "⚠️ この形式の画像には対応していません。JPEG, PNG, WEBP, GIF, HEIC 形式をご利用ください。",
   IMAGE_PROCESSING_WAIT: "画像を処理しています。しばらくお待ちください！",
+  ASK_IMAGE_GENERIC: "画像を送ってください！",
+  IMAGE_GENERIC_REACT: "画像を受け取りました！",
+  ASK_IMAGE_PURPOSE: "画像から何をお答えしましょうか？\n具体的な指示をください"
 } as const;
 
 // メッセージ本文を取得。

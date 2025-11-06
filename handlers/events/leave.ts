@@ -7,15 +7,13 @@ import { resetThread } from "@/services/threadState";
 // leaveイベント
 export async function handleLeaveEvent(
   event: Extract<WebhookEvent, { type: "leave" }>,
-  bindingTarget: { type: "group" | "room"; targetId: string }
+  sourceType: "group" | "room",
+  sourceId: string
 ): Promise<void> {
-  const targetType: "group" | "room" = bindingTarget.type;
-  const targetId: string = bindingTarget.targetId;
-  const ownerScope: string = `${targetType}:${targetId}`;
 
   try {
     // 現在の binding を確認（あれば instpack を使って Agent を整理）
-    const binding = await getBinding({ type: targetType, targetId }).catch(() => null);
+    const binding = await getBinding(sourceType, sourceId).catch(() => null);
     const instpack: string | undefined = binding?.instpack ? String(binding.instpack) : undefined;
 
     // 1. Agent/Thread cleanup
@@ -24,32 +22,32 @@ export async function handleLeaveEvent(
         await delete3AgentsForInstpack(instpack);
       }
     } catch (e) {
-      console.warn("[leave] delete3AgentsForInstpack failed", { ownerScope, err: String(e) });
+      console.warn("[leave] delete3AgentsForInstpack failed", { sourceType, sourceId, err: String(e) });
     }
     try {
-      await resetThread(ownerScope); // スコープIDでリセット
+      await resetThread(sourceType, sourceId);
     } catch (e) {
-      console.warn("[leave] resetThread failed", { ownerScope, err: String(e) });
+      console.warn("[leave] resetThread failed", { sourceType, sourceId, err: String(e) });
     }
 
     // 2. binding を削除（hard delete）
     try {
-      await clearBinding({ type: targetType, targetId });
+      await clearBinding(sourceType, sourceId);
     } catch (e) {
-      console.warn("[leave] clearBinding failed", { ownerScope, err: String(e) });
+      console.warn("[leave] clearBinding failed", { sourceType, sourceId, err: String(e) });
     }
 
     // 3. スケジュールを soft delete（target 指定）
     try {
-      const n: number = await softDeleteSchedulesByTarget({ targetType, targetId });
-      console.info("[leave] schedules soft-deleted", { ownerScope, count: n });
+      const n: number = await softDeleteSchedulesByTarget(sourceType, sourceId);
+      console.info("[leave] schedules soft-deleted", { sourceType, sourceId, count: n });
     } catch (e) {
-      console.warn("[leave] softDeleteSchedulesByTarget failed", { ownerScope, err: String(e) });
+      console.warn("[leave] softDeleteSchedulesByTarget failed", { sourceType, sourceId, err: String(e) });
     }
 
     // 4. 通知は不可（BOTは既に退室済み）
-    console.info("[leave] cleanup done (no notify, already left)", { ownerScope });
+    console.info("[leave] cleanup done (no notify, already left)", { sourceType, sourceId });
   } catch (e) {
-    console.warn("[leave] handler error", { targetType, targetId, err: String(e) });
+    console.warn("[leave] handler error", { sourceType, sourceId, err: String(e) });
   }
 }

@@ -10,8 +10,14 @@ import { redis } from "@/utils/redis";
 import { toDefinition, type ToolLike } from "@/utils/types";
 
 const endpoint = AZURE.AI_PRJ_ENDPOINT;
-const modelDeployment = AZURE.AI_MODEL_DEPLOYMENT;
 const agentNamePrefix = AZURE.AGENT_NAME_PREFIX;
+
+const modelDeployment = AZURE.AI_MODEL_DEPLOYMENT;
+const MODEL = {
+  reply: process.env.AZURE_AI_MODEL_DEPLOYMENT_REPLY ?? modelDeployment,
+  meta: process.env.AZURE_AI_MODEL_DEPLOYMENT_META ?? modelDeployment,
+  instpack: process.env.AZURE_AI_MODEL_DEPLOYMENT_INSTPACK ?? modelDeployment,
+} as const;
 
 const credential = new DefaultAzureCredential();
 export const agentsClient = new AgentsClient(endpoint, credential);
@@ -37,10 +43,11 @@ function toolSignature(defs: ReadonlyArray<ToolLike | unknown>): string {
 // instructions+tools から 12桁の署名を決定的に算出
 function computeAgentSig(
   instructions: string,
-  tools: ReadonlyArray<ToolLike | unknown>
+  tools: ReadonlyArray<ToolLike | unknown>,
+  mdl: string
 ): string {
   return createHash("sha256")
-    .update(JSON.stringify({ modelDeployment, endpoint, instructions, toolSig: toolSignature(tools) }))
+    .update(JSON.stringify({ modelDeployment: mdl, endpoint, instructions, toolSig: toolSignature(tools) }))
     .digest("base64url")
     .slice(0, 12);
 }
@@ -54,15 +61,17 @@ function agentCacheKeyFromSig(sig: string): string {
 // 指示文＋ツール構成でAgentをキャッシュ・作成
 export async function getOrCreateAgentIdWithTools(
   instructions: string,
-  tools: ReadonlyArray<ToolLike | unknown>
+  tools: ReadonlyArray<ToolLike | unknown>,
+  purpose: "reply" | "meta" | "instpack"
 ): Promise<string> {
-  const sig = computeAgentSig(instructions, tools);
+  const mdl: string = MODEL[purpose];
+  const sig = computeAgentSig(instructions, tools, mdl);
   const key = agentCacheKeyFromSig(sig);
 
   const cached = await redis.get(key);
   if (cached) return cached;
 
-  const agent = await agentsClient.createAgent(modelDeployment, {
+  const agent = await agentsClient.createAgent(mdl, {
     name: `${agentNamePrefix}-${Date.now()}`,
     instructions,
     tools: tools.map(toDefinition),
@@ -80,7 +89,8 @@ export async function deleteBaseReplyAgent(): Promise<string | null> {
     { connectionId: AZURE.BING_CONNECTION_ID, market: "ja-JP", setLang: "ja", count: 5, freshness: "week" },
   ]);
   const baseReplyIns = getBaseReplyInstruction();
-  const sig = computeAgentSig(baseReplyIns, [bingTool]);
+  const mdl: string = MODEL.reply;
+  const sig = computeAgentSig(baseReplyIns, [bingTool], mdl);
   const key = agentCacheKeyFromSig(sig);
   const agentId = await redis.get(key);
   if (!agentId) return null;
@@ -107,16 +117,21 @@ export async function delete3AgentsForInstpack(instpack: string): Promise<{
 
   const { reply, meta, inst } = getInstructionsWithInstpack(instpack);
 
-  const pairs: Array<{ label: "reply" | "meta" | "inst"; ins: string; tools: ReadonlyArray<ToolLike | unknown> }> = [
-    { label: "reply", ins: reply, tools: [bingTool] },
-    { label: "meta",  ins: meta,  tools: [emitMetaTool] },
-    { label: "inst",  ins: inst,  tools: [emitInstpackTool] },
+  const pairs: Array<{ 
+    label: "reply" | "meta" | "inst"; 
+    ins: string; 
+    tools: ReadonlyArray<ToolLike | unknown>;
+    mdl: string;
+  }> = [
+    { label: "reply", ins: reply, tools: [bingTool], mdl: MODEL.reply },
+    { label: "meta",  ins: meta,  tools: [emitMetaTool], mdl: MODEL.meta  },
+    { label: "inst",  ins: inst,  tools: [emitInstpackTool], mdl: MODEL.instpack },
   ];
 
   const result: { deletedReply?: string | null; deletedMeta?: string | null; deletedInst?: string | null } = {};
 
   for (const p of pairs) {
-    const sig = computeAgentSig(p.ins, p.tools);
+    const sig = computeAgentSig(p.ins, p.tools, p.mdl);
     const key = agentCacheKeyFromSig(sig);
     const agentId = await redis.get(key);
     if (!agentId) {

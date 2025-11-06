@@ -1,5 +1,4 @@
 import { messagingApi, type MessageEvent } from "@line/bot-sdk";
-import { connectBing } from "@/utils/connectBing";
 import { LINE, WAKE } from "@/utils/env";
 import { toTextMessages, sendMessagesReplyThenPush, buildSaveOrContinueConfirm } from "@/utils/lineSend";
 import { encodePostback } from "@/utils/postback";
@@ -14,6 +13,13 @@ import {
   DEFAULT_WAKE_SEP_RE,
   type ReplyMode,
 } from "@/utils/wakeState";
+import { getReply } from "@/utils/aiConnectReply";
+import { getMeta } from "@/utils/aiConnectMeta";
+import { getInstpack } from "@/utils/aiConnectInstpack";
+import { computeMeta, looksLikeFollowup } from "@/utils/meta";
+import type { AiContext, Meta, MetaComputeResult } from "@/types/gpts";
+import { getOrCreateThreadId } from "@/services/threadState";
+import { getSpeakerUserId } from "@/utils/lineSource";
 
 const replyMax: number = LINE.REPLY_MAX;
 const REPLY_MODE: ReplyMode = "session";
@@ -21,17 +27,16 @@ const REPLY_MODE_TTL_SEC: number = WAKE.REPLY_MODE_TTL_SEC;
 const WAKE_ALIASES: readonly string[] = WAKE.ALIASES as readonly string[];
 const WAKE_SEP_RE: RegExp = DEFAULT_WAKE_SEP_RE;
 
-// 確認カード表示の条件
+// 確認カード表示の条件（従来踏襲）
 function shouldShowConfirm(meta: unknown, instpack: string | undefined, threadId?: string): boolean {
   if (!threadId) return false;
   if (!instpack?.trim()) return false;
   const m = meta as { complete?: boolean } | undefined;
   if (!m || m.complete !== true) return false;
-  if (m.complete !== true) return false;
   return true;
 }
 
-// 確認カード直前の最終ガード
+// 確認カード直前の最終ガード（従来踏襲）
 function finalCheckBeforeConfirm(
   meta: { complete?: boolean } | undefined,
   instpack: string | undefined
@@ -46,44 +51,112 @@ function finalCheckBeforeConfirm(
   return { ok: true };
 }
 
-// messageイベント処理(text)
+// 末尾に followup を重複なく1行追加
+function appendFollowupIfNeeded(texts: string[], ask: string | undefined, meta: Meta): string[] {
+  if (typeof ask !== "string") return texts;
+  const t: string = ask.trim();
+  if (t.length === 0) return texts;
+
+  const last: string = texts[texts.length - 1] ?? "";
+  const eqLite = (a: string, b: string): boolean =>
+    a.replace(/\s+/g, "").trim() === b.replace(/\s+/g, "").trim();
+
+  const already: boolean = eqLite(last, t) || looksLikeFollowup(last, meta);
+  return already ? texts : [...texts, t];
+}
+
+// messageイベント(text)
 export async function handleMessageText(
   event: MessageEvent,
-  recipientId: string,
-  threadOwnerId: string
+  sourceType: "user" | "group" | "room",
+  sourceId: string
 ): Promise<void> {
-  const questionRaw: string = (event.message.type === "text" ? event.message.text ?? "" : "");
+  if (event.message.type !== "text") return;
+
+  const questionRaw: string =
+    event.message.type === "text" ? (event.message.text ?? "") : "";
   const questionTrimmed: string = questionRaw.trim();
-  const srcType: "user" | "group" | "room" = event.source.type;
 
   // 1対1（常時応答）
-  if (srcType === "user") {
+  if (sourceType === "user") {
     const question: string = questionTrimmed;
     if (!question) {
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken,
-        to: recipientId,
+        to: sourceId,
         messages: toTextMessages([getMsg("MESSAGE_EMPTY_WARN")]),
         delayMs: 250,
       });
       return;
     }
 
-    const res = await connectBing(threadOwnerId, question, { sourceType: srcType });
+    // Thread確保 + AiContext 構築
+    const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
+    const ctx: AiContext = { ownerId: sourceId, sourceType: sourceType, threadId };
 
-    const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
-    const show: boolean = shouldShowConfirm(res.meta, res.instpack, res.threadId);
-    const guard = show ? finalCheckBeforeConfirm(res.meta, res.instpack) : { ok: false as boolean, reason: "skip" };
+    // 1. reply 実行（Bingあり／なしは aiConnectReply 側で処理）
+    const replyRes = await getReply(ctx, { question });
+    let texts: string[] = [...replyRes.texts];
+
+    // 2. meta → computeMeta（userのみ）
+    const metaRes = await getMeta(ctx, { hasImageHint: false });
+    let mergedMeta: Meta | undefined = metaRes.meta;
+
+    let metaEval: MetaComputeResult | undefined = undefined;
+    if (mergedMeta) {
+      const replyTextJoined: string = texts.join("\n\n");
+      metaEval = computeMeta(mergedMeta, replyTextJoined);
+      mergedMeta = metaEval.metaNorm;
+    }
+
+    // ask:image の統一（必要なら先頭に追加／metaの個別文面は除去）
+    const needAskImage: boolean =
+      (mergedMeta?.followups?.[0]?.ask === "image") ||
+      ((mergedMeta?.modality === "image" || mergedMeta?.modality === "image+text") &&
+        mergedMeta?.slots?.has_image !== true);
+    if (needAskImage) {
+      const unified: string = (getMsg("ASK_IMAGE_GENERIC") ?? "画像を送ってください。").trim();
+      const metaAskText: string | undefined = mergedMeta?.followups?.[0]?.text?.trim();
+      if (metaAskText && metaAskText.length > 0) {
+        texts = texts.filter((t) => t.trim() !== metaAskText);
+      }
+      if (!texts.some((t) => t.trim() === unified)) {
+        texts.unshift(unified);
+      }
+    }
+
+    // complete_norm=false のときに followup を1行だけ末尾に追記
+    if (metaEval && metaEval.complete_norm === false) {
+      const ask: string | undefined = metaEval.metaNorm.followups?.[0]?.text;
+      if (ask && ask.trim().length > 0) {
+        texts = appendFollowupIfNeeded(texts, ask, metaEval.metaNorm);
+      }
+    }
+
+    if (!texts.length) texts = ["（結果が見つかりませんでした）"];
+
+    // 3. saveable のときだけ instpack 取得
+    let mergedInst: string | undefined = undefined;
+    if (metaEval?.saveable === true) {
+      const instRes = await getInstpack(ctx);
+      mergedInst = instRes.instpack;
+    }
+
+    // 通常の送出
+    const messages: messagingApi.Message[] = [...toTextMessages(texts)];
+    const show: boolean = shouldShowConfirm(mergedMeta, mergedInst, threadId);
+    const guard = show ? finalCheckBeforeConfirm(mergedMeta, mergedInst) : { ok: false as boolean, reason: "skip" };
     if (!guard.ok) {
-      console.info("[messageText] confirm skipped by finalCheck:", { tid: res.threadId, reason: guard.reason });
+      const reason: string = guard.ok ? "ok" : (guard.reason ?? "unknown");
+      console.info("[messageText] confirm skipped by finalCheck:", { tid: threadId, reason });
     }
 
     let confirmMsg: messagingApi.Message | null = null;
     if (show && guard.ok) {
       confirmMsg = buildSaveOrContinueConfirm({
         text: "この内容で保存しますか？",
-        saveData: encodePostback("gpts", "save", { tid: res.threadId, label: "保存" }),
-        continueData: encodePostback("gpts", "continue", { tid: res.threadId, label: "続ける" }),
+        saveData: encodePostback("gpts", "save", { tid: threadId, label: "保存" }),
+        continueData: encodePostback("gpts", "continue", { tid: threadId, label: "続ける" }),
       });
       messages.push(confirmMsg);
 
@@ -93,7 +166,7 @@ export async function handleMessageText(
         "[messageText] confirm queued. index=%d, willBe=%s (if reply OK). tid=%s",
         idx,
         willBePushedIfReplyOK ? "PUSH" : "REPLY",
-        res.threadId
+        threadId
       );
     }
 
@@ -112,7 +185,7 @@ export async function handleMessageText(
 
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken,
-      to: recipientId,
+      to: sourceId,
       messages,
       delayMs: 250,
       log: logProxy,
@@ -126,41 +199,39 @@ export async function handleMessageText(
         wasPushed ? "PUSH" : "REPLY",
         idx,
         replyFellBackToPush,
-        res.threadId
+        threadId
       );
     }
 
-    if (res.instpack && res.threadId) {
-      await upsertThreadInst({
-        userId: threadOwnerId,
-        threadId: res.threadId,
-        instpack: res.instpack,
-        meta: res.meta,
-      });
+    if (mergedInst && threadId) {
+      await upsertThreadInst(
+        sourceId,
+        threadId,
+        mergedInst,
+        mergedMeta,
+      );
     }
     return;
   }
 
   // group/room（呼びかけ語 or 返信モード必須）
-  if (srcType === "group" || srcType === "room") {
-    const scopeId: string = threadOwnerId;
-    const speakerUserId: string | undefined = event.source.userId ?? undefined;
+  if (sourceType === "group" || sourceType === "room") {
+    const speakerUserId: string | undefined = getSpeakerUserId(event);
 
     // 割り込みで返信モード解除（呼びかけ本人の連投は解除しない）
-    if (scopeId && speakerUserId) {
-      await breakReplyModeOnInterrupt(scopeId, speakerUserId);
+    if (speakerUserId) {
+      await breakReplyModeOnInterrupt(sourceType, sourceId, speakerUserId);
     }
 
-    // 呼びかけ判定
     // 単発呼びかけ → 返信モードON＋案内のみ返して終了
     if (questionTrimmed.length > 0 && isSingleWordWake(questionTrimmed, WAKE_ALIASES)) {
-      if (scopeId && speakerUserId) {
-        await activateReplyMode(scopeId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
+      if (speakerUserId) {
+        await activateReplyMode(sourceType, sourceId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
       }
       const ackText: string = getMsg("WAKE_ACK") ?? "はい！どうぞ";
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken,
-        to: recipientId,
+        to: sourceId,
         messages: toTextMessages([ackText]),
         delayMs: 200,
       });
@@ -172,13 +243,13 @@ export async function handleMessageText(
     let question: string = questionTrimmed;
     if (head.matched) {
       question = (head.cleaned ?? "").trim();
-      if (scopeId && speakerUserId) {
-        await activateReplyMode(scopeId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
+      if (speakerUserId) {
+        await activateReplyMode(sourceType, sourceId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
       }
     } else {
-      //  呼びかけ無し → 返信モードを消費できれば本文処理、できなければスキップ
+      // 呼びかけ無し → 返信モードを消費できれば本文処理、できなければスキップ
       const allowedByReplyMode: boolean =
-        scopeId && speakerUserId ? await consumeReplyModeIfActive(scopeId, speakerUserId) : false;
+        speakerUserId ? await consumeReplyModeIfActive(sourceType, sourceId, speakerUserId) : false;
       if (!allowedByReplyMode) {
         return; // グループ/ルームでは無反応（通常会話とみなす）
       }
@@ -188,82 +259,30 @@ export async function handleMessageText(
     if (!question) {
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken,
-        to: recipientId,
+        to: sourceId,
         messages: toTextMessages([getMsg("MESSAGE_EMPTY_WARN")]),
         delayMs: 200,
       });
       return;
     }
 
-    const res = await connectBing(threadOwnerId, question, { sourceType: srcType });
+    // Thread確保 + AiContext 構築
+    const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
+    const ctx: AiContext = { ownerId: sourceId, sourceType, threadId };
 
-    const messages: messagingApi.Message[] = [...toTextMessages(res.texts)];
-    const show: boolean = shouldShowConfirm(res.meta, res.instpack, res.threadId);
-    const guard = show ? finalCheckBeforeConfirm(res.meta, res.instpack) : { ok: false as boolean, reason: "skip" };
-    if (!guard.ok) {
-      console.info("[messageText] confirm skipped by finalCheck:", { tid: res.threadId, reason: guard.reason });
-    }
+    // group/room は reply のみ
+    const replyRes = await getReply(ctx, { question });
+    let texts: string[] = [...replyRes.texts];
+    if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
-    let confirmMsg: messagingApi.Message | null = null;
-    if (show && guard.ok) {
-      confirmMsg = buildSaveOrContinueConfirm({
-        text: "この内容で保存しますか？",
-        saveData: encodePostback("gpts", "save", { tid: res.threadId, label: "保存" }),
-        continueData: encodePostback("gpts", "continue", { tid: res.threadId, label: "続ける" }),
-      });
-      messages.push(confirmMsg);
-
-      const idx: number = messages.indexOf(confirmMsg);
-      const willBePushedIfReplyOK: boolean = idx >= replyMax;
-      console.info(
-        "[messageText] confirm queued. index=%d, willBe=%s (if reply OK). tid=%s",
-        idx,
-        willBePushedIfReplyOK ? "PUSH" : "REPLY",
-        res.threadId
-      );
-    }
-
-    let replyFellBackToPush = false;
-    const logProxy: Pick<typeof console, "info" | "warn" | "error"> = {
-      info: (...args: Parameters<typeof console.info>) => console.info(...args),
-      warn: (...args: Parameters<typeof console.warn>) => {
-        try {
-          const first = args[0];
-          if (typeof first === "string" && first.includes("Fallback to push")) replyFellBackToPush = true;
-        } catch {}
-        console.warn(...args);
-      },
-      error: (...args: Parameters<typeof console.error>) => console.error(...args),
-    };
+    const messages: messagingApi.Message[] = [...toTextMessages(texts)];
 
     await sendMessagesReplyThenPush({
       replyToken: event.replyToken,
-      to: recipientId,
+      to: sourceId,
       messages,
       delayMs: 250,
-      log: logProxy,
     });
-
-    if (confirmMsg) {
-      const idx: number = messages.indexOf(confirmMsg);
-      const wasPushed: boolean = replyFellBackToPush || (idx >= replyMax);
-      console.info(
-        "[messageText] confirm delivered via %s. idx=%d, fallback=%s, tid=%s",
-        wasPushed ? "PUSH" : "REPLY",
-        idx,
-        replyFellBackToPush,
-        res.threadId
-      );
-    }
-
-    if (res.instpack && res.threadId) {
-      await upsertThreadInst({
-        userId: threadOwnerId,
-        threadId: res.threadId,
-        instpack: res.instpack,
-        meta: res.meta,
-      });
-    }
     return;
   }
 

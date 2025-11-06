@@ -68,12 +68,12 @@ export async function POST(request: Request) {
       });
 
       try {
-        const res = await runGptsAndPush({
-          gptsId: s.gptsId,
-          userId: s.userId,
-          targetType: s.targetType,
-          targetId: s.targetId,
-        });
+        const res = await runGptsAndPush(
+          s.gptsId,
+          s.userId,
+          s.targetType,
+          s.targetId,
+        );
 
         if (res.ok) {
           let next: Date | null = null;

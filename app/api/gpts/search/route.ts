@@ -66,11 +66,13 @@ export async function GET(request: Request) {
 
     const limitForHasMore: number = Math.min(q.limit + 1, PAGE_MAX_LIMIT + 1);
 
-    const results = await searchPublicGptsWithAuthor({
-      ...q,
-      limit: limitForHasMore,
-      excludeUserId: userId,
-    });
+    const results = await searchPublicGptsWithAuthor(
+      q.q ?? undefined,
+      q.sort ?? undefined,
+      limitForHasMore,
+      q.offset ?? 0,
+      userId
+    );
 
     const hasMore: boolean = results.length > q.limit;
     const sliced = hasMore ? results.slice(0, q.limit) : results;

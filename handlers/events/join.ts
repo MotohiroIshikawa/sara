@@ -7,14 +7,14 @@ import { getMsg } from "@/utils/msgCatalog";
 // joinイベント
 export async function handleJoinEvent(
   event: Extract<WebhookEvent, { type: "join" }>,
-  recipientId: string,
-  bindingTarget: { type: "group" | "room"; targetId: string }
+  sourceType: "group" | "room",
+  sourceId: string
 ): Promise<void> {
   // isPendingApply=true で gptsBindings に upsert
   try {
-    await upsertDraftBinding(bindingTarget);
+    await upsertDraftBinding(sourceType, sourceId);
   } catch (e) {
-    console.warn("[join] upsertDraftBinding failed", { target: bindingTarget, err: String(e) });
+    console.warn("[join] upsertDraftBinding failed", { sourceId, sourceType, err: String(e) });
   }
 
   const data: string = encodePostback("gpts", "apply_owner");
@@ -25,14 +25,10 @@ export async function handleJoinEvent(
 
   await sendMessagesReplyThenPush({
     replyToken: event.replyToken,
-    to: recipientId,
+    to: sourceId,
     messages: greet,
     delayMs: 250,
   });
 
-  console.info("[join] greeted and queued apply_owner button", {
-    type: event.source.type,
-    groupId: event.source.type === "group" ? event.source.groupId : undefined,
-    roomId: event.source.type === "room" ? event.source.roomId : undefined,
-  });
+  console.info("[join] greeted and queued apply_owner button", { sourceId, sourceType });
 }

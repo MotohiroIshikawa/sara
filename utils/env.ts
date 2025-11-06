@@ -107,7 +107,7 @@ export const MAIN_TIMERS = {
 
 /** デバッグ系 */
 export const DEBUG = {
-  BING: envBool("DEBUG_BING", false),
+  AI: envBool("DEBUG_AI", false),
 };
 
 export const WAKE = {

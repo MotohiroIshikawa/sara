@@ -23,7 +23,7 @@
     "complete": boolean,
     "followups": [
       {
-        "ask": "topic | image_task | date_range | place",
+        "ask": "topic | image | image_task | date_range | place",
         "text": "ユーザにその1点だけを尋ねる簡潔な文（80文字以内・末尾に「?」or「？」）"
       }
     ]
@@ -58,8 +58,8 @@
   - place, date_range: 不明なら省略可。  
   - official_only: 明示がある場合のみ false（既定は null）。  
   - title: 内容の要約（40字以内・句読点や装飾なし）。topic がある場合は設定。  
-- 画像関連（modality が image / image+text のとき任意で設定）:  // ★ 追加
-  - image_task: "identify" | "ocr" | "caption" | "summarize" | "detect_faces" | null  
+- 画像関連（modality が image / image+text のとき任意で設定）:
+  - image_task: "identify" | "ocr" | "caption" | "summarize" | "detect_faces" | null
 - 文体関連（明示があるときのみ）:
   - tone: "friendly" など任意文字列。  
   - output_style: "short" | "bullets" | "detailed" など任意文字列。
@@ -76,7 +76,7 @@
 - 出力形式：followups は 配列で、各要素は次の構造を持つ。
 ``` json
 {
-  "ask": "topic | image_task | date_range | place | tone | style",
+  "ask": "topic | image | image_task | date_range | place",
   "text": "ユーザに1点だけを尋ねる簡潔な文（80文字以内・疑問形または命令形）"
 }
 ```
@@ -93,6 +93,27 @@
   - qa: 「知りたい点は？」「別の観点も要る？」  
   - summarize: 「何行で要約？」「箇条書きで？」  
   - react: 「どんなトーンで？」「短く一言で？」  
+
+## FollowupAsk の意味と使い分け
+
+各 followup.ask は「1件＝1スロット」の不足を埋めるための最小質問を表す。
+
+ask           | 目的（何を求めるか）                              | 代表的な短文例（80字以内・？または命令形）            | 典型トリガ
+--------------|----------------------------------------------------|------------------------------------------------------|--------------------------------------------------
+image         | 画像そのものの提出（入力が未添付のとき）           | 画像を送ってください                                 | modality が image / image+text なのに画像未添付
+image_task    | 画像の処理種別の指定（例：ocr/identify など）      | 画像で何をしますか？（識別・文字読み取り・説明など）   | 画像はあるが処理目的が不明
+topic         | 主題・固有名詞の指定                              | 対象（固有名詞やキーワード）を教えてください           | 意図はあるが対象語が欠落
+date_range    | 期間の指定                                        | 期間はいつですか？                                   | event/news 系で期間が不明
+place         | 場所の指定                                        | 場所（市区町村や施設名）を教えてください               | local 系で場所が不明
+tone          | 口調・トーンの指定                                | どのトーンで書きますか？                              | 反応/要約で口調を求める場合
+style         | 出力スタイルの指定（例：short/bullets 等）         | 出力スタイルは？（短く／箇条書き など）               | 体裁の指示が必要なとき
+
+## 優先度の原則
+
+画像前提（modality が image / image+text または slots.image_task が与えられている）の初手で画像未添付なら、まず ask:"image" を出す。
+画像があるが処理目的が不明なら ask:"image_task"。
+lookup などで対象語が未確定なら ask:"topic"。
+同一ターンで複数不足がある場合でも 最大 2 件まで（主1・副1）。
 
 # 禁止事項（厳守）
 - 自然文・説明文・JSON の**生出力**。

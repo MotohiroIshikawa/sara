@@ -1,24 +1,23 @@
 import { messagingApi  } from "@line/bot-sdk";
 import { getGptsById } from "@/services/gpts.mongo";
-import type { SourceType } from "@/types/gpts";
-import { connectBing } from "@/utils/connectBing";
+import type { AiContext, SourceType } from "@/types/gpts";
 import { pushMessages, toTextMessages } from "@/utils/lineSend";
+import { getOrCreateThreadId } from "@/services/threadState";
+import { getReply } from "@/utils/aiConnectReply";
 
 export type RunOk = { ok: true };
 export type RunNg = { ok: false; reason: string };
 export type RunResult = RunOk | RunNg;
 
-//type TargetType = SourceType;
-
-export async function runGptsAndPush(input: {
-  gptsId: string;
-  userId: string;               // 監査用（作成者/所有者）
-  targetType: SourceType;       // "user" | "group" | "room"
-  targetId: string;             // Uxxxx / Cxxxx / Rxxxx
-}): Promise<RunResult> {
+export async function runGptsAndPush(
+  gptsId: string,
+  userId: string,                 // 監査用（作成者/所有者）
+  sourceType: SourceType,        // "user" | "group" | "room"
+  sourceId: string              // Uxxxx / Cxxxx / Rxxxx
+): Promise<RunResult> {
 
   // 1. GPTs（instpack/name）取得
-  const gpts = await getGptsById(input.gptsId);
+  const gpts = await getGptsById(gptsId);
   if (!gpts || gpts.deletedAt) {
     return { ok: false, reason: "gpts not found or deleted" };
   }
@@ -29,16 +28,14 @@ export async function runGptsAndPush(input: {
   // 2. スケジュール実行用の“質問”を決める
   const question = `【定期配信】${gpts.name ?? "スケジュール実行"} — 直近の推奨アップデートを1通にまとめて。必要なら簡潔に箇条書きで。`;
 
-  // 3. 生成実行（connectBing）
+  // 3. 生成実行（getReply）
   let texts: string[] = [];
   try {
-    const res = await connectBing(input.targetId, question, {
-      sourceType: input.targetType,
-      // ここでは meta/instpack の保存は行わない（スケジュール配信なので）
-      maxMetaRetry: 1,
-    });
+    // Thread確保 + AiContext 構築
+    const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
+    const ctx: AiContext = { ownerId: sourceId, sourceType, threadId };
+    const res = await getReply(ctx, { question });
 
-    // connectBing は LINE 用に整形済みの string[] を返す設計
     texts = Array.isArray(res.texts) ? res.texts : [];
   } catch (e) {
     return { ok: false, reason: asMsg(e) };
@@ -53,7 +50,7 @@ export async function runGptsAndPush(input: {
   const messages = toTextMessages(texts);
   try {
     await pushMessages({ 
-      to: input.targetId, 
+      to: sourceId, 
       messages: messages as messagingApi.Message[] 
     });
   } catch (e) {

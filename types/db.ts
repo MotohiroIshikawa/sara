@@ -65,11 +65,6 @@ export interface UserGptsDoc extends Document {
 
 type BindingTargetType = "user" | "group" | "room";
 
-export interface BindingTarget {
-  type: BindingTargetType;        // user / group / room
-  targetId: string;               // LINE 生ID: Uxxxx / Gxxxx / Rxxxx
-}
-
 // どのチャットルールが1対1チャットルーム/グループトークルームに適用されているかを管理するテーブル
 export interface GptsBindingDoc extends Document {
   _id: ObjectId;
