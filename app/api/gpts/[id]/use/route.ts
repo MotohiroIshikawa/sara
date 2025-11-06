@@ -6,7 +6,6 @@ import { getGptsById } from "@/services/gpts.mongo";
 import { purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
-import { toScopedOwnerIdFromPlainId } from "@/utils/lineSource";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -30,23 +29,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
 
-    const scopedOwnerId = toScopedOwnerIdFromPlainId("user", userId);
-
     // 現在の binding を取得（旧Agent掃除のため保持）
-    const prev = await getBinding({ type: "user", targetId: userId }).catch(() => null);
+    const prev = await getBinding("user", userId).catch(() => null);
 
     // thread_inst（ユーザの作成中レコード）を削除
-    await purgeAllThreadInstByUser(scopedOwnerId).catch((e) => {
+    const scope = `user:${userId}`;
+    await purgeAllThreadInstByUser(scope).catch((e) => {
       console.warn(`[gpts.use:${rid}] clear_thread_inst_failed`, { userId, err: String(e) });
     });
 
     // Redisに登録されている利用中のthreadを削除
-    await resetThread(scopedOwnerId).catch((e) => {
+    await resetThread("user", userId).catch((e) => {
       console.warn(`[gpts.use:${rid}] reset_thread_failed`, { userId, err: String(e) });
     });
 
      // gpts_bindings を上書き
-    await setBinding({ type: "user", targetId: userId }, g.gptsId, g.instpack);
+    await setBinding("user", userId, g.gptsId, g.instpack);
 
     // 旧 binding と違う場合は、旧 instpack に紐づく reply/meta/inst Agent を削除（上限3体維持）
     if (prev?.instpack && prev?.gptsId !== g.gptsId) {

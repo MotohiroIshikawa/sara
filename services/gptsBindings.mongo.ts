@@ -1,4 +1,5 @@
-import type { GptsBindingDoc, BindingTarget } from "@/types/db";
+import type { GptsBindingDoc } from "@/types/db";
+import type { SourceType } from "@/types/gpts";
 import { envInt } from "@/utils/env";
 import { getGptsBindingsCollection } from "@/utils/mongo";
 
@@ -43,20 +44,23 @@ async function ensureIndexes() {
 }
 
 // join直後のドラフトbindingを upsert（既存値があれば保持、無ければ空で作成）
-export async function upsertDraftBinding(target: BindingTarget): Promise<void> {
+export async function upsertDraftBinding(
+  sourceType: SourceType,
+  sourceId: string
+): Promise<void> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
   const now: Date = new Date();
 
   // 既存があれば gptsId/instpack を保持、無ければ空文字でプレースホルダ 
   const cur = await col.findOne(
-    { targetType: target.type, targetId: target.targetId },
+    { targetType: sourceType, targetId: sourceId },
     { projection: { _id: 1, gptsId: 1, instpack: 1 } }
   );
 
   const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
-    targetType: target.type,
-    targetId: target.targetId,
+    targetType: sourceType,
+    targetId: sourceId,
     gptsId: cur?.gptsId ?? "",
     instpack: cur?.instpack ?? "",
     isPendingApply: true,
@@ -64,21 +68,26 @@ export async function upsertDraftBinding(target: BindingTarget): Promise<void> {
   };
 
   await col.updateOne(
-    { targetType: target.type, targetId: target.targetId },
+    { targetType: sourceType, targetId: sourceId },
     { $set, $setOnInsert: { createdAt: now } },
     { upsert: true }
   );
 }
 
 // 適用（新規 or 更新）
-export async function setBinding(target: BindingTarget, gptsId: string, instpack: string): Promise<void> {
+export async function setBinding(
+  sourceType: SourceType,
+  sourceId: string,
+  gptsId: string, 
+  instpack: string
+): Promise<void> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
   const now: Date = new Date();
 
 const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
-    targetType: target.type,
-    targetId: target.targetId,
+    targetType: sourceType,
+    targetId: sourceId,
     gptsId,
     instpack,
     updatedAt: now,
@@ -86,34 +95,44 @@ const $set: Omit<GptsBindingDoc, "_id" | "createdAt"> = {
   };
 
   await col.updateOne(
-    { targetType: target.type, targetId: target.targetId },
+    { targetType: sourceType, targetId: sourceId },
     { $set, $setOnInsert: { createdAt: now } },
     { upsert: true }
   );
 }
 
 // 取得（存在しなければ null）
-export async function getBinding(target: BindingTarget): Promise<GptsBindingDoc | null> {
+export async function getBinding(
+  sourceType: SourceType,
+  sourceId: string
+): Promise<GptsBindingDoc | null> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
-  return col.findOne({ targetType: target.type, targetId: target.targetId });
+  return col.findOne({ targetType: sourceType, targetId: sourceId });
 }
 
 // 解除（削除）
-export async function clearBinding(target: BindingTarget): Promise<boolean> {
+export async function clearBinding(
+  sourceType: SourceType,
+  sourceId: string
+): Promise<boolean> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
-  const r = await col.deleteOne({ targetType: target.type, targetId: target.targetId });
+  const r = await col.deleteOne({ targetType: sourceType, targetId: sourceId });
   return (r?.deletedCount ?? 0) > 0;
 }
 
 // 指定 gptsId が適用中のときだけ解除（安全解除）
-export async function clearBindingIfMatches(target: BindingTarget, gptsId: string): Promise<boolean> {  await ensureIndexes();
+export async function clearBindingIfMatches(
+  sourceType: SourceType,
+  sourceId: string,
+  gptsId: string
+): Promise<boolean> {
   await ensureIndexes();
   const col = await getGptsBindingsCollection();
 
   const cur = await col.findOne(
-    { targetType: target.type, targetId: target.targetId },
+    { targetType: sourceType, targetId: sourceId },
     { projection: { _id: 1, gptsId: 1 } }
   );
 
@@ -131,7 +150,9 @@ interface GptsAppliedTarget {
 }
 
 // ユーザ所有GPTS（gptsId群）を適用中の group/room ターゲット一覧を取得 -> グループ作成後のunfollow対応
-export async function listTargetsByGptsIds(gptsIds: ReadonlyArray<string>): Promise<GptsAppliedTarget[]> {
+export async function listTargetsByGptsIds(
+  gptsIds: ReadonlyArray<string>
+): Promise<GptsAppliedTarget[]> {
   await ensureIndexes();
   const ids: string[] = (gptsIds ?? []).filter((s: string) => typeof s === "string" && s.length > 0);
   if (ids.length === 0) return [];
@@ -168,4 +189,20 @@ export async function listTargetsByGptsIds(gptsIds: ReadonlyArray<string>): Prom
     }
   }
   return dedup;
+}
+
+// 現在のbindingの取得
+export async function findActiveBinding(
+  sourceType: SourceType,
+  sourceId: string
+): Promise<GptsBindingDoc | null> {
+  await ensureIndexes();
+  const doc = await getBinding(sourceType, sourceId);
+  if (!doc) return null;
+
+  const ok =
+    doc.isPendingApply === false &&
+    typeof doc.instpack === "string" &&
+    doc.instpack.trim().length > 0;
+  return ok ? doc : null;
 }

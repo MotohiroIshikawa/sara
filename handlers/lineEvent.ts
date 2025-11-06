@@ -1,4 +1,4 @@
-import { type WebhookEvent, type MessageEvent } from "@line/bot-sdk";
+import { type WebhookEvent } from "@line/bot-sdk";
 import { handleFollowEvent } from "@/handlers/events/follow";
 import { handleJoinEvent } from "@/handlers/events/join";
 import { handleLeaveEvent } from "@/handlers/events/leave";
@@ -9,28 +9,41 @@ import { handleUnfollowEvent } from "@/handlers/events/unfollow";
 import { handlePostback } from "@/handlers/postbacks/route";
 import { buildLineEventLog } from "@/utils/lineEventLog";
 import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
+import { getSourceId, getSourceType } from "@/utils/lineSource";
 import { getMsg } from "@/utils/msgCatalog";
+import type { SourceType } from "@/types/gpts";
+
 
 // LINEイベント処理
 export async function lineEvent(event: WebhookEvent): Promise<void> {
   console.info("[LINE webhook]", buildLineEventLog(event));
 
-  const recipientId = getRecipientId(event);
-  const threadOwnerId = getThreadOwnerId(event);
-  const bindingTarget = getBindingTarget(event);
-  if (!recipientId || !threadOwnerId || !bindingTarget) return;
+  const sourceId: string | undefined = getSourceId(event);
+  const sourceType: SourceType | undefined = getSourceType(event);
+
+  if (!sourceId || !sourceType) {
+    console.warn("[lineEvent] skip: no source resolved", { type: event.type });
+    return;
+  }
 
   //　postbackイベント 共通ルータへ
   if (event.type === "postback") {
-    await handlePostback(event);
+    try {
+      await handlePostback(event);
+    } catch (e) {
+      console.warn("[lineEvent] postback handler error", { err: String(e) });
+    }
     return;
   }
 
   // followイベント
-  if (event.type === "follow" && event.source.type === "user" && event.source.userId) {
+  if (event.type === "follow" && sourceType === "user") {
     try {
-      await handleFollowEvent(event as Extract<WebhookEvent, { type: "follow" }>, recipientId);
+      await handleFollowEvent(
+        event as Extract<WebhookEvent, { type: "follow" }>,
+        sourceType,
+        sourceId
+      );
     } catch (e) {
       console.warn("[lineEvent] follow handler error", { err: String(e) });
     }
@@ -38,12 +51,12 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   }
 
   // unfollowイベント
-  if (event.type === "unfollow" && event.source.type === "user" && event.source.userId) {
+  if (event.type === "unfollow" && sourceType === "user" && sourceId) {
     try {
       await handleUnfollowEvent(
         event as Extract<WebhookEvent, { type: "unfollow" }>,
-        recipientId,
-        threadOwnerId
+        sourceType,
+        sourceId
       );
     } catch (e) {
       console.warn("[lineEvent] unfollow handler error", { err: String(e) });
@@ -52,15 +65,13 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   }
 
   // joinイベント
-  if (event.type === "join") {
+  if (event.type === "join" && (sourceType === "group" || sourceType === "room")) {
     try {
-      if (bindingTarget.type === "group" || bindingTarget.type === "room") {
-        await handleJoinEvent(
+      await handleJoinEvent(
         event as Extract<WebhookEvent, { type: "join" }>,
-        recipientId,
-        { type: bindingTarget.type, targetId: bindingTarget.targetId }
+        sourceType,
+        sourceId
       );
-      }
     } catch (e) {
       console.warn("[lineEvent] join handler error", { err: String(e) });
     }
@@ -68,11 +79,12 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   }
 
   // leaveイベント（BOTが退出させられた）
-  if (event.type === "leave" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
+  if (event.type === "leave" && (sourceType === "group" || sourceType === "room")) {
     try {
       await handleLeaveEvent(
         event as Extract<WebhookEvent, { type: "leave" }>,
-        { type: bindingTarget.type, targetId: bindingTarget.targetId }
+        sourceType,
+        sourceId
       );
     } catch (e) {
       console.warn("[lineEvent] leave handler error", { err: String(e) });
@@ -81,18 +93,18 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   }
 
   // memberJoined
-  if (event.type === "memberJoined" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
-    /** 何もしない */
+  if (event.type === "memberJoined" && (sourceType === "group" || sourceType === "room")) {
+        /** 何もしない */
     return;
   }
 
   // memberLeft（オーナー退出時の後片付け＋通知→退室）
-  if (event.type === "memberLeft" && (bindingTarget.type === "group" || bindingTarget.type === "room")) {
+  if (event.type === "memberLeft" && (sourceType === "group" || sourceType === "room")) {
     try {
       await handleMemberLeftEvent(
         event as Extract<WebhookEvent, { type: "memberLeft" }>,
-        recipientId,
-        { type: bindingTarget.type, targetId: bindingTarget.targetId }
+        sourceType,
+        sourceId
       );
     } catch (e) {
       console.warn("[lineEvent] memberLeft handler error", { err: String(e) });
@@ -101,19 +113,19 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
   }
 
   // messageイベント(text)
-  if (event.type === "message" && event.message.type === "text") {
+  if (event.type === "message" && event.message.type === "text" && (sourceType === "user" || sourceType === "group" || sourceType === "room")) {
     try {
       await handleMessageText(
-        event as Extract<WebhookEvent, { type: "message" }>,
-        recipientId,
-        threadOwnerId
+        event as Extract<WebhookEvent, { type: "message"; message: { type: "text" } }>,
+        sourceType,
+        sourceId
       );
     } catch(err) {
       console.error("[lineEvent] error:", err);
       try {
           await sendMessagesReplyThenPush({
             replyToken: event.replyToken,
-            to: recipientId,
+            to: sourceId,
             messages: toTextMessages([getMsg("INTERNAL_ERROR")]),
             delayMs: 250,
           });
@@ -124,19 +136,21 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
     return;
   }
 
-  if (event.type === "message" && event.message.type === "image") {
+  // messageイベント(image)
+  if (event.type === "message" && event.message.type === "image"
+      && (sourceType === "user" || sourceType === "group" || sourceType === "room")) {
     try {
       await handleMessageImage(
         event as Extract<WebhookEvent, { type: "message"; message: { type: "image" } }>,
-        recipientId,
-        threadOwnerId
+        sourceType,
+        sourceId
       );
     } catch (err) {
       console.error("[lineEvent] image handler error:", err);
       try {
         await sendMessagesReplyThenPush({
             replyToken: event.replyToken,
-            to: recipientId,
+            to: sourceId,
             messages: toTextMessages([getMsg("INTERNAL_ERROR")]),
             delayMs: 250,
           });
@@ -146,5 +160,5 @@ export async function lineEvent(event: WebhookEvent): Promise<void> {
     }
     return;
   }
-
+  console.info("[lineEvent] ignored event", { type: event.type });
 }

@@ -1,32 +1,49 @@
 import type { WebhookEvent, PostbackEvent } from "@line/bot-sdk";
 import { CorrContext } from "@/logging/corr";
-import { describeSource } from "@/utils/lineSource";
+import { getSourceId, getSourceType } from "@/utils/lineSource";
 import { decodePostback } from "@/utils/postback";
 import { gptsHandlers, chatHandlers } from "@/handlers/postbacks/gpts";
 import { schedHandlers } from "@/handlers/postbacks/sched";
 import { isNs, type Handler, type Namespace } from "@/handlers/postbacks/shared";
 
-/** ルーティングテーブル（nsごとにサブモジュールへ委譲） */
+function normalizeArgs(obj: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (obj && typeof obj === "object") {
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      out[String(k)] = String(v ?? "");
+    }
+  }
+  return out;
+}
+
+// ルーティングテーブル（nsごとにサブモジュールへ委譲）
 const TABLE: Record<Namespace, Record<string, Handler>> = {
   gpts: gptsHandlers,
   chat: chatHandlers,
   sched: schedHandlers,
 };
 
+type SourceType = "user" | "group" | "room";
+type Src = { type: SourceType | undefined; id: string | undefined };
+
 export async function handlePostback(event: WebhookEvent): Promise<void> {
   if (event.type !== "postback" || !event.postback?.data) return;
 
-  const pe = event as PostbackEvent;
-  const src = describeSource(pe);
+  const pe: PostbackEvent = event as PostbackEvent;
+  const src: Src = {
+    type: getSourceType(pe),
+    id: getSourceId(pe),
+  };
   const corr = CorrContext.get();
-  const rawData = pe.postback.data;
+  const rawData: string = pe.postback.data;
   const decoded = decodePostback(rawData);
+  const decodedArgs: Record<string, string> = normalizeArgs(decoded?.args);
 
   const ctx = {
     requestId: corr?.requestId,
-    threadId: decoded?.args?.tid ?? corr?.threadId,
-    runId: decoded?.args?.rid ?? corr?.runId,
-    userId: src.id,
+    threadId: decodedArgs["tid"] ?? corr?.threadId,
+    runId: decodedArgs["rid"] ?? corr?.runId,
+    userId: src.type === "user" ? src.id : undefined,
   };
 
   console.info("[postback] received", {
@@ -34,7 +51,7 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
     rawData,
     params: pe.postback.params ?? null,
     action: decoded ? `${decoded.ns}/${decoded.fn}` : "unknown",
-    args: decoded?.args ?? null,
+    args: decodedArgs, // ★ ログも統一
     ctx,
   });
 
@@ -52,10 +69,10 @@ export async function handlePostback(event: WebhookEvent): Promise<void> {
   }
 
   try {
-    await fn(pe, decoded.args ?? {});
+    await fn(pe, decodedArgs);
     console.info("[postback] handled", {
       action: `${decoded.ns}/${decoded.fn}`,
-      args: decoded.args ?? null,
+      args: decodedArgs,
       src,
       ctx,
     });

@@ -5,40 +5,42 @@ import { createDraftSchedule, findSchedules, updateScheduleById } from "@/servic
 import type { GptsScheduleDoc } from "@/types/db";
 import { type ScheduleFreq } from "@/types/schedule";
 import { roundMinutes, toScheduleDto } from "@/utils/schedulerTime";
+import type { WithId } from "mongodb";
+import type { SourceType } from "@/types/gpts";
 
 // スケジュールのドラフトを新規作成（enabled は false 想定）
 export async function POST(request: Request) {
-  const rid = randomUUID().slice(0, 8);
+  const rid: string = randomUUID().slice(0, 8);
   try {
-    const userId = await requireLineUser(request);
+    const userId: string = await requireLineUser(request);
     const bodyUnknown: unknown = await request.json();
 
-    const gptsId =
+    const gptsId: string | undefined =
       typeof (bodyUnknown as { gptsId?: unknown }).gptsId === "string"
         ? (bodyUnknown as { gptsId: string }).gptsId
         : undefined;
 
-    const freq =
+    const freq: ScheduleFreq =
       typeof (bodyUnknown as { freq?: unknown }).freq === "string"
         ? ((bodyUnknown as { freq: string }).freq as ScheduleFreq)
         : ("daily" as ScheduleFreq);
 
-    const hour =
+    const hour: number =
       typeof (bodyUnknown as { hour?: unknown }).hour === "number"
         ? (bodyUnknown as { hour: number }).hour
         : 9;
 
-    const minuteInput =
+    const minuteInput: number =
       typeof (bodyUnknown as { minute?: unknown }).minute === "number"
         ? (bodyUnknown as { minute: number }).minute
         : 0;
 
-    const enabled =
+    const enabled: boolean =
       typeof (bodyUnknown as { enabled?: unknown }).enabled === "boolean"
         ? (bodyUnknown as { enabled: boolean }).enabled
         : false;
 
-    const timezone =
+    const timezone: string =
       typeof (bodyUnknown as { timezone?: unknown }).timezone === "string"
         ? (bodyUnknown as { timezone: string }).timezone
         : process.env.SCHEDULE_TZ_DEFAULT ?? "Asia/Tokyo";
@@ -48,10 +50,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "missing_gptsId" }, { status: 400 });
     }
 
-    const minute = roundMinutes(minuteInput); // ★ 分丸め
+    const minute: number = roundMinutes(minuteInput); // ★ 分丸め
 
     // ドラフトを作成（target は操作ユーザに紐付け）
-    const created = await createDraftSchedule({
+    const created: WithId<GptsScheduleDoc> = await createDraftSchedule({
       userId,
       gptsId,
       targetType: "user",
@@ -60,14 +62,14 @@ export async function POST(request: Request) {
       freq,
     });
 
-    const updatedOk = await updateScheduleById((created as GptsScheduleDoc)._id, {
+    const updatedOk: boolean = await updateScheduleById(created._id, {
       hour,
       minute,
       enabled: Boolean(enabled),
     });
     
     const finalDoc: GptsScheduleDoc = {
-      ...(created as GptsScheduleDoc),
+      ...created,
       hour,
       minute,
       enabled: Boolean(enabled),
@@ -82,6 +84,7 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(toScheduleDto(finalDoc));
+
   } catch (e) {
     if (e instanceof HttpError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
@@ -92,24 +95,30 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const rid = randomUUID().slice(0, 8);
+  const rid: string = randomUUID().slice(0, 8);
   try {
-    const userId = await requireLineUser(request);
+    const userId: string = await requireLineUser(request);
     const { searchParams } = new URL(request.url);
 
-    const gptsId = searchParams.get("gptsId") ?? undefined;
-    const targetType = searchParams.get("targetType") ?? undefined;
-    const targetId = searchParams.get("targetId") ?? undefined;
+    const gptsId: string | null = searchParams.get("gptsId");
+    const targetTypeRaw: string | null = searchParams.get("targetType");
+    const targetIdRaw: string | null = searchParams.get("targetId");
 
     // 未指定なら「自分（user）」をデフォルトにする
-    const effTargetType: string | undefined = targetType ?? "user";
+    const effTargetType: SourceType | undefined = (targetTypeRaw as SourceType | null) ?? "user";
     const effTargetId: string | undefined =
-      targetId ?? (effTargetType === "user" ? userId : undefined);
-      
-    const filter: Record<string, unknown> = { deletedAt: null };
-    if (gptsId) filter.gptsId = gptsId;
-    if (effTargetType) filter.targetType = effTargetType;
-    if (effTargetId) filter.targetId = effTargetId;
+      targetIdRaw ?? (effTargetType === "user" ? userId : undefined);
+    
+    const filter: Readonly<{
+      gptsId?: string;
+      targetType?: SourceType;
+      targetId?: string;
+      userId?: string;
+    }> = {
+      ...(gptsId ? { gptsId } : {}),
+      ...(effTargetType ? { targetType: effTargetType } : {}),
+      ...(effTargetId ? { targetId: effTargetId } : {}),
+    };
 
     const docs: GptsScheduleDoc[] = await findSchedules(filter);
 
@@ -117,8 +126,8 @@ export async function GET(request: Request) {
     console.info(`[schedules.get:${rid}] ok`, {
       userId,
       gptsId,
-      targetType,
-      targetId,
+      targetType: targetTypeRaw,
+      targetId: targetIdRaw,
       count: items.length,
     });
 

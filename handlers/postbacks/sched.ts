@@ -1,5 +1,5 @@
 import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getBindingTarget, getRecipientId, getThreadOwnerId } from "@/utils/lineSource";
+import { getSourceId, getSourceType } from "@/utils/lineSource";
 import { getGptsSchedulesCollection } from "@/utils/mongo";
 import { createDraftSchedule, updateScheduleById } from "@/services/gptsSchedules.mongo";
 import { computeNextRunAt, roundMinutes } from "@/utils/schedulerTime";
@@ -14,6 +14,8 @@ import {
 } from "@/handlers/postbacks/ui";
 import type { Handler } from "@/handlers/postbacks/shared";
 import { getMsg, formatMsg } from "@/utils/msgCatalog";
+import type { PostbackEvent } from "@line/bot-sdk";
+import type { SourceType } from "@/types/gpts";
 
 function asFreq(v: string | undefined): "daily" | "weekly" | "monthly" | null {
   const x = (v ?? "").toLowerCase();
@@ -29,18 +31,17 @@ function pickStrParam(obj: unknown, key: "date" | "time"): string | undefined {
 // ハンドラ本体
 
 // 「定期実施する / しない」
-const start: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  const bindingTarget = getBindingTarget(event);
-  if (!recipientId || !userId || !bindingTarget) return;
+const start: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const sourceType: SourceType | undefined = getSourceType(event);
+  if (!sourceId || !sourceType) return;
 
-  const ans = (args["ans"] || "").toLowerCase();
-  const gptsId = (args["gptsId"] || "").trim();
+  const ans: string = String(args["ans"] || "").toLowerCase();
+  const gptsId: string = String(args["gptsId"] || "").trim();
 
   if (ans === "no") {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, to: sourceId,
       messages: toTextMessages([getMsg("SCHED_START_NO")]),
     });
     return;
@@ -49,32 +50,32 @@ const start: Handler = async (event, args = {}) => {
   if (ans === "yes") {
     const confirmTexts = toTextMessages([getMsg("SCHED_START_YES_CONFIRM")]);
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, to: sourceId,
       messages: [...confirmTexts, uiChooseFreq(gptsId)],
     });
     return;
   }
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!,
+    to: sourceId,
     messages: toTextMessages([getMsg("SCHED_START_INVALID")]),
   });
 };
 
 // 「毎日/毎週/毎月」選択
-const freq: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  const bindingTarget = getBindingTarget(event);
-  if (!recipientId || !userId || !bindingTarget) return;
+const freq: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const sourceType: SourceType | undefined = getSourceType(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !sourceType || !gptsId) return;
 
-  const gptsId = (args["gptsId"] || "").trim();
-  const f = asFreq(args["freq"]);
-  const label = f === "daily" ? "毎日" : f === "weekly" ? "毎週" : f === "monthly" ? "毎月" : null;
-
-  if (!gptsId || !f || !label) {
+  const f = asFreq(args["freq"] as string | undefined);
+  const label: string | null = f === "daily" ? "毎日" : f === "weekly" ? "毎週" : f === "monthly" ? "毎月" : null;
+  if (!f || !label) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!,
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_FREQ_INVALID")]),
     });
     return;
@@ -82,10 +83,10 @@ const freq: Handler = async (event, args = {}) => {
 
   const tz = process.env.SCHEDULE_TZ_DEFAULT || "Asia/Tokyo";
   await createDraftSchedule({
-    userId,
+    userId: sourceId,
     gptsId,
-    targetType: bindingTarget.type,
-    targetId: bindingTarget.targetId,
+    targetType: sourceType,
+    targetId: sourceId,
     timezone: tz,
     freq: f,
   });
@@ -96,38 +97,40 @@ const freq: Handler = async (event, args = {}) => {
 
   if (f === "monthly") {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!,
+      to: sourceId,
       messages: [...confirm, uiPickMonthday(gptsId)],
     });
     return;
   }
   if (f === "daily") {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, 
+      to: sourceId,
       messages: [...confirm, uiPickTime(gptsId, { text: getMsg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
     });
     return;
   }
   // weekly
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!,
+    to: sourceId,
     messages: [...confirm, uiWeekdayFlex(gptsId, [])],
   });
 };
 
 // 月次: 日付ピック → 時刻ピック
 const pickDate: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  if (!recipientId || !userId) return;
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
-  const gptsId = (args["gptsId"] || "").trim();
-  const picked = pickStrParam(event.postback?.params, "date"); // "YYYY-MM-DD"
+  const picked: string | undefined = pickStrParam(event.postback?.params, "date"); // "YYYY-MM-DD"
   const day = picked ? Number(picked.split("-")[2]) : NaN;
-
-  if (!gptsId || !picked || !(day >= 1 && day <= 31)) {
+  if (!picked || !(day >= 1 && day <= 31)) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!,
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_PICKDATE_ERROR")]),
     });
     return;
@@ -135,12 +138,13 @@ const pickDate: Handler = async (event, args = {}) => {
 
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
-    { userId, gptsId, deletedAt: null, enabled: false },
+    { userId: sourceId, gptsId, deletedAt: null, enabled: false },
     { sort: { _id: -1 } }
   );
   if (!draft) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!,
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_PICKDATE_NODRAFT")]),
     });
     return;
@@ -153,34 +157,35 @@ const pickDate: Handler = async (event, args = {}) => {
     getMsg("SCHED_PICKDATE_NOTE"),
   ]);
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [...confirmTexts, uiPickTime(gptsId, { text: getMsg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
   });
 };
 
 // 週次: 初期UI
 const wdayStart: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const gptsId = (args["gptsId"] || "").trim();
-  if (!recipientId || !gptsId) return;
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!,
+    to: sourceId,
     messages: [uiWeekdayFlex(gptsId, [])],
   });
 };
 
 // 週次: 曜日トグル
-const wdayToggle: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  const gptsId = (args["gptsId"] || "").trim();
-  const v = (args["wd"] || "").toUpperCase();
-  if (!recipientId || !userId || !gptsId || !WD.find((w) => w.key === v)) return;
+const wdayToggle: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  const v: string = String(args["wd"] || "").toUpperCase();
+  if (!sourceId || !gptsId || !WD.find((w) => w.key === v)) return;
 
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
-    { userId, gptsId, deletedAt: null, enabled: false },
+    { userId: sourceId, gptsId, deletedAt: null, enabled: false },
     { sort: { _id: -1 } }
   );
   if (!draft) return;
@@ -196,22 +201,22 @@ const wdayToggle: Handler = async (event, args = {}) => {
   await updateScheduleById(draft._id, { byWeekday: next });
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [uiWeekdayFlex(gptsId, next)],
   });
 };
 
 // 週次: プリセット（平日/週末/クリア）
 const wdayPreset: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  const gptsId = (args["gptsId"] || "").trim();
-  const preset = (args["preset"] || "").toLowerCase();
-  if (!recipientId || !userId || !gptsId) return;
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
+  const preset: string = String(args["preset"] || "").toLowerCase();
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
-    { userId, gptsId, deletedAt: null, enabled: false },
+    { userId: sourceId, gptsId, deletedAt: null, enabled: false },
     { sort: { _id: -1 } }
   );
   if (!draft) return;
@@ -224,28 +229,29 @@ const wdayPreset: Handler = async (event, args = {}) => {
   await updateScheduleById(draft._id, { byWeekday: set });
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [uiWeekdayFlex(gptsId, set)],
   });
 };
 
 // 週次: 曜日確定 → 時刻へ
-const wdayNext: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  const gptsId = (args["gptsId"] || "").trim();
-  if (!recipientId || !userId || !gptsId) return;
+const wdayNext: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
-    { userId, gptsId, deletedAt: null, enabled: false },
+    { userId: sourceId, gptsId, deletedAt: null, enabled: false },
     { sort: { _id: -1 } }
   );
   const days = draft?.byWeekday ?? [];
 
   if (!draft || days.length === 0) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, 
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_WEEKLY_NEEDONE")]),
     });
     return;
@@ -259,22 +265,23 @@ const wdayNext: Handler = async (event, args = {}) => {
   ]);
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [...confirm, uiPickTime(gptsId, { text: getMsg("SCHED_PICKTIME_PROMPT"), initial: "09:00" })],
   });
 };
 
 // 時刻ピック（丸め確認へ）
-const pickTime: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  if (!recipientId || !userId) return;
+const pickTime: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
-  const gptsId = (args["gptsId"] || "").trim();
-  const tParam = pickStrParam(event.postback?.params, "time");
+  const tParam: string | undefined = pickStrParam(event.postback?.params, "time");
   if (!gptsId || !tParam) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, 
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_TIME_ERROR")]),
     });
     return;
@@ -287,42 +294,44 @@ const pickTime: Handler = async (event, args = {}) => {
   const rounded = roundMinutes(minute, step);
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [uiTimeRoundingConfirm(gptsId, hour, minute, rounded, step)],
   });
 };
 
 // 時刻選び直し
-const timeRedo: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const gptsId = (args["gptsId"] || "").trim();
-  if (!recipientId || !gptsId) return;
+const timeRedo: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [uiPickTime(gptsId, { text: getMsg("SCHED_TIME_REDO_PROMPT"), initial: "09:00" })],
   });
 };
 
 // 丸め確定 → 最終確認
-const timeOk: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  if (!recipientId || !userId) return;
+const timeOk: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
-  const gptsId = (args["gptsId"] || "").trim();
-  const hour = parseInt(args["hour"] || "", 10);
-  const minute = parseInt(args["minute"] || "", 10);
-  if (!gptsId || Number.isNaN(hour) || Number.isNaN(minute)) return;
+  const hour: number = parseInt(String(args["hour"] || ""), 10);
+  const minute: number = parseInt(String(args["minute"] || ""), 10);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return;
 
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
-    { userId, gptsId, deletedAt: null, enabled: false },
+    { userId: sourceId, gptsId, deletedAt: null, enabled: false },
     { sort: { _id: -1 } }
   );
   if (!draft) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, 
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_PICKDATE_NODRAFT")]),
     });
     return;
@@ -343,7 +352,8 @@ const timeOk: Handler = async (event, args = {}) => {
 
   const hhm = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [uiFinalEnableConfirm(
       gptsId, 
       formatMsg(getMsg("SCHED_TIME_FINALCONFIRM_TPL"), { FREQLABEL: freqLabel, HHM: hhm })
@@ -352,20 +362,20 @@ const timeOk: Handler = async (event, args = {}) => {
 };
 
 // 有効化（nextRunAt計算）
-const enable: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  if (!recipientId || !userId) return;
+const enable: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
-  const gptsId = (args["gptsId"] || "").trim();
   const col = await getGptsSchedulesCollection();
   const draft = await col.findOne(
-    { userId, gptsId, deletedAt: null, enabled: false },
+    { userId: sourceId, gptsId, deletedAt: null, enabled: false },
     { sort: { _id: -1 } }
   );
   if (!draft) {
     await sendMessagesReplyThenPush({
-      replyToken: event.replyToken!, to: recipientId,
+      replyToken: event.replyToken!, 
+      to: sourceId,
       messages: toTextMessages([getMsg("SCHED_ENABLE_NODRAFT")]),
     });
     return;
@@ -387,26 +397,27 @@ const enable: Handler = async (event, args = {}) => {
   );
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: toTextMessages([getMsg("SCHED_ENABLE_SUCCESS")]),
   });
 };
 
 // 修正（やり直し）
-const restart: Handler = async (event, args = {}) => {
-  const recipientId = getRecipientId(event);
-  const userId = getThreadOwnerId(event, "plain");
-  const gptsId = (args["gptsId"] || "").trim();
-  if (!recipientId || !userId || !gptsId) return;
+const restart: Handler = async (event, args: Record<string, unknown> = {}) => {
+  const sourceId: string | undefined = getSourceId(event);
+  const gptsId: string = String(args["gptsId"] || "").trim();
+  if (!sourceId || !gptsId) return;
 
   const col = await getGptsSchedulesCollection();
   await col.updateMany(
-    { userId, gptsId, enabled: false, deletedAt: null },
+    { useruserId: sourceId, gptsId, enabled: false, deletedAt: null },
     { $set: { deletedAt: new Date(), updatedAt: new Date() } }
   );
 
   await sendMessagesReplyThenPush({
-    replyToken: event.replyToken!, to: recipientId,
+    replyToken: event.replyToken!, 
+    to: sourceId,
     messages: [uiChooseFreq(gptsId)],
   });
 };

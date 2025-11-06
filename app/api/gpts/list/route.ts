@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 
     const [items, binding] = await Promise.all([
       listUserGptsByUpdatedDesc(userId),
-      getBinding({ type: "user", targetId: userId }), // 適用中のbinding取得
+      getBinding("user", userId), // 適用中のbinding取得
     ]);
     const appliedId = binding?.gptsId ?? null;
 

@@ -99,6 +99,7 @@ export async function findSchedules(
   return docs;
 }
 
+// TODO: 配列引数をやめる
 export async function softDeleteSchedulesByGpts(input: {
   userId?: string;                 // あれば優先
   gptsId?: string;                 // 任意（指定時のみフィルタ）
@@ -126,19 +127,19 @@ export async function softDeleteSchedulesByGpts(input: {
 }
 
 // targetType/targetId 指定でのソフト削除
-export async function softDeleteSchedulesByTarget(input: {
-  targetType: "user" | "group" | "room";
-  targetId: string;
-  gptsId?: string;
-}): Promise<number> {
+export async function softDeleteSchedulesByTarget(
+  sourceType: SourceType,
+  sourceId: string,
+  gptsId?: string
+): Promise<number> {
   const col = await getGptsSchedulesCollection();
   const filter: Filter<GptsScheduleDoc> = {
     deletedAt: null,
-    targetType: input.targetType,
-    targetId: input.targetId,
+    targetType: sourceType,
+    targetId: sourceId,
   };
-  if (typeof input.gptsId === "string" && input.gptsId.length > 0) {
-    filter.gptsId = input.gptsId;
+  if (typeof gptsId === "string" && gptsId.length > 0) {
+    filter.gptsId = gptsId;
   }
   const res = await col.updateMany(
     filter,
@@ -148,20 +149,20 @@ export async function softDeleteSchedulesByTarget(input: {
 }
 
 // ユーザ側（target=user）スケジュールを group/room へ複製し、GRACEを加味した nextRunAt を設定
-export async function cloneUserSchedulesToTarget(input: {
-  userId: string;
-  gptsId: string;
-  targetType: SourceType;   // "group" | "room"
-  targetId: string;         // Gxxxx / Rxxxx
-  graceSec?: number;
-}): Promise<number> {
+export async function cloneUserSchedulesToTarget(
+  userId: string,
+  gptsId: string,
+  sourceType: SourceType,   // "group" | "room"
+  sourceId: string,         // Gxxxx / Rxxxx
+  graceSec?: number
+): Promise<number> {
   const col = await getGptsSchedulesCollection();
   // 元になる「ユーザ自身の」有効スケジュールのみ複製
   const srcFilter: Filter<GptsScheduleDoc> = {
-    userId: input.userId,
-    gptsId: input.gptsId,
+    userId,
+    gptsId,
     targetType: "user",
-    targetId: input.userId,
+    targetId: userId,
     deletedAt: null,
     enabled: true,
   };
@@ -187,14 +188,14 @@ export async function cloneUserSchedulesToTarget(input: {
 
     const next: Date | null = computeNextRunAtWithGrace(
       { timezone, freq, byWeekday, byMonthday, hour, minute, second, from: new Date() },
-      input.graceSec
+      graceSec
     );
 
     const filter: Filter<GptsScheduleDoc> = {
-      userId: input.userId,
-      gptsId: input.gptsId,
-      targetType: input.targetType,
-      targetId: input.targetId,
+      userId,
+      gptsId,
+      targetType: sourceType,
+      targetId: sourceId,
       timezone,
       freq,
       hour,
@@ -206,10 +207,10 @@ export async function cloneUserSchedulesToTarget(input: {
     };
 
     const setDoc: Partial<GptsScheduleDoc> = {
-      userId: input.userId,
-      gptsId: input.gptsId,
-      targetType: input.targetType,
-      targetId: input.targetId,
+      userId,
+      gptsId,
+      targetType: sourceType,
+      targetId: sourceId,
       timezone,
       freq,
       hour,
@@ -241,6 +242,7 @@ export async function cloneUserSchedulesToTarget(input: {
 }
 
 // ユーザ側の当該GPTスケジュールを一括停止（enabled=false）のみ
+// TODO: 配列引数をやめる
 export async function disableUserSchedulesByGpts(input: {
   userId: string;
   gptsId: string;
@@ -267,7 +269,9 @@ export type ClaimedSchedule = WithId<GptsScheduleDoc>;
 // 配信すべき1件を取得
 // 条件: enabled=true, deletedAt=null, nextRunAt<=now, claimedAt が null or 未定義
 // claimedAt: ジョブ中にnowが入って、終了後にnullになる。ジョブ中に他が掴まないようにするため
-export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | null> {
+export async function claimOneDueSchedule(
+  now: Date
+): Promise<ClaimedSchedule | null> {
   const col = await getGptsSchedulesCollection();
 
   const filter: Filter<GptsScheduleDoc> = {
@@ -316,7 +320,11 @@ export async function claimOneDueSchedule(now: Date): Promise<ClaimedSchedule | 
 }
 
 // 実行成功時の更新
-export async function markRunSuccess(id: ObjectId, at: Date, next: Date | null): Promise<void> {
+export async function markRunSuccess(
+  id: ObjectId, 
+  at: Date, 
+  next: Date | null
+): Promise<void> {
   const col = await getGptsSchedulesCollection();
   await col.updateOne(
     { _id: id, deletedAt: null, enabled: true },
@@ -332,7 +340,9 @@ export async function markRunSuccess(id: ObjectId, at: Date, next: Date | null):
   );
 }
 
-export async function countDueCandidates(now: Date): Promise<number> {
+export async function countDueCandidates(
+  now: Date
+): Promise<number> {
   const col = await getGptsSchedulesCollection();
   return col.countDocuments({
     enabled: true,

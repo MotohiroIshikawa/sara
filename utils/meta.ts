@@ -7,6 +7,7 @@ type DecisionTrace = {
   hasTopic?: boolean;
   hasImageTask?: boolean;
   prefersImageTask?: boolean;
+  hasImage?: boolean;
   replyLen?: number;
 };
 
@@ -52,17 +53,25 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
     case "lookup": {
       // 情報検索系。「教えて」「探して」など。topic があれば十分とみなす。
       const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+      const hasImageTask: boolean = typeof s.image_task === "string" && !!s.image_task?.trim();
+      const prefersImageTask: boolean = (m.modality === "image" || m.modality === "image+text");
+      const hasImage: boolean = s.has_image === true;
       trace.hasTopic = hasTopic;
-      if (hasTopic) {
-        reasons.push("lookup:topic_present");
-      } else {
-        reasons.push("lookup:topic_missing");
-      }
+      trace.hasImageTask = hasImageTask;
+      trace.prefersImageTask = prefersImageTask;
+      trace.hasImage = hasImage;
+      if (hasTopic) reasons.push("lookup:topic_present");
+      if (hasImageTask) reasons.push("lookup:image_task_present");
+      if (!hasTopic && !hasImageTask) reasons.push("lookup:topic_or_image_task_missing");
 
-      complete_norm = hasTopic;
-      if (!hasTopic){
-        genFollowup = { ask: "topic", text: "対象（固有名詞やキーワード）を教えてください。" };
-      }
+      complete_norm = hasTopic || hasImageTask;
+      if (!complete_norm) {
+        if (prefersImageTask || hasImageTask || hasImage) {
+          genFollowup = (prefersImageTask || hasImageTask)
+            ? { ask: "image", text: "画像を送ってください。処理して結果をお伝えします。" }
+            : { ask: "topic", text: "対象（固有名詞やキーワード）を教えてください。" };
+          }
+        }
       break;
     }
     case "qa": {
@@ -156,7 +165,11 @@ export function computeMeta(rawMeta?: Meta, replyText?: string): MetaComputeResu
   // 返信本文の品質チェック
   const replyLen: number = (replyText?.trim().length ?? 0);
   trace.replyLen = replyLen;
-  const reply_ok: boolean = replyMinLen > 0 ? (replyLen >= replyMinLen) : true;
+  const isImageModality: boolean = (m.modality === "image" || m.modality === "image+text");
+  const reply_ok: boolean =
+  isImageModality
+    ? true    // 画像なら常にOK
+    : (replyMinLen > 0 ? (replyLen >= replyMinLen) : true);
   if (!reply_ok) reasons.push("reply_text_too_short");
 
   // 保存可否
@@ -219,4 +232,32 @@ export function looksLikeFollowup(line?: string, meta?: Meta): boolean {
   const hasLegacyLead: boolean = /^不足[:：]/.test(s);
 
   return endsWithQ || equalsMeta || hasLegacyLead;
+}
+
+export type MetaLogPhase = "main" | "repair" | "fence" | "instpack" | "meta";
+
+export function logEmitMetaSnapshot(
+  phase: MetaLogPhase,
+  ctx: { threadId: string; runId?: string },
+  payload: { meta?: Meta; instpack?: string }
+): void {
+  const meta = payload?.meta;
+  const instpack = payload?.instpack;
+  console.info("[emit_meta] captured", {
+    phase,
+    threadId: ctx.threadId,
+    runId: ctx.runId,
+    intent: meta?.intent ?? null,
+    complete: meta?.complete ?? null,
+    slots: {
+      topic: meta?.slots?.topic ?? null,
+      place: meta?.slots?.place ?? null,
+      date_range: meta?.slots?.date_range ?? null,
+      official_only: meta?.slots?.official_only ?? null,
+      image_task: meta?.slots?.image_task ?? null,
+      has_image: meta?.slots?.has_image === true ? true : false,
+    },
+    followups_len: Array.isArray(meta?.followups) ? meta!.followups!.length : 0,
+    instpack_len: typeof instpack === "string" ? instpack.length : 0,
+  });
 }

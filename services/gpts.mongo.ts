@@ -26,20 +26,20 @@ function newGptsId() {
 }
 
 // 作成
-export async function createGpts(input: {
-  userId: string;
-  name: string;
-  instpack: string;
-}): Promise<GptsDoc> {
+export async function createGpts(
+  userId: string,
+  name: string,
+  instpack: string
+): Promise<GptsDoc> {
   const colGpts = await getGptsCollection();
   const colUserGpts = await getUserGptsCollection();
   const gptsId = newGptsId();
   const doc: Omit<GptsDoc, "_id"> = withTimestampsForCreate({
     gptsId,
-    userId: input.userId,
-    name: input.name,
-    instpack: input.instpack,
-    hash: sha256(input.instpack),
+    userId,
+    name,
+    instpack,
+    hash: sha256(instpack),
     // originalGptsId / authorUserId は作成時は未設定
     isPublic: true,
   });
@@ -48,11 +48,11 @@ export async function createGpts(input: {
 
   // user_gpts はリンクのみ（冗長データは持たない）
   const link: Omit<UserGptsDoc, "_id"> = withTimestampsForCreate({
-    userId: input.userId,
+    userId,
     gptsId,
   });
   await colUserGpts.updateOne(
-    { userId: link.userId, gptsId: link.gptsId },
+    { userId, gptsId },
     { $setOnInsert: link },
     { upsert: true }
   );
@@ -61,36 +61,38 @@ export async function createGpts(input: {
 }
 
 // 単一取得（存在しなければ null）
-export async function getGptsById(gptsId: string): Promise<GptsDoc | null> {
+export async function getGptsById(
+  gptsId: string
+): Promise<GptsDoc | null> {
   const colGpts = await getGptsCollection();
   return colGpts.findOne({ gptsId });
 }
 
 // 更新
-export async function updateGpts(params: {
-  gptsId: string;
-  userId: string; // 所有者
-  name?: string;
-  instpack?: string;
-  isPublic?: boolean;
-}): Promise<GptsDoc | null> {
+export async function updateGpts(
+  gptsId: string,
+  userId: string, // 所有者
+  name?: string,
+  instpack?: string,
+  isPublic?: boolean
+): Promise<GptsDoc | null> {
   const colGpts = await getGptsCollection();
 
   const $set: Partial<GptsDoc> = {};
-  if (typeof params.name === "string") $set.name = params.name;
-  if (typeof params.instpack === "string") {
-    $set.instpack = params.instpack;
-    $set.hash = sha256(params.instpack);
+  if (typeof name === "string") $set.name = name;
+  if (typeof instpack === "string") {
+    $set.instpack = instpack;
+    $set.hash = sha256(instpack);
   }
-  if (typeof params.isPublic === "boolean") {
-    $set.isPublic = params.isPublic;
+  if (typeof isPublic === "boolean") {
+    $set.isPublic = isPublic;
   }
   if (Object.keys($set).length === 0) {
-    return colGpts.findOne({ gptsId: params.gptsId, userId: params.userId });
+    return colGpts.findOne({ gptsId, userId });
   }
 
   const res = await colGpts.findOneAndUpdate(
-    { gptsId: params.gptsId, userId: params.userId },
+    { gptsId, userId },
     { $set: touchForUpdate($set) },
     { returnDocument: "after" }
   );
@@ -99,7 +101,9 @@ export async function updateGpts(params: {
 }
 
 // 指定ユーザのgptsをすべて論理削除
-export async function softDeleteAllGptsByUser(userId: string): Promise<number> {
+export async function softDeleteAllGptsByUser(
+  userId: string
+): Promise<number> {
   const col = await getGptsCollection();
   const now = new Date();
   const update: UpdateFilter<GptsDoc> = {
@@ -116,7 +120,9 @@ export async function softDeleteAllGptsByUser(userId: string): Promise<number> {
 }
 
 // ユーザ所有の gptsId 一覧を取得 -> グループ作成後のunfollow対応
-export async function listGptsIdsByUser(userId: string): Promise<string[]> {
+export async function listGptsIdsByUser(
+  userId: string
+): Promise<string[]> {
   const col = await getGptsCollection();
   const docs = await col.find(
     { userId, /* deletedAt は見ない（存在していても対象に含めたい）*/ },
@@ -128,17 +134,17 @@ export async function listGptsIdsByUser(userId: string): Promise<string[]> {
 }
 
 // コピー：正本を複製し、originalGptsId / authorUserId を付与。user_gpts にリンク作成
-export async function copyGpts(params: {
-  originalGptsId: string;       // コピー元
-  userId: string;               // コピーする人
-  renameTo?: string;
-}): Promise<GptsDoc | null> {
+export async function copyGpts(
+  originalGptsId: string,       // コピー元
+  userId: string,               // コピーする人
+  renameTo?: string
+): Promise<GptsDoc | null> {
   const colGpts = await getGptsCollection();
   const colUserGpts = await getUserGptsCollection();
 
   // 公開されている & 削除されていない元を許可
   const src = await colGpts.findOne(
-    { gptsId: params.originalGptsId, isPublic: true, deletedAt: { $exists: false } },
+    { gptsId: originalGptsId, isPublic: true, deletedAt: { $exists: false } },
     { projection: { _id: 0 } }
   );
   if (!src) return null;
@@ -146,13 +152,13 @@ export async function copyGpts(params: {
   const gptsId = newGptsId();
   const cloned: Omit<GptsDoc, "_id"> = withTimestampsForCreate({
     gptsId,
-    userId: params.userId,
-    name: typeof params.renameTo === "string" && params.renameTo.trim().length > 0
-      ? params.renameTo
+    userId,
+    name: typeof renameTo === "string" && renameTo.trim().length > 0
+      ? renameTo
       : (src as Pick<GptsDoc, "name">).name,
     instpack: (src as Pick<GptsDoc, "instpack">).instpack,
     hash: (src as Partial<GptsDoc>).hash ?? sha256((src as Pick<GptsDoc, "instpack">).instpack),
-    originalGptsId: (src as Pick<GptsDoc, "gptsId">).gptsId,
+    originalGptsId,
     authorUserId: (src as Pick<GptsDoc, "userId">).userId,
     isPublic: false, // コピーは常に非公開
   });
@@ -161,11 +167,11 @@ export async function copyGpts(params: {
 
   // user_gpts にリンク作成
   const link: Omit<UserGptsDoc, "_id"> = withTimestampsForCreate({
-    userId: params.userId,
+    userId,
     gptsId,
   });
   await colUserGpts.updateOne(
-    { userId: link.userId, gptsId: link.gptsId },
+    { userId, gptsId },
     { $setOnInsert: link },
     { upsert: true }
   );
@@ -191,22 +197,22 @@ function escapeRegexFragment(s: string): string {
 }
 
 // 公開GPTSを検索（タイトル部分一致、最新順 or 利用数順）
-export async function searchPublicGpts(params: {
-  q?: string;
-  sort?: PublicGptsSort;
-  limit?: number;
-  offset?: number;
-}): Promise<PublicGptsSearchItem[]> {
+export async function searchPublicGpts(
+  q?: string,
+  sort?: PublicGptsSort,
+  limit?: number,
+  offset?: number
+): Promise<PublicGptsSearchItem[]> {
   const colGpts = await getGptsCollection();
 
-  const q: string | undefined = typeof params.q === "string" && params.q.trim() ? params.q.trim() : undefined;
-  const sort: PublicGptsSort = params.sort ?? "latest";
+  q = q?.trim() || undefined;
+  sort = sort ?? "latest";
 
-  const reqLimit: number = typeof params.limit === "number" ? Math.trunc(params.limit) : PAGE_DEFAULT_LIMIT;
-  const limit: number = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
+  const reqLimit = typeof limit === "number" ? Math.trunc(limit) : PAGE_DEFAULT_LIMIT;
+  limit = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
 
-  const offsetRaw: number = typeof params.offset === "number" ? Math.trunc(params.offset) : 0;
-  const offset: number = Math.max(offsetRaw, 0);
+  const offsetRaw = typeof offset === "number" ? Math.trunc(offset) : 0;
+  offset = Math.max(offsetRaw, 0);
 
   const match: Record<string, unknown> = {
     isPublic: true,
@@ -251,23 +257,15 @@ export async function searchPublicGpts(params: {
     { $limit: limit },
   ];
 
-  type PublicGptsRow = Pick<GptsDoc, "gptsId" | "name" | "updatedAt" | "isPublic"> & { usageCount: number };
-  const docs = await colGpts.aggregate<PublicGptsRow>(pipeline).toArray();
+  const docs = await colGpts.aggregate(pipeline).toArray();
 
-  const out: PublicGptsSearchItem[] = docs.map((d) => { // users 参照を削除
-    const updatedAt: Date = d.updatedAt instanceof Date ? d.updatedAt : new Date(d.updatedAt as unknown as string);
-    const name: string = typeof d.name === "string" ? d.name : "";
-    const usageCount: number = d.usageCount; // 集計で必ず付与される
-    return {
-      gptsId: d.gptsId,
-      name,
-      updatedAt,
-      isPublic: !!d.isPublic,
-      usageCount,
-    };
-  });
-
-  return out;
+  return docs.map((d) => ({
+    gptsId: d.gptsId,
+    name: d.name,
+    updatedAt: d.updatedAt instanceof Date ? d.updatedAt : new Date(d.updatedAt),
+    isPublic: !!d.isPublic,
+    usageCount: d.usageCount,
+  }));
 }
 
 // 公開GPTSの詳細
@@ -281,13 +279,13 @@ export async function getPublicGptsDetail(gptsId: string): Promise<Pick<GptsDoc,
 }
 
 // 公開GPTSを検索（作者名・人気・NEWバッジ付きの拡張版）
-export async function searchPublicGptsWithAuthor(params: {
-  q?: string;
-  sort?: PublicGptsSort;
-  limit?: number;
-  offset?: number;
-  excludeUserId?: string;
-}): Promise<
+export async function searchPublicGptsWithAuthor(
+  q?: string,
+  sort?: PublicGptsSort,
+  limit?: number,
+  offset?: number,
+  excludeUserId?: string
+): Promise<
   Array<
     PublicGptsSearchItem & {
       authorName: string;
@@ -299,16 +297,15 @@ export async function searchPublicGptsWithAuthor(params: {
   const gptsCol = await getGptsCollection();
   const usersCol = await getUsersCollection();
 
-  const q: string | undefined = 
-    typeof params.q === "string" && params.q.trim() ? params.q.trim() : undefined;
-  const qEscaped: string | undefined = q ? escapeRegexFragment(q) : undefined;
-  const sort: PublicGptsSort = params.sort ?? "latest";
+  q = q?.trim() || undefined;
+  const qEscaped = q ? escapeRegexFragment(q) : undefined;
+  sort = sort ?? "latest";
 
-  const reqLimit: number = typeof params.limit === "number" ? Math.trunc(params.limit) : PAGE_DEFAULT_LIMIT;
-  const limit: number = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
+  const reqLimit = typeof limit === "number" ? Math.trunc(limit) : PAGE_DEFAULT_LIMIT;
+  limit = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
 
-  const offsetRaw: number = typeof params.offset === "number" ? Math.trunc(params.offset) : 0;
-  const offset: number = Math.max(offsetRaw, 0);
+  const offsetRaw = typeof offset === "number" ? Math.trunc(offset) : 0;
+  offset = Math.max(offsetRaw, 0);
 
   // 検索条件
   const match: Record<string, unknown> = {
@@ -316,12 +313,8 @@ export async function searchPublicGptsWithAuthor(params: {
     deletedAt: { $exists: false },
     name: { $type: "string", $ne: "" },
   };
-  if (qEscaped) {
-    match.name = { $regex: qEscaped, $options: "i" };
-  }
-  if (params.excludeUserId) {
-    match.userId = { $ne: params.excludeUserId }; // 自分のものを除外
-  }
+  if (qEscaped) match.name = { $regex: qEscaped, $options: "i" };
+  if (excludeUserId) match.userId = { $ne: excludeUserId };
 
   const pipeline: Document[] = [
     { $match: match },
@@ -355,33 +348,27 @@ export async function searchPublicGptsWithAuthor(params: {
     { $limit: limit },
   ];
 
-  type Row = {
-    gptsId: string;
-    name: string;
-    updatedAt: Date;
-    isPublic: boolean;
-    usageCount: number;
-    userId: string;
-  };
-  const docs = await gptsCol.aggregate<Row>(pipeline).toArray();
-
-  // 人気判定用 threshold
-  const counts = docs.map((d) => d.usageCount);
-  const popularThreshold = 
-    counts.sort((a, b) => b - a)[POPULAR_TOP_N - 1] ?? Math.max(...counts, 0);
-
+  const rows = await gptsCol.aggregate(pipeline).toArray();
   const now = Date.now();
   const newLimitMs = NEW_DAYS * 24 * 60 * 60 * 1000;
 
-  const out = await Promise.all(
-    docs.map(async (d) => {
+  // 人気判定用 threshold
+  const counts = rows.map((d) => d.usageCount);
+  const popularThreshold = counts.sort((a, b) => b - a)[POPULAR_TOP_N - 1] ?? Math.max(...counts, 0);
+
+  return Promise.all(
+    rows.map(async (d) => {
       const user = await usersCol.findOne({ userId: d.userId });
-      const authorName = user?.displayName ?? "不明";
-      const isPopular = d.usageCount >= popularThreshold && d.usageCount > 0;
-      const isNew = now - new Date(d.updatedAt).getTime() < newLimitMs;
-      return { ...d, authorName, isPopular, isNew };
+      return {
+        gptsId: d.gptsId,
+        name: d.name,
+        updatedAt: d.updatedAt instanceof Date ? d.updatedAt : new Date(d.updatedAt),
+        isPublic: !!d.isPublic,
+        usageCount: d.usageCount,
+        authorName: user?.displayName ?? "不明",
+        isPopular: d.usageCount >= popularThreshold && d.usageCount > 0,
+        isNew: now - new Date(d.updatedAt).getTime() < newLimitMs,
+      };
     })
   );
-
-  return out;
 }

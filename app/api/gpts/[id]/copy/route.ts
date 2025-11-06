@@ -39,7 +39,7 @@ export async function POST(
     }
 
     // 実行：公開かつ削除されていない元だけコピー可能（services 側で検証済み）
-    const cloned = await copyGpts({ originalGptsId, userId, renameTo });
+    const cloned = await copyGpts(originalGptsId, userId, renameTo);
 
     if (!cloned) {
       console.warn(`[gpts.copy:${rid}] not_found_or_forbidden orig=${originalGptsId}`);
@@ -48,7 +48,7 @@ export async function POST(
     }
 
     // コピーした GPTS をこのユーザに「適用」する
-    await setBinding({ type: "user", targetId: userId }, cloned.gptsId, cloned.instpack);
+    await setBinding("user", userId, cloned.gptsId, cloned.instpack);
 
     console.info(`[gpts.copy:${rid}] done`, {
       newId: cloned.gptsId,

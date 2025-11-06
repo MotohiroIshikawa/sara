@@ -26,16 +26,15 @@ export async function ensureUserIndexes() {
   await cycles.createIndex({ userId: 1, endAt: 1 }).catch(swallow);
   await cycles.createIndex({ userId: 1, cycleId: 1 }).catch(swallow);
   _indexesEnsured = true;
-  console.info("[users.ensureUserIndexes] ensured"); //★
+  console.info("[users.ensureUserIndexes] ensured");
 }
 
-/** follow：現在状態を upsert ＋ 新しいフォロー期間（cycle）を開始 */ 
-export async function followUser(params: { 
-  userId: string;
-  profile?: ProfileInput;
-  now?: Date;
-}) { 
-  const { userId, profile, now = new Date() } = params; 
+// follow：現在状態を upsert ＋ 新しいフォロー期間（cycle）を開始
+export async function followUser( 
+  userId: string,
+  profile?: ProfileInput,
+  now: Date = new Date()
+) { 
   await ensureUserIndexes(); 
 
   const [users, cycles] = await Promise.all([ 
@@ -75,7 +74,7 @@ export async function followUser(params: {
   }, { upsert: true } ); 
 
   // 履歴に新しい cycle を追加 
-  const cycleId = randomUUID(); 
+  const cycleId: string = randomUUID();
   const cycleDoc: UserCycleDoc = { 
     _id: new ObjectId(),
     userId, 
@@ -89,9 +88,11 @@ export async function followUser(params: {
   return { cycleId }; 
 }
 
-/** unfollow：usersは削除、cyclesは確実にクローズ */
-export async function unfollowUser(params: { userId: string; now?: Date }) {
-  const { userId, now = new Date() } = params;
+// unfollow：usersは削除、cyclesは確実にクローズ
+export async function unfollowUser(
+  userId: string,
+  now: Date = new Date()
+) {
   await ensureUserIndexes();
 
   const [users, cycles] = await Promise.all([
@@ -107,7 +108,7 @@ export async function unfollowUser(params: { userId: string; now?: Date }) {
   const startAt = prev?.lastFollowedAt instanceof Date ? prev.lastFollowedAt : now;
 
   // アクティブ cycle を終了。無ければ「即終了サイクル」を upsert。
-  const newCycleId = randomUUID();
+  const newCycleId: string = randomUUID();
   const r = await cycles.updateOne(
     { userId, endAt: null },
     {

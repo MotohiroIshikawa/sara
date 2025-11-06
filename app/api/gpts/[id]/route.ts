@@ -5,7 +5,6 @@ import { clearBindingIfMatches, getBinding } from "@/services/gptsBindings.mongo
 import { hasUserGptsLink, softDeleteUserGpts } from "@/services/userGpts.mongo";
 import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
-import type { BindingTarget } from "@/types/db";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const rid = randomUUID().slice(0, 8);
@@ -78,14 +77,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     // 「編集は適用中のみ可」ガード
-    const target: BindingTarget = { type: "user", targetId: userId };
-    const binding = await getBinding(target);
+    const binding = await getBinding("user", userId);
     if (!binding || binding.gptsId !== gptsId) {
       console.warn(`[gpts.update:${rid}] not_applied`, { userId, gptsId, applied: binding?.gptsId ?? null });
       return NextResponse.json({ error: "not_applied" }, { status: 403 });
     }
 
-    const updated = await updateGpts({ gptsId, userId, name, instpack, isPublic });
+    const updated = await updateGpts( gptsId, userId, name, instpack, isPublic );
     if (!updated) {
       // 所有者でない / もしくは存在しない
       console.warn(`[gpts.update:${rid}] forbidden_or_not_found`, { userId, gptsId });
@@ -109,7 +107,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     const { id } = await params;
 
     await softDeleteUserGpts({ userId, gptsId: id });
-    await clearBindingIfMatches({ type: "user", targetId: userId }, id);
+    await clearBindingIfMatches("user", userId, id);
+    // TODO: 配列引数をやめる
     await softDeleteSchedulesByGpts({ userId, gptsId: id });
     
     console.info(`[gpts.delete:${rid}] soft_deleted_and_unbound`, { userId, gptsId: id });

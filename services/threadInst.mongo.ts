@@ -3,7 +3,7 @@ import type { Meta } from "@/types/gpts";
 import { getThreadInstCollection } from "@/utils/mongo";
 
 // TTL日数（既定7日）。必要なら環境変数で上書き: THREAD_INST_TTL_DAYS=14 など
-const TTL_DAYS = Math.max(1, Number.parseInt(process.env.THREAD_INST_TTL_DAYS ?? "7", 10) || 7);
+const TTL_DAYS: number = Math.max(1, Number.parseInt(process.env.THREAD_INST_TTL_DAYS ?? "7", 10) || 7);
 
 // 目的:
 //  - Azure Run から抽出した instpack/meta を「ユーザ×Thread」単位で一時保存
@@ -86,23 +86,23 @@ async function ensureIndexes(): Promise<void> {
 }
 
 // upsert（存在すれば更新、無ければ作成）
-export async function upsertThreadInst(input: {
-  userId: string;
-  threadId: string;
-  instpack: string;
-  meta?: Meta | null;
-  updatedAt?: Date;
-}): Promise<void> {
+export async function upsertThreadInst(
+  userId: string,
+  threadId: string,
+  instpack: string,
+  meta?: Meta | null,
+  updatedAt?: Date
+): Promise<void> {
   await ensureIndexes();
   const col = await getThreadInstCollection();
-  const now = input.updatedAt ?? new Date();
+  const now = updatedAt ?? new Date();
 
   await col.updateOne(
-    { userId: input.userId, threadId: input.threadId },
+    { userId, threadId },
     {
       $set: {
-        instpack: input.instpack,
-        meta: input.meta ?? null,
+        instpack,
+        meta: meta ?? null,
         updatedAt: now,
       },
       $setOnInsert: { createdAt: now },
@@ -133,7 +133,9 @@ export async function deleteThreadInst(
 }
 
 // 対象ユーザのThread一括削除
-export async function purgeAllThreadInstByUser(userId: string) {
+export async function purgeAllThreadInstByUser(
+  userId: string
+): Promise<boolean> {
   await ensureIndexes();
   const col = await getThreadInstCollection();
   const res = await col.deleteMany({ userId });

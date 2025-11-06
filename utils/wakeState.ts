@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { redis } from "@/utils/redis";
 import { escapeRegExp } from "@/utils/msgCatalog";
 import { envCsv } from "@/utils/env";
+import type { SourceType } from "@/types/gpts";
 
 // 呼びかけ語に続く「敬称」
 const HONORIFICS: readonly string[] = envCsv(
@@ -15,17 +16,11 @@ export const DEFAULT_WAKE_SEP_RE: RegExp = /^[\s,，、.。:：;；!?！？\-‐
 
 /* ========================== 呼び出し側の使い方メモ ==========================
 1) 呼びかけ成立時（単発「さら」や文頭「サラ、…」など）:
-   await activateReplyMode(scope, userId, env.WAKE_NEXT_ONLY_TTL_SEC);
-
-   2) メッセージ受信時（本文に呼びかけが無いケースのフォロー）:
-   const ok = await consumeReplyModeIfActive(scope, userId);
-   if (!ok) return; // 反応しない（呼びかけ要求）
-   // ok === true なら「呼びかけの続き」として META/REPLY へ
-
-   3) 割り込み（他ユーザが話したら解除したい場合）:
-   await breakReplyModeOnInterrupt(scope, interrupterUserId);
-
-   ※ グループ/ルームのみで適用。1:1 は常時許可ならこのモジュール不要。
+2) メッセージ受信時（本文に呼びかけが無いケースのフォロー）:
+   consumeReplyModeIfActiveでの判定
+   false: 反応しない（呼びかけ要求）
+   true: 「呼びかけの続き」として META/REPLY へ
+3) 割り込み（他ユーザが話したら解除したい場合）:
 ============================================================================ */
 
 export type WakeScope = string;
@@ -80,14 +75,16 @@ function decode(s: string | null): ReplyModeRecord | null {
 
 // 返信モードを有効化（次の1通のみ自動フォロー）。既存状態は上書き。
 export async function activateReplyMode(
-  scope: WakeScope, 
-  byUserId: string, 
+  sourceType: SourceType,
+  ownerId: string,
+  speakerUserId: string, 
   ttlSec: number,
   mode: ReplyMode = "session"   // 既定はTTL延長モード
 ): Promise<void> {
+  const scope: string = `${sourceType}:${ownerId}`;
   const k: string = keyOf(scope);
   const rec: ReplyModeRecord = {
-    by: byUserId, // 呼びかけ実行者
+    by: speakerUserId, // 呼びかけ実行者
     mode,
     expiresAt: epochSec() + ttlSec,
     ttlSec,
@@ -98,14 +95,16 @@ export async function activateReplyMode(
 
 // 呼びかけ語が本文に無いケース
 export async function consumeReplyModeIfActive(
-  scope: WakeScope, 
-  userId: string
+  sourceType: SourceType,
+  ownerId: string,
+  speakerUserId: string
 ): Promise<boolean> {
+  const scope: string = `${sourceType}:${ownerId}`;
   const k: string = keyOf(scope);
   const raw: string | null = await redis.get(k);
   const rec: ReplyModeRecord | null = decode(raw);
   if (rec === null) return false;
-  if (rec.by !== userId) return false;
+  if (rec.by !== speakerUserId) return false;
 
   const now: number = epochSec();
   // TTL切れの場合はredis削除(念のため)
@@ -132,12 +131,17 @@ export async function consumeReplyModeIfActive(
 // 設定で「割り込みで解除」ポリシーが有効な場合に呼ぶ。
 // グループ内の別ユーザが話した場合に、保留中の next-only をクリアして誤反応を抑止
 // ただし呼びかけ本人の連投は割り込みとみなさず維持する
-export async function breakReplyModeOnInterrupt(scope: WakeScope, interrupterUserId: string): Promise<void> {
+export async function breakReplyModeOnInterrupt(
+  sourceType: SourceType,
+  ownerId: string,
+  speakerUserId: string
+): Promise<void> {
+  const scope: string = `${sourceType}:${ownerId}`;
   const k: string = keyOf(scope);
   const raw: string | null = await redis.get(k);
   const rec: ReplyModeRecord | null = decode(raw);
   if (rec === null) return;
-  if (rec.by === interrupterUserId) return; // 呼びかけ本人の連投は割込とみなさない
+  if (rec.by === speakerUserId) return; // 呼びかけ本人の連投は割込とみなさない
   await redis.del(k);
 }
 
@@ -196,24 +200,4 @@ export function startsWithWake(
   if (!m) return { matched: false };
   const cleaned: string = s.slice(m[0].length).trim();
   return { matched: true, cleaned };
-}
-
-// 現在の状態を取得（デバッグ用）Redisに保存されているnext-onlyの中身を確認する
-export async function getReplyModeState(scope: WakeScope): Promise<ReplyModeRecord | null> {
-  const k: string = keyOf(scope);
-  const raw: string | null = await redis.get(k);
-  return decode(raw);
-}
-
-// 明示的に解除（お掃除）
-export async function clearReplyModeState(scope: WakeScope): Promise<void> {
-  const k: string = keyOf(scope);
-  await redis.del(k);
-}
-
-// TTL確認（-1: 永久, -2: 存在しない など ioredis 仕様）
-export async function ttlReplyMode(scope: WakeScope): Promise<number> {
-  const k: string = keyOf(scope);
-  const t: number = await redis.ttl(k);
-  return t;
 }
