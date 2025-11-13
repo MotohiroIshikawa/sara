@@ -76,6 +76,10 @@ export async function handleMessageText(
   const questionRaw: string =
     event.message.type === "text" ? (event.message.text ?? "") : "";
   const questionTrimmed: string = questionRaw.trim();
+  const messageId = event.message.id;
+  console.info("[messageText] recv", {
+    sourceType, sourceId, messageId, textLen: questionTrimmed.length 
+  });
 
   // 1対1（常時応答）
   if (sourceType === "user") {
@@ -89,24 +93,45 @@ export async function handleMessageText(
       });
       return;
     }
+    console.info("[messageText] user: start", {
+      sourceType, sourceId, messageId, textPreview: question.slice(0, 40),
+    });
 
     // Thread確保 + AiContext 構築
     const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
     const ctx: AiContext = { ownerId: sourceId, sourceType: sourceType, threadId };
+    console.info("[messageText] user: ctx ready", {
+      sourceType, sourceId, messageId, threadId,
+    });
 
     // 1. reply 実行（Bingあり／なしは aiConnectReply 側で処理）
     const replyRes = await runReply(ctx, { question });
     let texts: string[] = [...replyRes.texts];
+    console.info("[messageText] user: reply done", {
+      sourceType, sourceId, messageId, threadId, textCount: texts.length,
+    });
 
     // 2. meta → computeMeta（userのみ）
     const metaRes = await getMeta(ctx, { hasImageHint: false });
     let mergedMeta: Meta | undefined = metaRes.meta;
+    console.info("[messageText] user: meta fetched", {
+      sourceType, sourceId, messageId, threadId,
+      hasMeta: mergedMeta != null, 
+      intent: mergedMeta?.intent ?? null, 
+      modality: mergedMeta?.modality ?? null, 
+      complete: mergedMeta?.complete ?? null,
+    });
 
     let metaEval: MetaComputeResult | undefined = undefined;
     if (mergedMeta) {
       const replyTextJoined: string = texts.join("\n\n");
       metaEval = computeMeta(mergedMeta, replyTextJoined);
       mergedMeta = metaEval.metaNorm;
+      console.info("[messageText] user: meta computed", {
+        sourceType, sourceId, messageId, threadId,
+        completeNorm: metaEval.complete_norm,
+        saveable: metaEval.saveable,
+      });
     }
 
     // ask:image の統一（必要なら先頭に追加／metaの個別文面は除去）
@@ -115,6 +140,9 @@ export async function handleMessageText(
       ((mergedMeta?.modality === "image" || mergedMeta?.modality === "image+text") &&
         mergedMeta?.slots?.has_image !== true);
     if (needAskImage) {
+      console.info("[messageText] user: add ASK_IMAGE_GENERIC", {
+        sourceType, sourceId, messageId, threadId,
+      });
       const unified: string = (getMsg("ASK_IMAGE_GENERIC") ?? "画像を送ってください。").trim();
       const metaAskText: string | undefined = mergedMeta?.followups?.[0]?.text?.trim();
       if (metaAskText && metaAskText.length > 0) {
@@ -130,6 +158,9 @@ export async function handleMessageText(
       const ask: string | undefined = metaEval.metaNorm.followups?.[0]?.text;
       if (ask && ask.trim().length > 0) {
         texts = appendFollowupIfNeeded(texts, ask, metaEval.metaNorm);
+        console.info("[messageText] user: followup appended", {
+          sourceType, sourceId, messageId, threadId,
+        });
       }
     }
 
@@ -140,6 +171,9 @@ export async function handleMessageText(
     if (metaEval?.saveable === true) {
       const instRes = await getInstpack(ctx);
       mergedInst = instRes.instpack;
+      console.info("[messageText] user: instpack fetched", {
+        sourceType, sourceId, messageId, threadId,
+      });
     }
 
     // 通常の送出
@@ -148,7 +182,9 @@ export async function handleMessageText(
     const guard = show ? finalCheckBeforeConfirm(mergedMeta, mergedInst) : { ok: false as boolean, reason: "skip" };
     if (!guard.ok) {
       const reason: string = guard.ok ? "ok" : (guard.reason ?? "unknown");
-      console.info("[messageText] confirm skipped by finalCheck:", { tid: threadId, reason });
+      console.info("[messageText] confirm skipped by finalCheck:", {
+        sourceType, sourceId, messageId, threadId, reason,
+      });
     }
 
     let confirmMsg: messagingApi.Message | null = null;
@@ -162,11 +198,8 @@ export async function handleMessageText(
 
       const idx: number = messages.indexOf(confirmMsg);
       const willBePushedIfReplyOK: boolean = idx >= replyMax;
-      console.info(
-        "[messageText] confirm queued. index=%d, willBe=%s (if reply OK). tid=%s",
-        idx,
-        willBePushedIfReplyOK ? "PUSH" : "REPLY",
-        threadId
+      console.info("[messageText] confirm queued. index=%d, willBe=%s (if reply OK). tid=%s",
+        idx, willBePushedIfReplyOK ? "PUSH" : "REPLY", threadId,
       );
     }
 
@@ -194,16 +227,15 @@ export async function handleMessageText(
     if (confirmMsg) {
       const idx: number = messages.indexOf(confirmMsg);
       const wasPushed: boolean = replyFellBackToPush || (idx >= replyMax);
-      console.info(
-        "[messageText] confirm delivered via %s. idx=%d, fallback=%s, tid=%s",
-        wasPushed ? "PUSH" : "REPLY",
-        idx,
-        replyFellBackToPush,
-        threadId
+      console.info("[messageText] confirm delivered via %s. idx=%d, fallback=%s, tid=%s",
+        wasPushed ? "PUSH" : "REPLY", idx, replyFellBackToPush, threadId,
       );
     }
 
     if (mergedInst && threadId) {
+      console.info("[messageText] user: upsertThreadInst", {
+        sourceType, sourceId, messageId, threadId, hasMeta: mergedMeta != null,
+      });
       await upsertThreadInst(
         sourceId,
         threadId,
@@ -217,6 +249,9 @@ export async function handleMessageText(
   // group/room（呼びかけ語 or 返信モード必須）
   if (sourceType === "group" || sourceType === "room") {
     const speakerUserId: string | undefined = getSpeakerUserId(event);
+    console.info("[messageText] groupRoom: start", {
+      sourceType, sourceId, messageId, speakerUserId: speakerUserId ?? null, textLen: questionTrimmed.length,
+    });
 
     // 割り込みで返信モード解除（呼びかけ本人の連投は解除しない）
     if (speakerUserId) {
@@ -235,6 +270,9 @@ export async function handleMessageText(
         messages: toTextMessages([ackText]),
         delayMs: 200,
       });
+      console.info("[messageText] groupRoom: wake-only ack", {
+        sourceType, sourceId, messageId,
+      });
       return;
     }
 
@@ -246,14 +284,23 @@ export async function handleMessageText(
       if (speakerUserId) {
         await activateReplyMode(sourceType, sourceId, speakerUserId, REPLY_MODE_TTL_SEC, REPLY_MODE);
       }
+      console.info("[messageText] groupRoom: wake head", {
+        sourceType, sourceId, messageId,
+      });
     } else {
       // 呼びかけ無し → 返信モードを消費できれば本文処理、できなければスキップ
       const allowedByReplyMode: boolean =
         speakerUserId ? await consumeReplyModeIfActive(sourceType, sourceId, speakerUserId) : false;
       if (!allowedByReplyMode) {
+        console.info("[messageText] groupRoom: ignored (no wake/replyMode)", {
+          sourceType, sourceId, messageId,
+        });
         return; // グループ/ルームでは無反応（通常会話とみなす）
       }
       // allowedByReplyMode === true の場合は questionTrimmed をそのまま処理
+      console.info("[messageText] groupRoom: replyMode consumed", {
+        sourceType, sourceId, messageId,
+      });
     }
 
     if (!question) {
@@ -263,16 +310,25 @@ export async function handleMessageText(
         messages: toTextMessages([getMsg("MESSAGE_EMPTY_WARN")]),
         delayMs: 200,
       });
+      console.info("[messageText] groupRoom: empty question warn", {
+        sourceType, sourceId, messageId,
+      });
       return;
     }
 
     // Thread確保 + AiContext 構築
     const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
     const ctx: AiContext = { ownerId: sourceId, sourceType, threadId };
+    console.info("[messageText] groupRoom: ctx ready", {
+      sourceType, sourceId, messageId, threadId,
+    });
 
     // group/room は reply のみ
     const replyRes = await runReply(ctx, { question });
     let texts: string[] = [...replyRes.texts];
+    console.info("[messageText] groupRoom: reply done", {
+      sourceType, sourceId, messageId, threadId, textCount: texts.length,
+    });
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
     const messages: messagingApi.Message[] = [...toTextMessages(texts)];

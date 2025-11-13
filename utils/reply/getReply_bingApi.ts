@@ -34,13 +34,20 @@ export async function getReply_bingApi(
 
   const hasImage: boolean = options.imageUrls.length > 0;
   const hasQuestion: boolean = options.question.trim().length > 0;
-
+  if (debugAi) {
+    console.info("[ai.reply/api] start", {
+      sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId: ctx.threadId,
+      hasQuestion, hasImage,
+    });
+  }
   // 認証チェック
   await preflightAuth();
 
   // 指示文（reply用）を取得 -> api
   const { instruction, origin } = await getInstruction(ctx.sourceType, ctx.ownerId, "reply", "api");
-  if (debugAi) console.info("[ai.reply/api] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
+  if (debugAi){
+    console.info("[ai.reply/api] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
+  }
 
   // ロックキーは type + ownerId を採用
   const lockKey: string = createOwnerLockKey(ctx.sourceType, ctx.ownerId);
@@ -54,6 +61,12 @@ export async function getReply_bingApi(
       try {
         const { instruction: decisionIns } = await getInstruction(ctx.sourceType, ctx.ownerId, "decision");
         const decision: SearchDecision = await runSearchDecision(decisionIns, ctx, options.question);
+        if (debugAi) {
+          console.info("[ai.reply/api] decision", {
+            sourceType: ctx.sourceType, ownerId: ctx.ownerId,
+            needSearch: decision.needSearch, hasFollowup: !!decision.followup && decision.followup.trim().length > 0,
+          });
+        }
 
         // フォローアップのみで十分な場合：検索・返信runは行わず即返
         if (!decision.needSearch && decision.followup && decision.followup.trim().length > 0) {
@@ -72,6 +85,13 @@ export async function getReply_bingApi(
               crawledAt: p.dateLastCrawled ?? null,
             }));
             searchContext = formatSearchContext(items, 5, 240);
+
+            if (debugAi) {
+              console.info("[ai.reply/api] search done", {
+                sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId,
+                query: q, items: items.length,
+              });
+            }
           }
         }
       } catch (e) {
@@ -108,12 +128,24 @@ export async function getReply_bingApi(
       "reply:create"
     );
 
+    if (debugAi) {
+      console.info("[ai.reply/api] run created", {
+        sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId, runId: run.id,
+      });
+    }
+
     // 完了待ち（ポーリング）
     await waitForRunCompletion(threadId, run.id, "reply");
 
     // 応答メッセージ取得
     const replyMsg = await getAssistantMessageForRun(threadId, run.id);
     if (!replyMsg) {
+      const runInfo: { status?: string; lastError?: unknown } = await agentsClient.runs.get( threadId, run.id );
+      console.error("[ai.reply/api] reply message not found", {
+        sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId, runId: run.id,
+        status: runInfo.status, lastError: runInfo.lastError,
+      });
+
       return {
         texts: ["⚠️エラーが発生しました（返信メッセージが見つかりません）"],
         agentId: replyAgentId,
