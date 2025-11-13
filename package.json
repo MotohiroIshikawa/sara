@@ -15,10 +15,8 @@
   },
   "dependencies": {
     "@azure/ai-agents": "^1.1.0",
-    "@azure/core-util": "^1.13.0",
     "@azure/functions": "^4.8.0",
     "@azure/identity": "^4.11.1",
-    "@azure/openai": "^2.0.0",
     "@azure/storage-blob": "^12.29.1",
     "@line/bot-sdk": "^10.1.0",
     "@line/liff": "^2.27.2",
@@ -32,6 +30,7 @@
     "react-dom": "19.1.0",
     "redis": "^5.8.2",
     "redlock": "^5.0.0-beta.2",
+    "server-only": "^0.0.1",
     "sharp": "^0.34.4"
   },
   "devDependencies": {

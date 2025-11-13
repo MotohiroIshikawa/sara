@@ -3,7 +3,7 @@
 import React, { useEffect, useState, type JSX } from "react";
 import styles from "@/app/gpts/Client.module.css";
 
-export interface SearchBoxProps {
+interface SearchBoxProps {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;

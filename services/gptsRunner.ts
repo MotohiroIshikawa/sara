@@ -3,11 +3,11 @@ import { getGptsById } from "@/services/gpts.mongo";
 import type { AiContext, SourceType } from "@/types/gpts";
 import { pushMessages, toTextMessages } from "@/utils/lineSend";
 import { getOrCreateThreadId } from "@/services/threadState";
-import { getReply } from "@/utils/aiConnectReply";
+import { runReply } from "@/utils/reply/selector";
 
-export type RunOk = { ok: true };
-export type RunNg = { ok: false; reason: string };
-export type RunResult = RunOk | RunNg;
+type RunOk = { ok: true };
+type RunNg = { ok: false; reason: string };
+type RunResult = RunOk | RunNg;
 
 export async function runGptsAndPush(
   gptsId: string,
@@ -34,7 +34,7 @@ export async function runGptsAndPush(
     // Thread確保 + AiContext 構築
     const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
     const ctx: AiContext = { ownerId: sourceId, sourceType, threadId };
-    const res = await getReply(ctx, { question });
+    const res = await runReply(ctx, { question });
 
     texts = Array.isArray(res.texts) ? res.texts : [];
   } catch (e) {

@@ -57,11 +57,6 @@ export async function handleUnfollowEvent(
       console.info("[unfollow] no binding/instpack => skip agent deletion", { userId: sourceId });
     }
 
-    // BASEのreplyAgent削除
-    //await deleteBaseReplyAgent().catch((e) => {
-    //  console.warn("[unfollow] deleteBaseReplyAgent failed", { uid, err: String(e) });
-    //});
-    
     // thread_inst の削除
     await purgeAllThreadInstByUser(sourceId).catch((e: unknown) => {
       console.warn("[unfollow] purgeAllThreadInstByUser failed", { userId: sourceId, err: String(e) });

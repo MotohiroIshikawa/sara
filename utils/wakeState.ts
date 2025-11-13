@@ -23,12 +23,12 @@ export const DEFAULT_WAKE_SEP_RE: RegExp = /^[\s,，、.。:：;；!?！？\-‐
 3) 割り込み（他ユーザが話したら解除したい場合）:
 ============================================================================ */
 
-export type WakeScope = string;
+type WakeScope = string;
 export type ReplyMode = // 返信モードの型
     "next-only" // 呼びかけ後の1通のみ
   | "session";  // 呼びかけ後に発言するとTTLが延長される
 
-export type ReplyModeRecord = {
+type ReplyModeRecord = {
   by: string;        // 呼びかけたユーザID（"U..."）
   mode: ReplyMode;
   expiresAt: number;
@@ -146,7 +146,7 @@ export async function breakReplyModeOnInterrupt(
 }
 
 // 日本語向け簡易正規化
-export function normalizeJaLite(s: string): string {
+function normalizeJaLite(s: string): string {
   const nfkc: string = s.normalize("NFKC");
   const t: string = nfkc.trim();
   return t.replace(/[A-Z]/g, (ch: string): string => ch.toLowerCase());

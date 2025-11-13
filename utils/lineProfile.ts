@@ -1,4 +1,4 @@
-export type LineProfile = {
+type LineProfile = {
   displayName?: string;
   pictureUrl?: string;
   statusMessage?: string;

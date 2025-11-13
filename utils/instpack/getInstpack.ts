@@ -1,6 +1,6 @@
 import type { AiContext, AiInstpackOptions, AiInstpackResult } from "@/types/gpts";
 import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
-import { getInstruction } from "@/utils/agentPrompts";
+import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { withTimeout } from "@/utils/async";
 import { DEBUG, MAIN_TIMERS } from "@/utils/env";

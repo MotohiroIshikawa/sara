@@ -1,9 +1,4 @@
-import { type ScheduleFreq, type WeekdayKey, type ScheduleDto, isScheduleFreq } from "@/types/schedule";
-
-// Freq 判定
-export function isFreq(v: unknown): v is ScheduleFreq {
-  return v === "daily" || v === "weekly" || v === "monthly";
-}
+import { type WeekdayKey, type ScheduleDto, isScheduleFreq } from "@/types/schedule";
 
 // WeekdayKey 判定
 export function isWeekdayKey(v: unknown): v is WeekdayKey {

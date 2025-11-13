@@ -128,13 +128,6 @@ export type GptsListResponse = {
   appliedId: string | null;
 };
 
-/** 適用レスポンス（POST /api/gpts/[id]/use） */
-export type GptsApplyResponse = {
-  ok: true;
-  appliedId: string;
-  name: string;
-};
-
 /** 型ガード */
 function isGptsListItem(v: unknown): v is GptsListItem {
   return (
@@ -155,13 +148,4 @@ export function isGptsListResponse(v: unknown): v is GptsListResponse {
   const okApplied = appliedId === null || isString(appliedId);
 
   return okItems && okApplied;
-}
-
-export function isGptsApplyResponse(v: unknown): v is GptsApplyResponse {
-  return (
-    isRecord(v) &&
-    v.ok === true &&
-    isString((v as { appliedId?: unknown }).appliedId) &&
-    isString((v as { name?: unknown }).name)
-  );
 }

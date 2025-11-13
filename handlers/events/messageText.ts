@@ -13,13 +13,13 @@ import {
   DEFAULT_WAKE_SEP_RE,
   type ReplyMode,
 } from "@/utils/wakeState";
-import { getReply } from "@/utils/aiConnectReply";
-import { getMeta } from "@/utils/aiConnectMeta";
-import { getInstpack } from "@/utils/aiConnectInstpack";
+import { getMeta } from "@/utils/meta/getMeta";
+import { getInstpack } from "@/utils/instpack/getInstpack";
 import { computeMeta, looksLikeFollowup } from "@/utils/meta";
 import type { AiContext, Meta, MetaComputeResult } from "@/types/gpts";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { getSpeakerUserId } from "@/utils/lineSource";
+import { runReply } from "@/utils/reply/selector";
 
 const replyMax: number = LINE.REPLY_MAX;
 const REPLY_MODE: ReplyMode = "session";
@@ -95,7 +95,7 @@ export async function handleMessageText(
     const ctx: AiContext = { ownerId: sourceId, sourceType: sourceType, threadId };
 
     // 1. reply 実行（Bingあり／なしは aiConnectReply 側で処理）
-    const replyRes = await getReply(ctx, { question });
+    const replyRes = await runReply(ctx, { question });
     let texts: string[] = [...replyRes.texts];
 
     // 2. meta → computeMeta（userのみ）
@@ -271,7 +271,7 @@ export async function handleMessageText(
     const ctx: AiContext = { ownerId: sourceId, sourceType, threadId };
 
     // group/room は reply のみ
-    const replyRes = await getReply(ctx, { question });
+    const replyRes = await runReply(ctx, { question });
     let texts: string[] = [...replyRes.texts];
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 

@@ -7,7 +7,7 @@ type HttpResponse = {
   text(): Promise<string>;
 };
 
-// ★ 環境変数（App Settings）
+// 環境変数（App Settings）
 //   - SCHED_TICK_URL: 叩く内部APIのURL（例 https://<your-domain>/api/jobs/scheduler/tick）
 //   - INTERNAL_JOB_TOKEN: API側と一致させる内部トークン
 //   - SCHED_MAX_RETRY（任意）: 失敗時の再試行回数（既定 3）
@@ -17,7 +17,7 @@ const INTERNAL_JOB_TOKEN = process.env.INTERNAL_JOB_TOKEN ?? "";
 const SCHED_MAX_RETRY = Number(process.env.SCHED_MAX_RETRY ?? "3");
 const SCHED_BACKOFF_MS = Number(process.env.SCHED_BACKOFF_MS ?? "2000");
 
-// ★ fetch は Node18 以降はグローバルで利用可（polyfill不要）
+// fetch は Node18 以降はグローバルで利用可（polyfill不要）
 async function postTick(
   rid: string, 
   firedAt: string, 
@@ -86,7 +86,7 @@ async function handler(myTimer: Timer, context: InvocationContext): Promise<void
 
 /**
  * タイマー バインド（cronはここで宣言。function.jsonは不要）
- * ★ v4新モデル：function.json 不要
+ * v4新モデル：function.json 不要
  */
 app.timer("TickTimer", {      // 旧モデルの default export → app.timer へ変更
   schedule: "0 */5 * * * *",  // 毎5分（秒 分 時 日 月 曜）

@@ -1,7 +1,7 @@
 import React, { type JSX } from "react";
 import styles from "@/app/gpts/Client.module.css";
 
-export interface FooterEditActionsProps {
+interface FooterEditActionsProps {
   onBack: () => void;
   onConfirm: () => void;
   busy?: boolean; // 二重送信防止用

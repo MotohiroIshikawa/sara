@@ -183,7 +183,7 @@ export async function copyGpts(
 export type PublicGptsSort = "latest" | "popular";
 
 // 検索1件の出力
-export type PublicGptsSearchItem = {
+type PublicGptsSearchItem = {
   gptsId: string;
   name: string;
   updatedAt: Date;
@@ -194,78 +194,6 @@ export type PublicGptsSearchItem = {
 // 正規表現の特殊文字をエスケープ（部分一致用）
 function escapeRegexFragment(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// 公開GPTSを検索（タイトル部分一致、最新順 or 利用数順）
-export async function searchPublicGpts(
-  q?: string,
-  sort?: PublicGptsSort,
-  limit?: number,
-  offset?: number
-): Promise<PublicGptsSearchItem[]> {
-  const colGpts = await getGptsCollection();
-
-  q = q?.trim() || undefined;
-  sort = sort ?? "latest";
-
-  const reqLimit = typeof limit === "number" ? Math.trunc(limit) : PAGE_DEFAULT_LIMIT;
-  limit = Math.min(Math.max(reqLimit, 1), PAGE_MAX_LIMIT + 1);
-
-  const offsetRaw = typeof offset === "number" ? Math.trunc(offset) : 0;
-  offset = Math.max(offsetRaw, 0);
-
-  const match: Record<string, unknown> = {
-    isPublic: true,
-    deletedAt: { $exists: false },
-    name: { $type: "string", $ne: "" },
-  };
-  if (q) {
-    match.name = { $regex: escapeRegexFragment(q), $options: "i" };
-  }
-
-  const pipeline: Document[] = [
-    { $match: match },
-    // 自己参照 $lookup：元(gpts) → 子コピー(gpts.originalGptsId == 親の gptsId)
-    {
-      $lookup: {
-        from: "gpts",
-        localField: "gptsId",
-        foreignField: "originalGptsId",
-        as: "children"
-      }
-    },
-    // 子コピーのうち deletedAt が未設定のものだけカウント
-    {
-      $addFields: {
-        usageCount: {
-          $size: {
-            $filter: {
-              input: { $ifNull: ["$children", []] },
-              as: "c",
-              cond: { $eq: [ { $ifNull: ["$$c.deletedAt", null] }, null ] } // deletedAt が null/未設定なら true
-            }
-          }
-        }
-      }
-    },
-    { $project: { _id: 0, gptsId: 1, name: 1, updatedAt: 1, isPublic: 1, usageCount: 1 } },
-    ...(sort === "popular"
-      ? [{ $sort: { usageCount: -1, updatedAt: -1, gptsId: -1 } } as Document]
-      : [{ $sort: { updatedAt: -1, gptsId: -1 } } as Document]
-    ),
-    { $skip: offset },
-    { $limit: limit },
-  ];
-
-  const docs = await colGpts.aggregate(pipeline).toArray();
-
-  return docs.map((d) => ({
-    gptsId: d.gptsId,
-    name: d.name,
-    updatedAt: d.updatedAt instanceof Date ? d.updatedAt : new Date(d.updatedAt),
-    isPublic: !!d.isPublic,
-    usageCount: d.usageCount,
-  }));
 }
 
 // 公開GPTSの詳細

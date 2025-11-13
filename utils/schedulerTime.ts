@@ -8,7 +8,7 @@ import {
 
 export type WeekdayKey = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
 
-export interface NextRunOpts {
+interface NextRunOpts {
   timezone: string;          // 例: "Asia/Tokyo"
   rrule?: string | null;     // いまは未使用（将来拡張）
   freq?: "daily" | "weekly" | "monthly"; // 無い場合は daily 相当で計算

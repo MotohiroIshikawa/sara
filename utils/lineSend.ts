@@ -49,7 +49,7 @@ export function buildSaveOrContinueConfirm({
 }
 
 // join時の「自分のルールを適用」ボタン（Buttonsテンプレート）
-export interface JoinApplyTemplateOptions {
+interface JoinApplyTemplateOptions {
   text?: string;    // デフォルト: "このグループに自分のルールを適用しますか？"
   label?: string;   // デフォルト: "自分のルールを適用"
   altText?: string; // デフォルト: text と同じ

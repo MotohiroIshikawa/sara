@@ -1,7 +1,7 @@
 import React, { type JSX } from "react";
 import styles from "@/app/gpts/Client.module.css";
 
-export interface RuleSectionProps {
+interface RuleSectionProps {
   inst: string;
   onChange: (value: string) => void;
   count: number;

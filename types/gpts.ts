@@ -1,18 +1,18 @@
 export type SourceType = "user" | "group" | "room";
 
 // Meta用
-export type Intent =
+type Intent =
   | "lookup"
   | "qa"
   | "summarize"
   | "classify"
   | "react";
 
-export type Modality = "text" | "image" | "image+text";
+type Modality = "text" | "image" | "image+text";
 
-export type Domain = "event" | "news" | "shopping" | "local" | "object" | null;
+type Domain = "event" | "news" | "shopping" | "local" | "object" | null;
 
-export type ImageTask = "identify" | "ocr" | "caption" | "summarize" | "detect_faces" | null;
+type ImageTask = "identify" | "ocr" | "caption" | "summarize" | "detect_faces" | null;
 
 export type FollowupAsk =
   | "topic"
@@ -28,7 +28,7 @@ export type MetaFollowup = {
   text: string; // 80文字以内・疑問形または命令形（仕様上の制約）
 };
 
-export type MetaSlots = {
+type MetaSlots = {
   topic?: string;
   place?: string | null;
   date_range?: string | null;
@@ -48,8 +48,6 @@ export type Meta = {
   complete?: boolean;
   followups?: MetaFollowup[];
 };
-
-export type MetaForConfirm = Pick<Meta, "intent" | "complete" | "slots" | "modality">;
 
 // 汎用AI実行ユーティリティ向けコンテキスト
 export type AiContext = {

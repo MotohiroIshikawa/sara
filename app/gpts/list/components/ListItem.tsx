@@ -2,7 +2,7 @@ import React, { type JSX, type KeyboardEvent } from "react";
 import styles from "@/app/gpts/Client.module.css";
 import { type GptsListItem } from "@/utils/types";
 
-export interface ListItemProps {
+interface ListItemProps {
   item: GptsListItem;
   applied: boolean;
   onOpen: (id: string) => void; // カードタップで詳細を開く
