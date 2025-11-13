@@ -5,9 +5,9 @@ import { uploadBufferAndGetSasUrl } from "@/utils/azureBlob";
 import { compressIfNeeded } from "@/utils/imageProcessor";
 import { IMAGE } from "@/utils/env";
 import { getOrCreateThreadId } from "@/services/threadState";
-import { getReply } from "@/utils/aiConnectReply";
 import { findActiveBinding } from "@/services/gptsBindings.mongo";
 import { getThreadInst } from "@/services/threadInst.mongo";
+import { runReply } from "@/utils/reply/selector";
 
 // MIME 許可
 const ALLOWED_MIME: readonly string[] = [
@@ -105,7 +105,7 @@ export async function handleMessageImage(
 
     // group/room は常に getReply(image) のみ
     if (sourceType === "group" || sourceType === "room") {
-      const replyRes = await getReply(
+      const replyRes = await runReply(
         { ownerId: sourceId, sourceType, threadId }, 
         { imageUrls: [sasUrl] }
       );
@@ -132,7 +132,7 @@ export async function handleMessageImage(
 
       if (binding || draft) {
         // 既存ルール or 進行中ドラフト → getReply のみ
-        const replyRes = await getReply(
+        const replyRes = await runReply(
           { ownerId: sourceId, sourceType, threadId }, 
           { imageUrls: [sasUrl] }
         );

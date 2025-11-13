@@ -114,3 +114,12 @@ export const WAKE = {
   REPLY_MODE_TTL_SEC: envInt("WAKE_REPLY_MODE_TTL_SEC", 120),
   ALIASES: envCsv("WAKE_ALIASES", "さら,サラ,sara,Sara"),
 };
+
+export const BING = {
+  V7_ENDPOINT: (process.env.BING_V7_ENDPOINT ?? "https://api.bing.microsoft.com/v7.0").replace(/\/+$/, ""),
+  V7_KEY: envStr("BING_V7_SUBSCRIPTION_KEY", ""),
+  MARKET: envStr("BING_V7_MARKET", "ja-JP"),
+  SAFESEARCH: envStr("BING_V7_SAFESEARCH", "Moderate"), // "Off" | "Moderate" | "Strict"
+  COUNT: envInt("BING_V7_COUNT", 5, { min: 1, max: 50 }), // 取得件数既定
+  TIMEOUT_MS: envInt("BING_V7_TIMEOUT_MS", 5000, { min: 1000 }), // タイムアウト
+};

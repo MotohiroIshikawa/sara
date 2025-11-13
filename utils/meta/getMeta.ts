@@ -1,6 +1,6 @@
 import type { AiContext, AiMetaOptions, AiMetaResult, Meta, EmitMetaArgs } from "@/types/gpts";
 import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
-import { getInstruction } from "@/utils/agentPrompts";
+import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 import { withTimeout } from "@/utils/async";
 import { DEBUG, MAIN_TIMERS } from "@/utils/env";
