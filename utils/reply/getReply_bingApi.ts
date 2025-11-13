@@ -120,8 +120,6 @@ export async function getReply_bingApi(
 
     const run = await withTimeout(
       agentsClient.runs.create(threadId, replyAgentId, {
-        temperature: options.temperature,
-        topP: options.topP,
         parallelToolCalls: false, // ツール無し
       }),
       MAIN_TIMERS.CREATE_TIMEOUT,

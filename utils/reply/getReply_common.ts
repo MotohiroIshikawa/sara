@@ -30,8 +30,6 @@ export function normalizeReplyOptions(opts?: AiReplyOptions): NormalizedReplyOpt
   return {
     question: opts?.question ?? "",
     imageUrls: opts?.imageUrls ?? [],
-    temperature: typeof opts?.temperature === "number" ? opts.temperature : 0.2,
-    topP: typeof opts?.topP === "number" ? opts.topP : 1,
   };
 }
 

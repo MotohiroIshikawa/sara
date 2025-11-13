@@ -109,8 +109,6 @@ export async function runSearchDecision(
 
   const run = await withTimeout(
     agentsClient.runs.create(ctx.threadId, agentId, {
-      temperature: 0.0,
-      topP: 1,
       parallelToolCalls: false,
     }),
     MAIN_TIMERS.CREATE_TIMEOUT,

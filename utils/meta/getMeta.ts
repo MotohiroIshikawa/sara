@@ -88,7 +88,6 @@ export async function getMeta(
 
     const run = await withTimeout(
       agentsClient.runs.create(threadId, agentId, {
-        temperature: 0.0,
         parallelToolCalls: false,
         toolChoice: { type: "function", function: { name: EMIT_META_FN } },
       }),

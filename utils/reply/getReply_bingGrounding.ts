@@ -70,8 +70,6 @@ export async function getReply_bingGrounding(
 
     const run = await withTimeout(
       agentsClient.runs.create(threadId, replyAgentId, {
-        temperature: options.temperature,
-        topP: options.topP,
         parallelToolCalls: true,
       }),
       MAIN_TIMERS.CREATE_TIMEOUT,
