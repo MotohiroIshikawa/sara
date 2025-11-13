@@ -3,7 +3,7 @@
 import React, { type JSX } from "react";
 import styles from "@/app/gpts/Client.module.css";
 
-export interface VisibilitySectionProps {
+interface VisibilitySectionProps {
   isPublic: boolean;
   onChange: (next: boolean) => void;
 }

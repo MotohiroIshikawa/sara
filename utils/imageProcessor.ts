@@ -1,12 +1,12 @@
 import sharp from "sharp";
 
-export interface ProcessedImage {
+interface ProcessedImage {
   buffer: Buffer;
   contentType: string;
   resized: boolean;
 }
 
-export interface ImageProcessOptions {
+interface ImageProcessOptions {
   maxBytes?: number;       // 目標サイズ（既定: 4MB）
   maxWidth?: number;       // 最大幅（既定: 4096）
   maxHeight?: number;      // 最大高さ（既定: 4096）

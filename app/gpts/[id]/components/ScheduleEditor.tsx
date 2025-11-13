@@ -5,7 +5,7 @@ import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/sc
 import { formatNextRunJa } from "@/utils/schedulerTime";
 import { showToastNow } from "@/utils/flashToast";
 
-export interface ScheduleEditorProps {
+interface ScheduleEditorProps {
   sched: ScheduleDto | null;
   schedToggle: boolean;
   onToggleSchedule: (nextOn: boolean) => Promise<void>;

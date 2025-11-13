@@ -2,7 +2,7 @@ import type { ScheduleDto, ScheduleFreq, WeekdayKey } from "@/types/schedule";
 import { isWeekdayKey } from "@/types/schedule";
 
 // 日本語の曜日ラベル（UI要約用）
-export const WDAY_LABEL_JA: Record<WeekdayKey, string> = {
+const WDAY_LABEL_JA: Record<WeekdayKey, string> = {
   MO: "月",
   TU: "火",
   WE: "水",
@@ -13,7 +13,7 @@ export const WDAY_LABEL_JA: Record<WeekdayKey, string> = {
 };
 
 // /enable 直前の必須チェック結果
-export type EnableValidation =
+type EnableValidation =
   | { ok: true }
   | {
       ok: false;
@@ -22,7 +22,7 @@ export type EnableValidation =
     };
 
 /** 時刻の妥当性（0–23 / 0–59） */
-export function isValidTime(hour: unknown, minute: unknown): boolean {
+function isValidTime(hour: unknown, minute: unknown): boolean {
   const hNum: boolean = typeof hour === "number" && Number.isFinite(hour);
   const mNum: boolean = typeof minute === "number" && Number.isFinite(minute);
   if (!hNum || !mNum) return false;
@@ -32,14 +32,14 @@ export function isValidTime(hour: unknown, minute: unknown): boolean {
 }
 
 /** 週次の妥当性（曜日が1つ以上 & 値が正しい） */
-export function isValidWeekly(byWeekday: unknown): boolean {
+function isValidWeekly(byWeekday: unknown): boolean {
   if (!Array.isArray(byWeekday)) return false;
   if (byWeekday.length < 1) return false;
   return (byWeekday as unknown[]).every((k: unknown): boolean => isWeekdayKey(k));
 }
 
 /** 月次の妥当性（1–31 の数値が最低1つ） */
-export function isValidMonthly(byMonthday: unknown): boolean {
+function isValidMonthly(byMonthday: unknown): boolean {
   if (!Array.isArray(byMonthday)) return false;
   if (byMonthday.length < 1) return false;
   return (byMonthday as unknown[]).every((n: unknown): boolean => {
@@ -70,7 +70,7 @@ export function canEnableSchedule(s: Readonly<ScheduleDto>): EnableValidation {
 }
 
 /** 時刻の安全フォールバック（未設定なら既定 09:00 を返す） */
-export function safeTimeFromSchedule(
+function safeTimeFromSchedule(
   s: Readonly<ScheduleDto>,
   defaults: { hour: number; minute: number } = { hour: 9, minute: 0 }
 ): { hour: number; minute: number } {

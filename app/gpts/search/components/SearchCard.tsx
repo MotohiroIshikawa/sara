@@ -2,7 +2,7 @@ import React, { type JSX, type KeyboardEvent } from "react";
 import { formatIsoToJa } from "@/utils/formatIsoToJa";
 import styles from "@/app/gpts/Client.module.css";
 
-export interface SearchCardProps {
+interface SearchCardProps {
   id: string;
   name: string;
   updatedAt: string;

@@ -4,7 +4,7 @@ import { AgentsClient, ToolUtility } from "@azure/ai-agents";
 import { DefaultAzureCredential } from "@azure/identity";
 import { emitInstpackTool } from "@/services/tools/emitInstpack.tool";
 import { emitMetaTool } from "@/services/tools/emitMeta.tool";
-import { getBaseReplyInstruction, getInstructionsWithInstpack } from "@/utils/agentPrompts";
+import { getInstructionsWithInstpack } from "@/utils/prompts/getInstruction";
 import { AZURE, envInt } from "@/utils/env";
 import { redis } from "@/utils/redis";
 import { toDefinition, type ToolLike } from "@/utils/types";
@@ -81,27 +81,6 @@ export async function getOrCreateAgentIdWithTools(
   const ttlSec = ttlDays * 24 * 60 * 60;
   await redis.setex(key, ttlSec, agent.id);
   return agent.id;
-}
-
-// BASE+REPLY（instpack未注入）の reply Agent を「キャッシュにある分だけ」削除
-export async function deleteBaseReplyAgent(): Promise<string | null> {
-  const bingTool = ToolUtility.createBingGroundingTool([
-    { connectionId: AZURE.BING_CONNECTION_ID, market: "ja-JP", setLang: "ja", count: 5, freshness: "week" },
-  ]);
-  const baseReplyIns = getBaseReplyInstruction();
-  const mdl: string = MODEL.reply;
-  const sig = computeAgentSig(baseReplyIns, [bingTool], mdl);
-  const key = agentCacheKeyFromSig(sig);
-  const agentId = await redis.get(key);
-  if (!agentId) return null;
-
-  try {
-    await agentsClient.deleteAgent(agentId);
-  } catch {
-    // 404等は無視
-  }
-  await redis.del(key);
-  return agentId;
 }
 
 // instpack に紐づく reply/meta/inst 用 Agent を「キャッシュにある分だけ」削除

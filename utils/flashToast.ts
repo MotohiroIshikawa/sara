@@ -30,16 +30,6 @@ export function takeFlash(): string | null {
   }
 }
 
-// 明示的にフラッシュメッセージを破棄したい場合に使用（任意）
-export function clearFlash(): void {
-  if (!isBrowser()) return;
-  try {
-    window.sessionStorage.removeItem(FLASH_KEY);
-  } catch {
-    // noop
-  }
-}
-
 // 即時トースト（一覧以外でも利用可能）
 export function showToastNow(message: string, ms: number = 2800): void {
   const wrap: HTMLDivElement = document.createElement("div");

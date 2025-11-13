@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import type { UserCycleDoc, UserDoc } from "@/types/db";
 import { getUsersCollection, getUserCyclesCollection } from "@/utils/mongo";
 
-export type ProfileInput = {
+type ProfileInput = {
   displayName?: string;
   pictureUrl?: string;
   statusMessage?: string;

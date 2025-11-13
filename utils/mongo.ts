@@ -1,4 +1,4 @@
-import { MongoClient, ObjectId, type Collection, type Document, type Filter } from "mongodb";
+import { MongoClient, type Collection, type Document } from "mongodb";
 import type { 
   UserDoc, 
   UserCycleDoc, 
@@ -45,7 +45,7 @@ export async function pingMongo(): Promise<boolean> {
   }
 }
 
-export async function getCollection<T extends Document = Document>( name: string ): Promise<Collection<T>> {
+async function getCollection<T extends Document = Document>( name: string ): Promise<Collection<T>> {
   const dbName = process.env.MONGODB_DB!;
   const client = await getClient();
   return client.db(dbName).collection<T>(name);
@@ -88,16 +88,6 @@ export async function getGptsSchedulesCollection(): Promise<Collection<GptsSched
   return getCollection<GptsScheduleDoc>(name);
 }
 
-/* === Common helpers === */
-
-export const toObjectId = (v: string | ObjectId): ObjectId =>
-  v instanceof ObjectId ? v : new ObjectId(v);
-
-/*
-export const isObjectIdString = (v: string): boolean =>
-  /^[0-9a-fA-F]{24}$/.test(v);
-*/
-
 export const withTimestampsForCreate = <T extends Record<string, unknown>>(doc: T) => ({
   ...doc,
   createdAt: new Date(),
@@ -108,36 +98,3 @@ export const touchForUpdate = <T extends Record<string, unknown>>(patch: T) => (
   ...patch,
   updatedAt: new Date(),
 });
-
-/*
-export const filterByObjectId = <T extends { _id: ObjectId }>(id: string | ObjectId): Filter<T> =>
-  ({ _id: toObjectId(id) } as Filter<T>);
-*/
-
-//// 任意: 開発時のクリーンアップ
-export async function closeMongoForDev() {
-  if (_clientPromise) {
-    const client = await _clientPromise;
-    await client.close();
-    _clientPromise = null;
-  }
-}
-
-/*
-// id検証
-export type MongoId = string | ObjectId;
-export type WithDualId = {
-  id: string;
-  _id?: MongoId;
-};
-*/
-
-/*
-export function idMatchers<T extends WithDualId>(gid: string): Filter<T>[] {
-  const ors: Filter<T>[] = [{ id: gid } as Filter<T>, { _id: gid } as Filter<T>];
-  if (ObjectId.isValid(gid)) {
-    ors.push({ _id: new ObjectId(gid) } as Filter<T>);
-  }
-  return ors;
-}
-*/

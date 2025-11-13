@@ -3,7 +3,7 @@ import styles from "@/app/gpts/Client.module.css";
 
 export type SortKey = "latest" | "popular";
 
-export interface SortButtonsProps {
+interface SortButtonsProps {
   value: SortKey;
   onChange: (next: SortKey) => void;
 }

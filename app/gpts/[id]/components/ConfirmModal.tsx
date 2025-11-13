@@ -3,7 +3,7 @@ import styles from "@/app/gpts/Client.module.css";
 import { type ScheduleDto } from "@/types/schedule";
 import { summarizeScheduleJa } from "@/utils/scheduleValidators";
 
-export interface ConfirmModalProps {
+interface ConfirmModalProps {
   open: boolean;
   onClose: () => void;
   onSave: () => void;

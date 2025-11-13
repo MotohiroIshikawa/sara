@@ -5,7 +5,7 @@ const DEBUG = envBool("DEBUG_FIND_ONE_AND_UPDATE_COMPAT", false);
 
 type UpdatePipeline<T extends Document> = UpdateFilter<T> | Document[];
 
-export type CompatModifyResult<T extends Document> = {
+type CompatModifyResult<T extends Document> = {
   ok: 1;
   lastErrorObject?: { n?: number; updatedExisting?: boolean };
   value: T | null;

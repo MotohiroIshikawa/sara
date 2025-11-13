@@ -1,4 +1,4 @@
-export type MsgKey =
+type MsgKey =
   // gpts.ts関係
   | "GROUP_SAVE_DENY"
   | "TAP_LATER"

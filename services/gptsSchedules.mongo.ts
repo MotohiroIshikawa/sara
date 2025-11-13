@@ -6,7 +6,7 @@ import { findOneAndUpdateCompat } from "@/utils/mongoCompat";
 import { computeNextRunAtWithGrace, type WeekdayKey } from "@/utils/schedulerTime";
 import { isWeekdayKey } from "@/utils/scheduleGuards";
 
-export interface FindSchedulesFilter {
+interface FindSchedulesFilter {
   gptsId?: string;
   targetType?: GptsScheduleDoc["targetType"]; // "user" | "group" | "room"
   targetId?: string;
@@ -59,6 +59,7 @@ export async function updateScheduleById(id: ObjectId, patch: Partial<GptsSchedu
 }
 
 // 最新のスケジュール（enabled の有無は任意指定）
+/** 
 export async function getLatestSchedule(params: {
   userId: string;
   gptsId: string;
@@ -73,8 +74,10 @@ export async function getLatestSchedule(params: {
   if (typeof params.enabled === "boolean") q.enabled = params.enabled;
   return col.findOne(q, { sort: { createdAt: -1 } });
 }
+*/
 
 // 実行後の next/last 更新（runner 用）
+/**
 export async function bumpAfterRun(id: ObjectId, nextRunAt: Date | null): Promise<void> {
   const col = await getGptsSchedulesCollection();
   await col.updateOne(
@@ -82,6 +85,7 @@ export async function bumpAfterRun(id: ObjectId, nextRunAt: Date | null): Promis
     { $set: { lastRunAt: new Date(), nextRunAt, updatedAt: new Date() } }
   );
 }
+*/
 
 export async function findSchedules(
   filter: Readonly<FindSchedulesFilter>

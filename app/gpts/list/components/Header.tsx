@@ -1,7 +1,7 @@
 import React, { type JSX } from "react";
 import styles from "@/app/gpts/Client.module.css";
 
-export interface HeaderProps {
+interface HeaderProps {
   appliedId?: string | null;
 }
 

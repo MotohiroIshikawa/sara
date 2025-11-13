@@ -18,17 +18,6 @@ export type WeekdayKey = (typeof WD)[number]["key"]; // "MO" | ... | "SU"
 export const isWeekdayKey = (v: unknown): v is WeekdayKey =>
   WD.some((d) => d.key === v);
 
-export const WEEKDAY_LABEL: Readonly<Record<WeekdayKey, string>> = {
-  // ラベル辞書
-  MO: "月",
-  TU: "火",
-  WE: "水",
-  TH: "木",
-  FR: "金",
-  SA: "土",
-  SU: "日",
-} as const;
-
 // API 返却用 DTO（ObjectId/Date は文字列に正規化して扱う）
 export interface ScheduleDto {
   _id: string;
