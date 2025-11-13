@@ -59,6 +59,10 @@ export async function handleMessageImage(
   if (event.message.type !== "image") return;
 
   const messageId = event.message.id;
+  console.info("[messageImage] recv", {
+    sourceType, sourceId, messageId,
+  });
+
   if (isDuplicateAndMark(messageId)) {
     console.info("[messageImage] duplicate suppressed", { messageId, sourceType, sourceId });
     return;
@@ -69,8 +73,18 @@ export async function handleMessageImage(
 
   try {
     // 画像取得
+    console.info("[messageImage] fetchLineImageAsBuffer start", {
+      sourceType, sourceId, messageId,
+    });
     const { buf, ctype } = await fetchLineImageAsBuffer(messageId);
+    console.info("[messageImage] fetchLineImageAsBuffer done", {
+      sourceType, sourceId, messageId, ctype,
+    });
+
     if (!ALLOWED_MIME.includes(ctype)) {
+      console.info("[messageImage] unsupported mime", {
+        sourceType, sourceId, messageId, ctype,
+      });
       await sendMessagesReplyThenPush({
         replyToken: event.replyToken,
         to: sourceId,
@@ -80,17 +94,32 @@ export async function handleMessageImage(
     }
 
     // 圧縮 / リサイズ（必要時）
+    console.info("[messageImage] compressIfNeeded start", {
+      sourceType, sourceId, messageId,
+    });
     const processed = await compressIfNeeded(buf, ctype, {
       maxBytes: 4 * 1024 * 1024,
       maxWidth: 4096,
       maxHeight: 4096,
     });
+    console.info("[messageImage] compressIfNeeded done", {
+      sourceType, sourceId, messageId, resized: processed.resized,
+    });
 
     // アップロード → SAS URL
+    console.info("[messageImage] uploadBufferAndGetSasUrl start", {
+      sourceType, sourceId, messageId,
+    });
     const sasUrl = await uploadBufferAndGetSasUrl(processed.buffer, processed.contentType);
+    console.info("[messageImage] uploadBufferAndGetSasUrl done", {
+      sourceType, sourceId, messageId, hasUrl: !!sasUrl,
+    });
 
     // Thread 確保
     const threadId = await getOrCreateThreadId(sourceType, sourceId);
+    console.info("[messageImage] thread ready", {
+      sourceType, sourceId, messageId, threadId,
+    });
 
     // 処理中通知（閾値超過で一回だけ）
     const thresholdMs = IMAGE.PROCESSING_NOTIFY_THRESHOLD_SEC * 1000;
@@ -101,15 +130,24 @@ export async function handleMessageImage(
         messages: toTextMessages([getMsg("IMAGE_PROCESSING_WAIT")]),
       }).catch(() => {});
       processingNotified = true;
+      console.info("[messageImage] processing notify sent", {
+        sourceType, sourceId, messageId, threadId,
+      });
     }, thresholdMs);
 
     // group/room は常に getReply(image) のみ
     if (sourceType === "group" || sourceType === "room") {
+      console.info("[messageImage] groupRoom: runReply start", {
+        sourceType, sourceId, messageId, threadId,
+      });
       const replyRes = await runReply(
         { ownerId: sourceId, sourceType, threadId }, 
         { imageUrls: [sasUrl] }
       );
       let texts: string[] = [...replyRes.texts];
+      console.info("[messageImage] groupRoom: runReply done", {
+        sourceType, sourceId, messageId, threadId, textCount: texts.length,
+      });
       if (!texts.length) texts = ["（結果が見つかりませんでした）"];
       
       // meta/instpack は取得しない
@@ -122,27 +160,46 @@ export async function handleMessageImage(
         to: sourceId,
         messages,
       });
+      console.info("[messageImage] groupRoom: sendMessagesReplyThenPush done", {
+        sourceType, sourceId, messageId, threadId,
+      });
       return;
     }
 
     // user: binding or draft の有無で出し分け
     if (sourceType === "user") {
+      console.info("[messageImage] user: binding/draft lookup", {
+        sourceType, sourceId, messageId, threadId,
+      });
       const binding = await findActiveBinding(sourceType, sourceId);
       const draft = await getThreadInst(sourceId, threadId);
+      console.info("[messageImage] user: binding/draft result", {
+        sourceType, sourceId, messageId, threadId,
+        hasBinding: !!binding, hasDraft: !!draft,
+      });
 
       if (binding || draft) {
         // 既存ルール or 進行中ドラフト → getReply のみ
+        console.info("[messageImage] user: runReply with binding/draft", {
+          sourceType, sourceId, messageId, threadId,
+        });
         const replyRes = await runReply(
           { ownerId: sourceId, sourceType, threadId }, 
           { imageUrls: [sasUrl] }
         );
         const texts = replyRes.texts.length ? replyRes.texts : ["（結果が見つかりませんでした）"];
+        console.info("[messageImage] user: runReply done", {
+          sourceType, sourceId, messageId, threadId, textCount: replyRes.texts.length,
+        });
 
         if (notifyTimer) clearTimeout(notifyTimer);
         await sendMessagesReplyThenPush({
           replyToken: processingNotified ? undefined : event.replyToken,
           to: sourceId,
           messages: toTextMessages([...texts]),
+        });
+        console.info("[messageImage] user: sendMessagesReplyThenPush done (binding/draft)", {
+          sourceType, sourceId, messageId, threadId,
         });
         return;
       }
@@ -158,6 +215,9 @@ export async function handleMessageImage(
         to: sourceId,
         messages: toTextMessages([...texts]),
       });
+      console.info("[messageImage] user: generic react sent", {
+        sourceType, sourceId, messageId, threadId,
+      });
       return;
     }
   } catch (err) {
@@ -169,7 +229,12 @@ export async function handleMessageImage(
         to: sourceId,
         messages: toTextMessages([errText]),
       });
+      console.info("[messageImage] error reply sent", {
+        sourceType, sourceId, messageId,
+      });
     } catch {}
-    console.error("[messageImage] error:", err);
+    console.error("[messageImage] error:", {
+      sourceType, sourceId, messageId, err,
+    });
   }
 }
