@@ -1,4 +1,4 @@
-import type { AiContext, AiInstpackOptions, AiInstpackResult } from "@/types/gpts";
+import type { AiContext, AiInstpackResult } from "@/types/gpts";
 import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
@@ -46,9 +46,7 @@ function extractInstpackFromArgs(raw: unknown): string | undefined {
 // instpack取得
 export async function getInstpack(
   ctx: AiContext, 
-  opts?: AiInstpackOptions
 ): Promise<AiInstpackResult> {
-  const temperature: number = typeof opts?.temperature === "number" ? opts.temperature : 0.0;
 
   if (!ctx.threadId || ctx.threadId.trim().length === 0) {
     return { instpack: undefined, agentId: "", threadId: "", runId: "" };
@@ -69,7 +67,6 @@ export async function getInstpack(
     const threadId: string = ctx.threadId;
     const run = await withTimeout(
       agentsClient.runs.create(threadId, agentId, {
-        temperature,
         parallelToolCalls: false,
         toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
       }),

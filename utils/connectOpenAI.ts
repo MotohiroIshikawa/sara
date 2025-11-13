@@ -25,8 +25,6 @@ export const connectOpenAI = async (message: string) => {
       model: deployment || modelName,
       messages,
       max_tokens: 4096,
-      temperature: 1,
-      top_p: 0.95,
     });
     console.log("text generated: ", message);
     return result.choices?.[0]?.message?.content ?? "";

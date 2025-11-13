@@ -84,19 +84,12 @@ export type AiInstpackResult = {
 export type AiReplyOptions = {
   question?: string;                 // テキスト質問（省略可）
   imageUrls?: readonly string[];     // 画像URL群（省略可）
-  temperature?: number;              // 既定0.2（envで上書き想定）
-  topP?: number;                     // 既定1
 };
 
 // getMeta用オプション
 export type AiMetaOptions = {
   maxRetry?: number;                 // 既定2（再試行）
   hasImageHint?: boolean;            // 画像同梱時に slots.has_image を補正するヒント
-};
-
-// getInstpack用オプション
-export type AiInstpackOptions = {
-  temperature?: number;              // 既定0.0
 };
 
 export type MetaComputeResult = {
