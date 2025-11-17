@@ -4,15 +4,15 @@ import { setBinding, clearBinding, getBinding } from "@/services/gptsBindings.mo
 import { getThreadInst, deleteThreadInst, purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
 import type { Meta, SourceType } from "@/types/gpts";
-import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getSourceId, getSourceType } from "@/utils/lineSource";
+import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/line/lineSend";
+import { getSourceId, getSourceType } from "@/utils/line/lineSource";
 import { setNxEx } from "@/utils/redis";
 import { uiSavedAndAskSchedule } from "@/handlers/postbacks/ui";
 import type { Handler } from "@/handlers/postbacks/shared";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 import { cloneUserSchedulesToTarget, disableUserSchedulesByGpts } from "@/services/gptsSchedules.mongo";
 import { envInt } from "@/utils/env";
-import { getMsg, formatMsg } from "@/utils/msgCatalog";
+import { getMsg, formatMsg } from "@/utils/line/msgCatalog";
 
 // タイトル体裁の軽い整形（空白正規化・末尾句読点除去・最大40字）
 function sanitizeTitle(raw: string): string {

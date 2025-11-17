@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { type GptsDetailResponse, type GptsUpdateRequest, isGptsDetailResponse } from "@/utils/types";
-import { ensureLiffSession } from "@/utils/ensureLiffSession";
+import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
 import { type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { isScheduleDto, isScheduleList } from "@/utils/schedule/scheduleGuards";
 import { canEnableSchedule } from "@/utils/schedule/scheduleValidators";

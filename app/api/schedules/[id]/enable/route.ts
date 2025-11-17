@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { ObjectId } from "mongodb";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { getGptsSchedulesCollection } from "@/utils/mongo";
 import { updateScheduleById } from "@/services/gptsSchedules.mongo";
 import type { GptsScheduleDoc } from "@/types/db";

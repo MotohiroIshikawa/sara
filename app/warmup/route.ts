@@ -12,7 +12,7 @@ export async function GET() {
 
     // ついでに重いモジュールを先読み（必要に応じて増やす）
     await Promise.all([
-      import("@/utils/lineProfile"),
+      import("@/utils/line/lineProfile"),
       // 必要なら /linebot を巻き込んで事前にバンドルさせたい場合：
       // import("@/app/linebot/route"),  // ※開発用途限定推奨
       import("@/app/linebot/route"),

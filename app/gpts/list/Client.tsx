@@ -7,7 +7,7 @@ import {
   type GptsListResponse,
   isGptsListResponse,
 } from "@/utils/types";
-import { ensureLiffSession } from "@/utils/ensureLiffSession";
+import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
 import styles from "@/app/gpts/Client.module.css";
 import Header from "./components/Header";
 import SkeletonCard from "./components/SkeletonCard";

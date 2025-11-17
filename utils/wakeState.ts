@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { redis } from "@/utils/redis";
-import { escapeRegExp } from "@/utils/msgCatalog";
+import { escapeRegExp } from "@/utils/line/msgCatalog";
 import { envCsv } from "@/utils/env";
 import type { SourceType } from "@/types/gpts";
 

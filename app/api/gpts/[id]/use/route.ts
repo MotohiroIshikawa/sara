@@ -5,7 +5,7 @@ import { hasUserGptsLink } from "@/services/userGpts.mongo";
 import { getGptsById } from "@/services/gpts.mongo";
 import { purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { resetThread } from "@/services/threadState";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {

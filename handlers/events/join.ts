@@ -1,8 +1,8 @@
 import { messagingApi, type WebhookEvent } from "@line/bot-sdk";
 import { upsertDraftBinding } from "@/services/gptsBindings.mongo";
-import { sendMessagesReplyThenPush, toTextMessages, buildJoinApplyTemplate } from "@/utils/lineSend";
-import { encodePostback } from "@/utils/postback";
-import { getMsg } from "@/utils/msgCatalog";
+import { sendMessagesReplyThenPush, toTextMessages, buildJoinApplyTemplate } from "@/utils/line/lineSend";
+import { encodePostback } from "@/utils/line/postback";
+import { getMsg } from "@/utils/line/msgCatalog";
 
 // joinイベント
 export async function handleJoinEvent(

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { copyGpts } from "@/services/gpts.mongo";
 import { isNonEmptyString } from "@/utils/types";
 import { setBinding } from "@/services/gptsBindings.mongo";

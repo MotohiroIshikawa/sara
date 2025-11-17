@@ -1,7 +1,7 @@
 import { messagingApi  } from "@line/bot-sdk";
 import { getGptsById } from "@/services/gpts.mongo";
 import type { AiContext, SourceType } from "@/types/gpts";
-import { pushMessages, toTextMessages } from "@/utils/lineSend";
+import { pushMessages, toTextMessages } from "@/utils/line/lineSend";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { runReply } from "@/utils/reply/selector";
 

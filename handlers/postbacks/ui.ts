@@ -1,7 +1,7 @@
 import { messagingApi } from "@line/bot-sdk";
 import { WD } from "@/types/schedule";
-import { encodePostback } from "@/utils/postback";
-import { getMsg, formatMsg } from "@/utils/msgCatalog";
+import { encodePostback } from "@/utils/line/postback";
+import { getMsg, formatMsg } from "@/utils/line/msgCatalog";
 
 // 「保存しました＋定期実施しますか？」Confirm
 export function uiSavedAndAskSchedule(gptsId: string, savedName: string): messagingApi.Message  {

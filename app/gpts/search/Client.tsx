@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, type JSX } from "react";
 import { useRouter } from "next/navigation";
-import { ensureLiffSession } from "@/utils/ensureLiffSession";
+import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
 import SearchHeader from "./components/SearchHeader";
 import SortButtons, { type SortKey } from "./components/SortButtons";
 import SearchCard from "./components/SearchCard";

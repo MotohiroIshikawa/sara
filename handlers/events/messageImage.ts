@@ -1,6 +1,6 @@
 import { messagingApi, type MessageEvent } from "@line/bot-sdk";
-import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getMsg } from "@/utils/msgCatalog";
+import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/line/lineSend";
+import { getMsg } from "@/utils/line/msgCatalog";
 import { uploadBufferAndGetSasUrl } from "@/utils/azureBlob";
 import { compressIfNeeded } from "@/utils/imageProcessor";
 import { IMAGE } from "@/utils/env";

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback, type JSX } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "@/app/gpts/Client.module.css";
-import { ensureLiffSession } from "@/utils/ensureLiffSession";
+import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
 import { setFlash, showToastNow, takeFlash } from "@/utils/flashToast";
 import { formatIsoToJa } from "@/utils/formatIsoToJa";
 
