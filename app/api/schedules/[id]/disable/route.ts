@@ -6,7 +6,7 @@ import { requireLineUser, HttpError } from "@/utils/lineAuth";
 import { getGptsSchedulesCollection } from "@/utils/mongo";
 import { updateScheduleById } from "@/services/gptsSchedules.mongo";
 import type { GptsScheduleDoc } from "@/types/db";
-import { toScheduleDto } from "@/utils/schedulerTime";
+import { toScheduleDto } from "@/utils/schedule/schedulerTime";
 
 // enabled=false にして nextRunAt=null に更新して返却
 export async function POST(

@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { type GptsDetailResponse, type GptsUpdateRequest, isGptsDetailResponse } from "@/utils/types";
 import { ensureLiffSession } from "@/utils/ensureLiffSession";
 import { type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
-import { isScheduleDto, isScheduleList } from "@/utils/scheduleGuards";
-import { canEnableSchedule } from "@/utils/scheduleValidators";
+import { isScheduleDto, isScheduleList } from "@/utils/schedule/scheduleGuards";
+import { canEnableSchedule } from "@/utils/schedule/scheduleValidators";
 import styles from "@/app/gpts/Client.module.css";
 import NameSection from "./components/NameSection";
 import RuleSection from "./components/RuleSection";
@@ -12,7 +12,7 @@ import ScheduleEditor from "./components/ScheduleEditor";
 import FooterEditActions from "./components/FooterEditActions";
 import ConfirmModal from "./components/ConfirmModal";
 import VisibilitySection from "./components/VisibilitySection";
-import { sanitizeSchedulePatch } from "@/utils/schedulerTime";
+import { sanitizeSchedulePatch } from "@/utils/schedule/schedulerTime";
 import { setFlash, showToastNow } from "@/utils/flashToast";
 
 interface ApiErrorJson {

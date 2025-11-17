@@ -1,7 +1,7 @@
 import React, { type JSX } from "react";
 import styles from "@/app/gpts/Client.module.css";
 import { type ScheduleDto } from "@/types/schedule";
-import { summarizeScheduleJa } from "@/utils/scheduleValidators";
+import { summarizeScheduleJa } from "@/utils/schedule/scheduleValidators";
 
 interface ConfirmModalProps {
   open: boolean;

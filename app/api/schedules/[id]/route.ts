@@ -10,7 +10,7 @@ import {
   type WeekdayKey,
   type ScheduleFreq,
 } from "@/types/schedule";
-import { computeNextRunAt, roundMinutes, toScheduleDto } from "@/utils/schedulerTime";
+import { computeNextRunAt, roundMinutes, toScheduleDto } from "@/utils/schedule/schedulerTime";
 
 // PATCH /api/schedules/[id] サーバ側で分丸め＆次回実行時刻を再計算（enabled=false の場合は null）
 export async function PATCH(
