@@ -4,7 +4,7 @@ import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/util
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { withTimeout } from "@/utils/async";
 import { LINE, DEBUG, AZURE, MAIN_TIMERS } from "@/utils/env";
-import { stripInternalBlocksFromContent } from "@/utils/fence";
+import { stripInternalBlocksFromContent } from "@/utils/reply/fence";
 import { toLineTextsFromMessage } from "@/utils/line/lineMessage";
 import { withLock } from "@/utils/redis";
 import { createOwnerLockKey, getAssistantMessageForRun, normalizeReplyOptions, validateReplyInputs, waitForRunCompletion, type NormalizedReplyOptions } from "./getReply_common";
