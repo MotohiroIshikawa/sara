@@ -1,21 +1,10 @@
 import type { AiContext, AiInstpackResult } from "@/types/gpts";
-import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
+import { createAndPollRun, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
-import { withTimeout } from "@/utils/async";
-import { DEBUG, MAIN_TIMERS } from "@/utils/env";
+import { DEBUG } from "@/utils/env";
 import { toToolCalls, isFunctionToolCall, type ToolCall } from "@/utils/types";
 import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
-
-type RunState = {
-  status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
-  requiredAction?: SubmitToolOutputsAction;
-};
-
-type SubmitToolOutputsAction = {
-  type: "submit_tool_outputs";
-  submitToolOutputs?: { toolCalls?: ToolCall[] };
-};
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
@@ -62,6 +51,45 @@ export async function getInstpack(
   const tools: readonly unknown[] = [emitInstpackTool];
   const agentId: string = await getOrCreateAgentIdWithTools(instruction, tools, "instpack");
 
+   const runInstpackOnce = async (): Promise<{ instpack?: string; runId: string }> => {
+    const threadId: string = ctx.threadId;
+    const phase: MetaLogPhase = "instpack";
+    const runResult = await createAndPollRun<string | undefined>({
+      threadId,
+      agentId,
+      operation: "instpack",
+      toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
+      requiresActionHandler: async ({ state, threadId: thId, runId }) => {
+        const required = state.requiredAction;
+        const outputs: { toolCallId: string; output: string }[] = [];
+        let captured: string | undefined;
+
+        if (required?.type === "submit_tool_outputs") {
+          const calls: ToolCall[] = toToolCalls(required.submitToolOutputs?.toolCalls);
+
+          for (const c of calls) {
+            if (isFunctionToolCall(c) && c.function?.name === EMIT_INSTPACK_FN) {
+              const instpack: string | undefined = extractInstpackFromArgs(c.function?.arguments);
+              if (instpack) {
+                captured = instpack;
+                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { instpack });
+              } else {
+                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { instpack: undefined });
+              }
+
+              outputs.push({ toolCallId: c.id, output: "ok" });
+            } else {
+              outputs.push({ toolCallId: c.id, output: "" });
+            }
+          }
+        }
+        return { outputs, captured };
+      },
+    });
+
+    return { instpack: runResult.captured, runId: runResult.runId };
+  }
+  /*
   // 実行ロジック
   const runOnce = async (): Promise<{ instpack?: string; runId: string }> => {
     const threadId: string = ctx.threadId;
@@ -119,7 +147,9 @@ export async function getInstpack(
   };
 
   const result = await runOnce();
-
+*/
+  const result = await runInstpackOnce();
+  
   if (debugAi) {
     console.info(
       "[ai.instpack] done: runId=%s agentId=%s threadId=%s hasInstpack=%s",
