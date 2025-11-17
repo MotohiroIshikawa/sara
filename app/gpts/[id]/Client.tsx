@@ -13,7 +13,7 @@ import FooterEditActions from "./components/FooterEditActions";
 import ConfirmModal from "./components/ConfirmModal";
 import VisibilitySection from "./components/VisibilitySection";
 import { sanitizeSchedulePatch } from "@/utils/schedule/schedulerTime";
-import { setFlash, showToastNow } from "@/utils/flashToast";
+import { setFlash, showToastNow } from "@/utils/ui/flashToast";
 
 interface ApiErrorJson {
   error?: string;

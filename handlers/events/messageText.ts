@@ -12,10 +12,10 @@ import {
   startsWithWake,
   DEFAULT_WAKE_SEP_RE,
   type ReplyMode,
-} from "@/utils/wakeState";
+} from "@/utils/line/wakeState";
 import { getMeta } from "@/utils/meta/getMeta";
 import { getInstpack } from "@/utils/instpack/getInstpack";
-import { computeMeta, looksLikeFollowup } from "@/utils/meta";
+import { computeMeta, looksLikeFollowup } from "@/utils/meta/meta";
 import type { AiContext, Meta, MetaComputeResult } from "@/types/gpts";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { getSpeakerUserId } from "@/utils/line/lineSource";

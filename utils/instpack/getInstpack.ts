@@ -5,7 +5,7 @@ import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpac
 import { withTimeout } from "@/utils/async";
 import { DEBUG, MAIN_TIMERS } from "@/utils/env";
 import { toToolCalls, isFunctionToolCall, type ToolCall } from "@/utils/types";
-import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta";
+import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
 
 type RunState = {
   status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";

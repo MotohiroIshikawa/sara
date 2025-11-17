@@ -3,7 +3,7 @@ import styles from "@/app/gpts/Client.module.css";
 import { WD, type ScheduleDto, type ScheduleFreq, type SchedulePatch } from "@/types/schedule";
 import { canEnableSchedule, safeTimeHHMM, summarizeScheduleJa } from "@/utils/schedule/scheduleValidators";
 import { formatNextRunJa } from "@/utils/schedule/schedulerTime";
-import { showToastNow } from "@/utils/flashToast";
+import { showToastNow } from "@/utils/ui/flashToast";
 
 interface ScheduleEditorProps {
   sched: ScheduleDto | null;

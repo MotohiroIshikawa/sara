@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState, useCallback, type JSX } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "@/app/gpts/Client.module.css";
 import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
-import { setFlash, showToastNow, takeFlash } from "@/utils/flashToast";
-import { formatIsoToJa } from "@/utils/formatIsoToJa";
+import { setFlash, showToastNow, takeFlash } from "@/utils/ui/flashToast";
+import { formatIsoToJa } from "@/utils/ui/formatIsoToJa";
 
 // 詳細APIレスポンス
 type PublicDetailItem = {

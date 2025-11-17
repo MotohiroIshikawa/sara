@@ -11,7 +11,7 @@ import {
   type GptsListResponse,
   isGptsListResponse,
 } from "@/utils/types";
-import { setFlash, showToastNow } from "@/utils/flashToast";
+import { setFlash, showToastNow } from "@/utils/ui/flashToast";
 
 // サーバエラーの読み取り（any禁止）
 interface ApiErrorJson {
