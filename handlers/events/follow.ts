@@ -1,8 +1,8 @@
 import type { WebhookEvent } from "@line/bot-sdk";
-import { fetchLineUserProfile } from "@/utils/lineProfile";
+import { fetchLineUserProfile } from "@/utils/line/lineProfile";
 import { followUser } from "@/services/users.mongo";
-import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getMsg } from "@/utils/msgCatalog";
+import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/line/lineSend";
+import { getMsg } from "@/utils/line/msgCatalog";
 
 // followイベント
 export async function handleFollowEvent(

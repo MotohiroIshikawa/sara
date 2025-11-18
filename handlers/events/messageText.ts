@@ -1,8 +1,8 @@
 import { messagingApi, type MessageEvent } from "@line/bot-sdk";
 import { LINE, WAKE } from "@/utils/env";
-import { toTextMessages, sendMessagesReplyThenPush, buildSaveOrContinueConfirm } from "@/utils/lineSend";
-import { encodePostback } from "@/utils/postback";
-import { getMsg } from "@/utils/msgCatalog";
+import { toTextMessages, sendMessagesReplyThenPush, buildSaveOrContinueConfirm } from "@/utils/line/lineSend";
+import { encodePostback } from "@/utils/line/postback";
+import { getMsg } from "@/utils/line/msgCatalog";
 import { upsertThreadInst } from "@/services/threadInst.mongo";
 import {
   activateReplyMode,
@@ -12,13 +12,13 @@ import {
   startsWithWake,
   DEFAULT_WAKE_SEP_RE,
   type ReplyMode,
-} from "@/utils/wakeState";
+} from "@/utils/line/wakeState";
 import { getMeta } from "@/utils/meta/getMeta";
 import { getInstpack } from "@/utils/instpack/getInstpack";
-import { computeMeta, looksLikeFollowup } from "@/utils/meta";
+import { computeMeta, looksLikeFollowup } from "@/utils/meta/meta";
 import type { AiContext, Meta, MetaComputeResult } from "@/types/gpts";
 import { getOrCreateThreadId } from "@/services/threadState";
-import { getSpeakerUserId } from "@/utils/lineSource";
+import { getSpeakerUserId } from "@/utils/line/lineSource";
 import { runReply } from "@/utils/reply/selector";
 
 const replyMax: number = LINE.REPLY_MAX;

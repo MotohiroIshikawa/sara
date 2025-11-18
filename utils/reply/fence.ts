@@ -5,6 +5,7 @@ import type { Meta } from "@/types/gpts";
 const fenceRe = (name: string) => new RegExp("```" + name + "\\s*\\r?\\n([\\s\\S]*?)\\r?\\n?```", "g");
 
 // assistantメッセージからmeta/instpackを除去、meta/instpackの中身を抽出
+// TODO: replyのinstacutionからmeta,instpackを分離したため、meta,instpackの削除は不要
 export function stripInternalBlocksFromContent(contents: MessageContentUnion[]): {
   cleaned: MessageContentUnion[];
   meta?: Meta;

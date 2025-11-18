@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyIdTokenWithLINE, assertLineVerifyClaims } from "@/utils/lineAuth";
+import { verifyIdTokenWithLINE, assertLineVerifyClaims } from "@/utils/line/lineAuth";
 
 const ID_TOKEN_COOKIE_PRIMARY = "liff_id_token";
 const ID_TOKEN_COOKIE_COMPAT = "id_token";

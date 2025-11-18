@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { claimOneDueSchedule, countDueCandidates, markRunSuccess, type ClaimedSchedule } from "@/services/gptsSchedules.mongo";
 import { runGptsAndPush } from "@/services/gptsRunner";
-import { computeNextRunAt, type WeekdayKey } from "@/utils/schedulerTime";
-import { isWeekdayKey } from "@/utils/scheduleGuards";
+import { computeNextRunAt, type WeekdayKey } from "@/utils/schedule/schedulerTime";
+import { isWeekdayKey } from "@/utils/schedule/scheduleGuards";
 
 function assertInternalAuth(req: Request): void | never {
   const got = req.headers.get("x-internal-token") ?? "";

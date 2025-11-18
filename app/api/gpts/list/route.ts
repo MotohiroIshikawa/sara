@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getBinding } from "@/services/gptsBindings.mongo";
 import { listUserGptsByUpdatedDesc } from "@/services/userGpts.mongo";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { envInt } from "@/utils/env";
 
 // ページサイズ

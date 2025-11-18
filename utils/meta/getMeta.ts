@@ -1,21 +1,10 @@
 import type { AiContext, AiMetaOptions, AiMetaResult, Meta, EmitMetaArgs } from "@/types/gpts";
-import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
+import { createAndPollRun, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
-import { withTimeout } from "@/utils/async";
-import { DEBUG, MAIN_TIMERS } from "@/utils/env";
-import { toToolCalls, isFunctionToolCall, type ToolCall } from "@/utils/types";
-import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta";
-
-type RunState = {
-  status?: "queued" | "in_progress" | "requires_action" | "completed" | "failed" | "cancelled" | "expired";
-  requiredAction?: SubmitToolOutputsAction;
-};
-
-type SubmitToolOutputsAction = {
-  type: "submit_tool_outputs";
-  submitToolOutputs?: { toolCalls?: ToolCall[] };
-};
+import { DEBUG } from "@/utils/env";
+import { toToolCalls, isFunctionToolCall } from "@/utils/types";
+import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
@@ -85,59 +74,47 @@ export async function getMeta(
   // 1回分の実行（requires_action → submit まで面倒を見る）
   const runOnce = async (): Promise<{ meta?: Meta; runId: string }> => {
     const threadId: string = ctx.threadId;
-
-    const run = await withTimeout(
-      agentsClient.runs.create(threadId, agentId, {
-        parallelToolCalls: false,
-        toolChoice: { type: "function", function: { name: EMIT_META_FN } },
-      }),
-      MAIN_TIMERS.CREATE_TIMEOUT,
-      "meta:create"
-    );
-
     const phase: MetaLogPhase = "meta";
-    let captured: Meta | undefined;
 
-    // ポーリング
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const safeSleep = Math.max(1, MAIN_TIMERS.POLL_SLEEP);
-    const pollMaxTicks = Math.max(1, Math.ceil(MAIN_TIMERS.POLL_TIMEOUT / safeSleep)) + 10;
-    const startedAt = Date.now();
-    let ticks = 0;
+    const runResult = await createAndPollRun<Meta | undefined>({
+      threadId,
+      agentId,
+      operation: "meta",
+      toolChoice: { type: "function", function: { name: EMIT_META_FN } },
+        // requiresActionHandler: runがrequires_actionを返したときに呼ばれる
+      requiresActionHandler: async ({ state, threadId: thId, runId }) => {
+        const required = state.requiredAction;
+        const outputs: { toolCallId: string; output: string }[] = [];
+        let captured: Meta | undefined;
 
-    while (true) {
-      if (Date.now() - startedAt > MAIN_TIMERS.POLL_TIMEOUT || ++ticks > pollMaxTicks) break;
-      const st = (await withTimeout(
-        agentsClient.runs.get(threadId, run.id),
-        MAIN_TIMERS.GET_TIMEOUT,
-        "meta:get"
-      )) as RunState;
-
-      if (st.status === "requires_action" && st.requiredAction?.type === "submit_tool_outputs") {
-        const calls = toToolCalls(st.requiredAction?.submitToolOutputs?.toolCalls);
-        const outs = calls.map((c): { toolCallId: string; output: string } => {
-          if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
-            const meta = extractMetaFromArgs(c.function?.arguments);
-            if (meta) {
-              captured = meta;
-              logEmitMetaSnapshot(phase, { threadId, runId: run.id }, { meta });
+        // submit_tool_outputsの場合に処理
+        if (required?.type === "submit_tool_outputs") {
+          const calls = toToolCalls(required.submitToolOutputs?.toolCalls);
+          for (const c of calls) {
+            if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
+              // emit_metaのtoolCollの場合、引数からmeta抽出
+              const meta = extractMetaFromArgs(c.function?.arguments);
+              if (meta) {
+                // meta抽出に成功した場合
+                captured = meta;
+                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { meta });
+              } else {
+                // meta抽出に失敗した場合
+                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { meta: undefined });
+              }
+              outputs.push({ toolCallId: c.id, output: "ok" });
             } else {
-              logEmitMetaSnapshot(phase, { threadId, runId: run.id }, { meta: undefined });
+              outputs.push({ toolCallId: c.id, output: "" });
             }
-            return { toolCallId: c.id, output: "ok" };
           }
-          return { toolCallId: c.id, output: "" };
-        });
-        await agentsClient.runs.submitToolOutputs(threadId, run.id, outs);
-      } else if (["completed", "failed", "cancelled", "expired"].includes(st.status ?? "")) {
-        break;
-      } else {
-        await sleep(safeSleep);
-      }
-    }
+        }
 
-    return { meta: captured, runId: run.id };
-  };
+        return { outputs, captured };
+      },
+    });
+    // ポーリング終了。必要な情報だけ返す
+    return { meta: runResult.captured, runId: runResult.runId };
+  }
 
   // 実行＆必要なら再試行
   let result = await runOnce();
@@ -150,7 +127,12 @@ export async function getMeta(
   const finalMeta: Meta | undefined = applyImageHint(result.meta, hasImageHint);
 
   if (debugAi) {
-    console.info("[ai.meta] done: runId=%s agentId=%s threadId=%s hasMeta=%s", result.runId, agentId, ctx.threadId, !!finalMeta);
+    console.info("[ai.meta] done: runId=%s agentId=%s threadId=%s hasMeta=%s", 
+      result.runId, 
+      agentId, 
+      ctx.threadId, 
+      !!finalMeta
+    );
   }
 
   const out: AiMetaResult = {

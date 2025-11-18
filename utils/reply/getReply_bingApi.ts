@@ -4,8 +4,8 @@ import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/util
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { withTimeout } from "@/utils/async";
 import { LINE, DEBUG, MAIN_TIMERS } from "@/utils/env";
-import { stripInternalBlocksFromContent } from "@/utils/fence";
-import { toLineTextsFromMessage } from "@/utils/lineMessage";
+import { stripInternalBlocksFromContent } from "@/utils/reply/fence";
+import { toLineTextsFromMessage } from "@/utils/line/lineMessage";
 import { withLock } from "@/utils/redis";
 import { bingWebSearch, type BingWebPage } from "@/utils/search/providers/bing";
 import { formatSearchContext, type SearchItem } from "@/utils/search/format";

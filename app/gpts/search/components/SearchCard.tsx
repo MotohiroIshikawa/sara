@@ -1,5 +1,5 @@
 import React, { type JSX, type KeyboardEvent } from "react";
-import { formatIsoToJa } from "@/utils/formatIsoToJa";
+import { formatIsoToJa } from "@/utils/ui/formatIsoToJa";
 import styles from "@/app/gpts/Client.module.css";
 
 interface SearchCardProps {

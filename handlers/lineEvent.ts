@@ -7,10 +7,10 @@ import { handleMessageImage } from "@/handlers/events/messageImage";
 import { handleMemberLeftEvent } from "@/handlers/events/memberLeft";
 import { handleUnfollowEvent } from "@/handlers/events/unfollow";
 import { handlePostback } from "@/handlers/postbacks/route";
-import { buildLineEventLog } from "@/utils/lineEventLog";
-import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getSourceId, getSourceType } from "@/utils/lineSource";
-import { getMsg } from "@/utils/msgCatalog";
+import { buildLineEventLog } from "@/utils/line/lineEventLog";
+import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/line/lineSend";
+import { getSourceId, getSourceType } from "@/utils/line/lineSource";
+import { getMsg } from "@/utils/line/msgCatalog";
 import type { SourceType } from "@/types/gpts";
 
 

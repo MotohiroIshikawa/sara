@@ -3,8 +3,8 @@ import { getGptsSchedulesCollection, withTimestampsForCreate, touchForUpdate } f
 import type { GptsScheduleDoc } from "@/types/db";
 import type { SourceType } from "@/types/gpts";
 import { findOneAndUpdateCompat } from "@/utils/mongoCompat";
-import { computeNextRunAtWithGrace, type WeekdayKey } from "@/utils/schedulerTime";
-import { isWeekdayKey } from "@/utils/scheduleGuards";
+import { computeNextRunAtWithGrace, type WeekdayKey } from "@/utils/schedule/schedulerTime";
+import { isWeekdayKey } from "@/utils/schedule/scheduleGuards";
 
 interface FindSchedulesFilter {
   gptsId?: string;

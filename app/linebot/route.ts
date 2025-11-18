@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { validateSignature, type WebhookEvent} from "@line/bot-sdk";
 import { lineEvent } from "@/handlers/lineEvent";
 import { CorrContext } from "@/logging/corr";
-import { getSourceId } from "@/utils/lineSource";
+import { getSourceId } from "@/utils/line/lineSource";
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",

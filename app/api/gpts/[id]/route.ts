@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { getGptsById, updateGpts } from "@/services/gpts.mongo";
 import { clearBindingIfMatches, getBinding } from "@/services/gptsBindings.mongo";
 import { hasUserGptsLink, softDeleteUserGpts } from "@/services/userGpts.mongo";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { softDeleteSchedulesByGpts } from "@/services/gptsSchedules.mongo";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {

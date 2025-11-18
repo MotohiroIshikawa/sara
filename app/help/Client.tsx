@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type JSX } from "react";
 import Image from "next/image";
-import { ensureLiffSession } from "@/utils/ensureLiffSession";
+import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
 
 type HelpOkResponse = { ok: true; rid: string; subMasked: string; now: string;};
 type HelpErrorResponse = { error: string; rid: string; };

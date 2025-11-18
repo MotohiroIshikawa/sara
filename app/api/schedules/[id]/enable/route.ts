@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { ObjectId } from "mongodb";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { getGptsSchedulesCollection } from "@/utils/mongo";
 import { updateScheduleById } from "@/services/gptsSchedules.mongo";
 import type { GptsScheduleDoc } from "@/types/db";
@@ -10,7 +10,7 @@ import {
   type WeekdayKey,
   type ScheduleFreq,
 } from "@/types/schedule";
-import { computeNextRunAt, roundMinutes, toScheduleDto } from "@/utils/schedulerTime";
+import { computeNextRunAt, roundMinutes, toScheduleDto } from "@/utils/schedule/schedulerTime";
 
 // enabled=true にして nextRunAt を再計算（最終丸めも実施）
 export async function POST(

@@ -5,8 +5,8 @@ import { getBinding, clearBinding } from "@/services/gptsBindings.mongo";
 import { softDeleteSchedulesByTarget } from "@/services/gptsSchedules.mongo";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 import { resetThread } from "@/services/threadState";
-import { pushMessages, toTextMessages } from "@/utils/lineSend";
-import { getMsg } from "@/utils/msgCatalog";
+import { pushMessages, toTextMessages } from "@/utils/line/lineSend";
+import { getMsg } from "@/utils/line/msgCatalog";
 
 // memberLeftイベント
 export async function handleMemberLeftEvent(

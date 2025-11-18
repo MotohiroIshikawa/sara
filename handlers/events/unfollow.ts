@@ -8,8 +8,8 @@ import { purgeAllThreadInstByUser } from "@/services/threadInst.mongo";
 import { unfollowUser } from "@/services/users.mongo";
 import { delete3AgentsForInstpack } from "@/utils/agents";
 import { resetThread } from "@/services/threadState";
-import { pushMessages, toTextMessages } from "@/utils/lineSend";
-import { getMsg } from "@/utils/msgCatalog";
+import { pushMessages, toTextMessages } from "@/utils/line/lineSend";
+import { getMsg } from "@/utils/line/msgCatalog";
 
 // unfollowイベント
 export async function handleUnfollowEvent(

@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState, type JSX } from "react";
 import { useRouter } from "next/navigation";
 import styles from "@/app/gpts/Client.module.css";
 import FooterActions from "@/app/gpts/[id]/components/FooterActions";
-import { ensureLiffSession } from "@/utils/ensureLiffSession";
+import { ensureLiffSession } from "@/utils/line/ensureLiffSession";
 import {
   isGptsDetailResponse,
   type GptsDetailResponse,
   type GptsListResponse,
   isGptsListResponse,
 } from "@/utils/types";
-import { setFlash, showToastNow } from "@/utils/flashToast";
+import { setFlash, showToastNow } from "@/utils/ui/flashToast";
 
 // サーバエラーの読み取り（any禁止）
 interface ApiErrorJson {

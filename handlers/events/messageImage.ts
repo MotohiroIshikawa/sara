@@ -1,8 +1,8 @@
 import { messagingApi, type MessageEvent } from "@line/bot-sdk";
-import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/lineSend";
-import { getMsg } from "@/utils/msgCatalog";
-import { uploadBufferAndGetSasUrl } from "@/utils/azureBlob";
-import { compressIfNeeded } from "@/utils/imageProcessor";
+import { sendMessagesReplyThenPush, toTextMessages } from "@/utils/line/lineSend";
+import { getMsg } from "@/utils/line/msgCatalog";
+import { uploadBufferAndGetSasUrl } from "@/utils/image/azureBlob";
+import { compressIfNeeded } from "@/utils/image/imageProcessor";
 import { IMAGE } from "@/utils/env";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { findActiveBinding } from "@/services/gptsBindings.mongo";

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { createDraftSchedule, findSchedules, updateScheduleById } from "@/services/gptsSchedules.mongo";
 import type { GptsScheduleDoc } from "@/types/db";
 import { type ScheduleFreq } from "@/types/schedule";
-import { roundMinutes, toScheduleDto } from "@/utils/schedulerTime";
+import { roundMinutes, toScheduleDto } from "@/utils/schedule/schedulerTime";
 import type { WithId } from "mongodb";
 import type { SourceType } from "@/types/gpts";
 

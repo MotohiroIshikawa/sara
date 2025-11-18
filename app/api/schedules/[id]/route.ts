@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { ObjectId } from "mongodb";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { getGptsSchedulesCollection } from "@/utils/mongo";
 import { updateScheduleById } from "@/services/gptsSchedules.mongo";
 import type { GptsScheduleDoc } from "@/types/db";
@@ -10,7 +10,7 @@ import {
   type WeekdayKey,
   type ScheduleFreq,
 } from "@/types/schedule";
-import { computeNextRunAt, roundMinutes, toScheduleDto } from "@/utils/schedulerTime";
+import { computeNextRunAt, roundMinutes, toScheduleDto } from "@/utils/schedule/schedulerTime";
 
 // PATCH /api/schedules/[id] サーバ側で分丸め＆次回実行時刻を再計算（enabled=false の場合は null）
 export async function PATCH(

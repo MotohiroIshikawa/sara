@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { searchPublicGptsWithAuthor, type PublicGptsSort } from "@/services/gpts.mongo";
-import { requireLineUser, HttpError } from "@/utils/lineAuth";
+import { requireLineUser, HttpError } from "@/utils/line/lineAuth";
 import { envInt } from "@/utils/env";
 
 // ページング既定値と上限

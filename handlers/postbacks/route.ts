@@ -1,7 +1,7 @@
 import type { WebhookEvent, PostbackEvent } from "@line/bot-sdk";
 import { CorrContext } from "@/logging/corr";
-import { getSourceId, getSourceType } from "@/utils/lineSource";
-import { decodePostback } from "@/utils/postback";
+import { getSourceId, getSourceType } from "@/utils/line/lineSource";
+import { decodePostback } from "@/utils/line/postback";
 import { gptsHandlers, chatHandlers } from "@/handlers/postbacks/gpts";
 import { schedHandlers } from "@/handlers/postbacks/sched";
 import { isNs, type Handler, type Namespace } from "@/handlers/postbacks/shared";
