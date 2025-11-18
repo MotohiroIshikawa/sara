@@ -316,13 +316,7 @@ export async function createAndPollRun<TCaptured>(params: {
       );
     }
     try {
-      await withTimeout(
-        agentsClient.runs.cancel(threadId, run.id),
-        getTimeout,
-        `${op}:cancel`
-      );
-      cancelled = true;
-      // cancelしたことをログに出す
+
       if (debugAgentsRun) {
         console.warn(
           "[agentsRun] cancel issued: runId=%s threadId=%s op=%s",
@@ -331,23 +325,56 @@ export async function createAndPollRun<TCaptured>(params: {
           op
         );
       }
-      // cancel が反映されるまで再ポーリングを入れる
-      const confirmTimeout = Date.now() + 5000;
-      while (Date.now() < confirmTimeout) {
-        const st = await agentsClient.runs.get(threadId, run.id);
-        const stStatus: AgentsRunStatus | undefined = st.status as AgentsRunStatus | undefined;
-        if (isTerminalStatus(stStatus)) {
-          if (debugAgentsRun) {
-            console.warn(
-              "[agentsRun] cancel confirmed: runId=%s finalStatus=%s",
-              run.id,
-              stStatus ?? "unknown"
-            );
-          }
+
+      await withTimeout(
+        agentsClient.runs.cancel(threadId, run.id),
+        getTimeout,
+        `${op}:cancel`
+      );
+      cancelled = true;
+
+      const postCancelMaxTicks: number = 10;
+      let postCancelTicks: number = 0;
+      for (let i: number = 0; i < postCancelMaxTicks; i++) {
+        postCancelTicks += 1;
+        const st: AgentsRunState = await withTimeout(
+          agentsClient.runs.get(threadId, run.id),
+          getTimeout,
+          `${op}:post-cancel-get`
+        ) as AgentsRunState;
+
+        lastState = st;
+
+        if (debugAgentsRun) {
+          console.info(
+            "[agentsRun] post-cancel tick: op=%s runId=%s threadId=%s tick=%d status=%s",
+            op,
+            run.id,
+            threadId,
+            postCancelTicks,
+            st.status ?? "unknown"
+          );
+        }
+
+        if (isTerminalStatus(st.status)) {
           break;
         }
-        await sleep(200);
+
+        await sleep(pollSleep);
       }
+
+      // cancelしたことをログに出す
+      if (debugAgentsRun) {
+        console.warn(
+          "[agentsRun] post-cancel done: op=%s runId=%s threadId=%s lastStatus=%s ticks=%d",
+          op,
+          run.id,
+          threadId,
+          lastState?.status ?? "unknown",
+          postCancelTicks
+        );
+      }
+
     } catch (err) {
       if (debugAgentsRun) {
         console.warn(

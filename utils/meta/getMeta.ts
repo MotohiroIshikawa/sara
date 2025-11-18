@@ -82,7 +82,7 @@ export async function getMeta(
   }
 
   // 1回分の実行（requires_action → submit まで面倒を見る）
-  const runOnce = async (): Promise<{ meta?: Meta; runId: string }> => {
+  const runOnce = async (): Promise<{ meta?: Meta; runId: string; blocked: boolean }> => {
     const threadId: string = ctx.threadId;
     const phase: MetaLogPhase = "meta";
 
@@ -123,24 +123,34 @@ export async function getMeta(
       },
     });
 
-    if (debugAi) {
-      console.info("[ai.meta] run finished", {
-        threadId,
-        runId: runResult.runId,
-        status: runResult.finalState?.status ?? null,
-        timedOut: runResult.timedOut,
-        cancelled: runResult.cancelled,
-        hasCaptured: runResult.captured !== undefined,
-      });
+    let meta: Meta | undefined = runResult.captured;
+    let blocked: boolean = false;
+    const st: string | undefined = runResult.finalState?.status; 
+    const nonTerminalStatuses: readonly string[] = [
+      "queued",
+      "in_progress",
+      "requires_action",
+      "cancelling",
+    ];
+    if (runResult.timedOut && st && nonTerminalStatuses.includes(st)) {
+      // タイムアウトかつ terminal になっていない → この thread では instpack を投げない
+      blocked = true;
+      meta = undefined;
+      if (debugAi) {
+        console.warn(
+          "[ai.meta] blocked by non-terminal status after timeout",
+          { threadId, runId: runResult.runId, status: st }
+        );
+      }
     }
-
+    
     // ポーリング終了。必要な情報だけ返す
-    return { meta: runResult.captured, runId: runResult.runId };
+    return { meta, runId: runResult.runId, blocked };
   }
 
   // 実行＆必要なら再試行
   let result = await runOnce();
-  for (let i = 1; !result.meta && i <= maxRetry; i++) {
+  for (let i = 1; !result.meta && !result.blocked && i <= maxRetry; i++) {
     if (debugAi) console.info("[ai.meta] retry %d (threadId=%s)", i, ctx.threadId);
     result = await runOnce();
   }
@@ -149,11 +159,12 @@ export async function getMeta(
   const finalMeta: Meta | undefined = applyImageHint(result.meta, hasImageHint);
 
   if (debugAi) {
-    console.info("[ai.meta] done: runId=%s agentId=%s threadId=%s hasMeta=%s", 
+    console.info("[ai.meta] done: runId=%s agentId=%s threadId=%s hasMeta=%s blocked=%s",
       result.runId, 
       agentId, 
       ctx.threadId, 
-      !!finalMeta
+      !!finalMeta,
+      result.blocked
     );
   }
 
