@@ -302,6 +302,32 @@ export async function createAndPollRun<TCaptured>(params: {
         `${op}:cancel`
       );
       cancelled = true;
+      // cancelしたことをログに出す
+      if (debugAgentsRun) {
+        console.warn(
+          "[agentsRun] cancel issued: runId=%s threadId=%s op=%s",
+          run.id,
+          threadId,
+          op
+        );
+      }
+      // cancel が反映されるまで再ポーリングを入れる
+      const confirmTimeout = Date.now() + 5000;
+      while (Date.now() < confirmTimeout) {
+        const st = await agentsClient.runs.get(threadId, run.id);
+        const stStatus: AgentsRunStatus | undefined = st.status as AgentsRunStatus | undefined;
+        if (isTerminalStatus(stStatus)) {
+          if (debugAgentsRun) {
+            console.warn(
+              "[agentsRun] cancel confirmed: runId=%s finalStatus=%s",
+              run.id,
+              stStatus ?? "unknown"
+            );
+          }
+          break;
+        }
+        await sleep(200);
+      }
     } catch (err) {
       if (debugAgentsRun) {
         console.warn(
