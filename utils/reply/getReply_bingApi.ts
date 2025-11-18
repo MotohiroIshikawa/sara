@@ -135,6 +135,15 @@ export async function getReply_bingApi(
     // 完了待ち（ポーリング）
     await waitForRunCompletion(threadId, run.id, "reply");
 
+    if (debugAi) {
+      const runInfo: { status?: string; lastError?: unknown } =
+        await agentsClient.runs.get(threadId, run.id);
+      console.info("[ai.reply/api] run completed", {
+        sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId, runId: run.id,
+        status: runInfo.status ?? null, lastError: runInfo.lastError ?? null,
+      });
+    }
+
     // 応答メッセージ取得
     const replyMsg = await getAssistantMessageForRun(threadId, run.id);
     if (!replyMsg) {
