@@ -2,7 +2,7 @@ import { type MessageContentUnion } from "@azure/ai-agents";
 import type { AiContext, AiReplyOptions, AiReplyResult, SourceType } from "@/types/gpts";
 import { agentsClient } from "@/utils/agents";
 import { withTimeout } from "@/utils/async";
-import { MAIN_TIMERS } from "@/utils/env";
+import { MAIN_TIMERS, DEBUG } from "@/utils/env";
 
 // reply オプション（既定値埋め後）
 export type NormalizedReplyOptions = Required<AiReplyOptions>;
@@ -18,6 +18,9 @@ type RunState = {
     | "cancelled"
     | "expired";
 };
+
+const debugAi: boolean =
+  (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
 
 // runId 優先で保持する assistant メッセージ
 export type AssistantMessage = {
@@ -71,9 +74,27 @@ export async function waitForRunCompletion(
   const pollMaxTicks: number = Math.max(1, Math.ceil(MAIN_TIMERS.POLL_TIMEOUT / safeSleep)) + 10;
   const startedAt: number = Date.now();
   let ticks = 0;
+  let lastStatus: string | null = null;
+  let timedOut: boolean = false;
 
+  if (debugAi) {
+    console.info("[ai.reply/wait] start", {
+      label,
+      threadId,
+      runId,
+      pollSleep: safeSleep,
+      pollTimeout: MAIN_TIMERS.POLL_TIMEOUT,
+      pollMaxTicks,
+    });
+  }
+  
   while (true) {
-    if (Date.now() - startedAt > MAIN_TIMERS.POLL_TIMEOUT || ++ticks > pollMaxTicks) break;
+    const elapsed: number = Date.now() - startedAt;
+    ticks += 1;
+    if (elapsed > MAIN_TIMERS.POLL_TIMEOUT || ticks > pollMaxTicks) {
+      timedOut = true;
+      break;
+    }
 
     const st: RunState = (await withTimeout(
       agentsClient.runs.get(threadId, runId),
@@ -81,9 +102,34 @@ export async function waitForRunCompletion(
       `${label}:get`
     )) as RunState;
 
+    lastStatus = st.status ?? null;
+
+    if (debugAi) {
+      console.info("[ai.reply/wait] tick", {
+        label,
+        threadId,
+        runId,
+        tick: ticks,
+        elapsed,
+        status: lastStatus,
+      });
+    }
+
     if (["completed", "failed", "cancelled", "expired"].includes(st.status ?? "")) break;
     await sleep(safeSleep);
   }
+
+  if (debugAi) {
+    console.info("[ai.reply/wait] done", {
+      label,
+      threadId,
+      runId,
+      ticks,
+      timedOut,
+      lastStatus,
+    });
+  }
+  
 }
 
 // 入力チェック共通（メッセージ・threadId の存在を確認）

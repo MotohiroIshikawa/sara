@@ -51,7 +51,16 @@ export async function getInstpack(
   const tools: readonly unknown[] = [emitInstpackTool];
   const agentId: string = await getOrCreateAgentIdWithTools(instruction, tools, "instpack");
 
-   const runInstpackOnce = async (): Promise<{ instpack?: string; runId: string }> => {
+  if (debugAi) {
+    console.info("[ai.instpack] start", {
+      sourceType: ctx.sourceType,
+      ownerId: ctx.ownerId,
+      threadId: ctx.threadId,
+      agentId,
+    });
+  }
+
+  const runInstpackOnce = async (): Promise<{ instpack?: string; runId: string }> => {
     const threadId: string = ctx.threadId;
     const phase: MetaLogPhase = "instpack";
     const runResult = await createAndPollRun<string | undefined>({
@@ -87,6 +96,19 @@ export async function getInstpack(
       },
     });
 
+    if (debugAi) {
+      const hasInstpack: boolean =
+        runResult.captured != null && runResult.captured.trim().length > 0;
+      console.info("[ai.instpack] run finished", {
+        threadId,
+        runId: runResult.runId,
+        status: runResult.finalState?.status ?? null,
+        timedOut: runResult.timedOut,
+        cancelled: runResult.cancelled,
+        hasInstpack,
+      });
+    }
+    
     return { instpack: runResult.captured, runId: runResult.runId };
   }
   /*

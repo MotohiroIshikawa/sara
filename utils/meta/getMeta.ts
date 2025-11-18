@@ -71,6 +71,16 @@ export async function getMeta(
   const tools: readonly unknown[] = [emitMetaTool];
   const agentId: string = await getOrCreateAgentIdWithTools(instruction, tools, "meta");
 
+  if (debugAi) {
+    console.info("[ai.meta] start", {
+      sourceType: ctx.sourceType,
+      ownerId: ctx.ownerId,
+      threadId: ctx.threadId,
+      agentId,
+      hasImageHint,
+    });
+  }
+
   // 1回分の実行（requires_action → submit まで面倒を見る）
   const runOnce = async (): Promise<{ meta?: Meta; runId: string }> => {
     const threadId: string = ctx.threadId;
@@ -112,6 +122,18 @@ export async function getMeta(
         return { outputs, captured };
       },
     });
+
+    if (debugAi) {
+      console.info("[ai.meta] run finished", {
+        threadId,
+        runId: runResult.runId,
+        status: runResult.finalState?.status ?? null,
+        timedOut: runResult.timedOut,
+        cancelled: runResult.cancelled,
+        hasCaptured: runResult.captured !== undefined,
+      });
+    }
+
     // ポーリング終了。必要な情報だけ返す
     return { meta: runResult.captured, runId: runResult.runId };
   }

@@ -120,6 +120,7 @@ export async function handleMessageText(
       intent: mergedMeta?.intent ?? null, 
       modality: mergedMeta?.modality ?? null, 
       complete: mergedMeta?.complete ?? null,
+      runId: metaRes.runId,
     });
 
     let metaEval: MetaComputeResult | undefined = undefined;
@@ -173,6 +174,7 @@ export async function handleMessageText(
       mergedInst = instRes.instpack;
       console.info("[messageText] user: instpack fetched", {
         sourceType, sourceId, messageId, threadId,
+        runId: instRes.runId,
       });
     }
 

@@ -228,6 +228,16 @@ export async function createAndPollRun<TCaptured>(params: {
     `${op}:create`
   ) as { id: string };
 
+  if (debugAgentsRun) {
+    console.info(
+      "[agentsRun] create: op=%s runId=%s agentId=%s threadId=%s",
+      op,
+      run.id,
+      agentId,
+      threadId
+    );
+  }
+
   const sleep = (ms: number): Promise<void> =>
     new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -251,6 +261,16 @@ export async function createAndPollRun<TCaptured>(params: {
 
     lastState = state;
     const status: AgentsRunStatus | undefined = state.status;
+
+    if (debugAgentsRun) {
+      console.info(
+        "[agentsRun] tick: op=%s runId=%s threadId=%s status=%s",
+        op,
+        run.id,
+        threadId,
+        status ?? "unknown"
+      );
+    }
 
     // モデル側から「ツール呼んだので結果を submit して」と言われたケース
     if (status === "requires_action" && params.requiresActionHandler) {
