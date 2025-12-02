@@ -112,9 +112,15 @@ export async function getMeta(
                 // meta抽出に失敗した場合
                 logEmitMetaSnapshot(phase, { threadId: thId, runId }, { meta: undefined });
               }
-              outputs.push({ toolCallId: c.id, output: "ok" });
+              outputs.push({
+                toolCallId: c.id,
+                output: JSON.stringify(meta ?? {})
+              });
             } else {
-              outputs.push({ toolCallId: c.id, output: "" });
+              outputs.push({
+                toolCallId: c.id,
+                output: ""
+              });
             }
           }
         }
