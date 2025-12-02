@@ -114,7 +114,7 @@ export async function getMeta(
               }
               outputs.push({
                 toolCallId: c.id,
-                output: JSON.stringify(meta ?? {})
+                output: JSON.stringify({ meta })
               });
             } else {
               outputs.push({
