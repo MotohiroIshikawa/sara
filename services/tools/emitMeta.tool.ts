@@ -2,32 +2,40 @@ import { ToolUtility } from "@azure/ai-agents";
 
 export const EMIT_META_FN = "emit_meta" as const;
 
+
 const parameters = {
   type: "object",
   properties: {
     meta: {
       type: "object",
       properties: {
-        intent: { type: "string", enum: ["event", "news", "buy", "generic"] },
+        intent: { type: "string" },
+        modality: { type: "string" },
+        domain: { type: ["string", "null"] },
         slots: {
           type: "object",
-          properties: {
-            topic: { type: "string" },
-            place: { type: ["string", "null"] },
-            date_range: { type: "string" },
-            official_only: { type: "boolean", default: true }
-          },
           additionalProperties: true
         },
         complete: { type: "boolean" },
-        followups: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 5 } }
+        followups: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              ask: { type: "string" },
+              text: { type: "string" }
+            },
+            required: ["ask", "text"],
+            additionalProperties: false
+          }
+        }
       },
       required: ["intent", "complete"],
-      additionalProperties: false
+      additionalProperties: true
     }
   },
   required: ["meta"],
-  additionalProperties: false
+  additionalProperties: true
 } as const;
 
 // ToolUtility.createFunctionTool は .definition を持つ形を返す
