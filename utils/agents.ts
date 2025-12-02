@@ -180,7 +180,7 @@ export type AgentsRunResult<TCaptured> = {
 };
 
 const debugAgentsRun: boolean =
-  (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true; // ★
+  (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
 
 // run の「終端状態」（completed / failed / cancelled / expired）を判定
 function isTerminalStatus(status: AgentsRunStatus | undefined): boolean {
@@ -274,6 +274,15 @@ export async function createAndPollRun<TCaptured>(params: {
 
     // モデル側から「ツール呼んだので結果を submit して」と言われたケース
     if (status === "requires_action" && params.requiresActionHandler) {
+
+      // requiredAction の生 JSON を見るためのログを追加
+      if (debugAgentsRun) {
+        console.info(
+          "[agentsRun] requiredAction raw:",
+          JSON.stringify(state.requiredAction, null, 2)
+        );
+      }
+
       const result = await params.requiresActionHandler({
         state,
         threadId,
@@ -285,8 +294,29 @@ export async function createAndPollRun<TCaptured>(params: {
         if (result.captured !== undefined) {
           captured = result.captured;
         }
+
+        // submitToolOutputs に渡す outputs をログ出力
+        if (debugAgentsRun) {
+          console.info(
+            "[agentsRun] submitToolOutputs outputs:",
+            JSON.stringify(result.outputs, null, 2)
+          );
+        }
+
         // ツールの実行結果を submit（これで run が再び in_progress → completed へ進む）
         await agentsClient.runs.submitToolOutputs(threadId, run.id, result.outputs);
+
+        // submit 直後の 1 tick 状態を確認
+        if (debugAgentsRun) {
+          const afterSubmit = await agentsClient.runs.get(threadId, run.id);
+          console.info(
+            "[agentsRun] after submitToolOutputs: op=%s runId=%s status=%s requiredAction=%s",
+            op,
+            run.id,
+            afterSubmit.status ?? "unknown",
+            afterSubmit.requiredAction ? "present" : "none"
+          );
+        }
       }
     } else if (isTerminalStatus(status)) {
       // completed / failed / cancelled / expired のいずれかになったので終了
