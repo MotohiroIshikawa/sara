@@ -30,7 +30,7 @@ const parameters = {
           }
         }
       },
-      required: ["intent", "complete"],
+      required: ["intent", "modality", "complete"],
       additionalProperties: true
     }
   },
