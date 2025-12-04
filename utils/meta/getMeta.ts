@@ -78,11 +78,20 @@ function buildMetaRequiresActionHandler() {
     if (required?.type === "submit_tool_outputs") {
       const calls = toToolCalls(required.submitToolOutputs?.toolCalls);
 
+      if (debugAi) {
+        // モデルが送ってきた arguments（raw）
+        console.info("[ai.meta] raw toolCalls =", required.submitToolOutputs?.toolCalls);
+      }
+
       for (const c of calls) {
         // emit_meta の ToolCall
         if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
           const meta = extractMetaFromArgs(c.function?.arguments);
 
+          if (debugAi) {
+            console.info("[ai.meta] extracted meta =", meta);
+          }
+          
           if (meta) {
             captured = meta;
             logEmitMetaSnapshot(phase, { threadId, runId }, { meta });
@@ -92,7 +101,7 @@ function buildMetaRequiresActionHandler() {
 
           outputs.push({
             toolCallId: c.id,
-            output: JSON.stringify({ meta }),
+            output: JSON.stringify({ meta: meta ?? {} }),
           });
         } else {
           // emit_meta 以外の ToolCall
@@ -147,7 +156,7 @@ export async function getMeta(
 
   const nonTerminal: readonly string[] = ["queued", "in_progress", "requires_action", "cancelling"];
 
-  for (let attempt = 0; attempt <= maxRetry; attempt++) {
+  for (let attempt: number = 0; attempt <= maxRetry; attempt++) {
     const r = await runWithToolCapture<Meta | undefined>({
       threadId: ctx.threadId,
       agentId,
