@@ -81,6 +81,9 @@ export async function getMeta(
     });
   }
 
+  // 生JSONを保持
+  let capturedRawMeta: Meta | undefined = undefined;
+
   // 1回分の実行（requires_action → submit まで面倒を見る）
   const runOnce = async (): Promise<{ meta?: Meta; runId: string; blocked: boolean }> => {
     const threadId: string = ctx.threadId;
@@ -107,6 +110,7 @@ export async function getMeta(
               if (meta) {
                 // meta抽出に成功した場合
                 captured = meta;
+                capturedRawMeta = meta;
                 logEmitMetaSnapshot(phase, { threadId: thId, runId }, { meta });
               } else {
                 // meta抽出に失敗した場合
@@ -114,7 +118,7 @@ export async function getMeta(
               }
               outputs.push({
                 toolCallId: c.id,
-                output: JSON.stringify({ meta })
+                output: JSON.stringify({ meta: capturedRawMeta })
               });
             } else {
               outputs.push({
