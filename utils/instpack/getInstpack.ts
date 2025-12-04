@@ -1,5 +1,5 @@
 import type { AiContext, AiInstpackResult } from "@/types/gpts";
-import { createAndPollRun, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
+import { getOrCreateAgentIdWithTools, preflightAuth, runWithToolCapture } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { DEBUG } from "@/utils/env";
@@ -8,6 +8,56 @@ import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
+
+// Instpack 専用 requiresActionHandler
+function buildInstpackRequiresActionHandler() {
+  const phase: MetaLogPhase = "instpack";
+
+  return async ({
+    state,
+    threadId,
+    runId,
+  }: {
+    state: {
+      requiredAction?: {
+        type?: string;
+        submitToolOutputs?: { toolCalls?: unknown };
+      };
+    };
+    threadId: string;
+    runId: string;
+  }): Promise<{
+    captured?: string;
+    outputs: { toolCallId: string; output: string }[];
+  }> => {
+    const required = state.requiredAction;
+    const outputs: { toolCallId: string; output: string }[] = [];
+    let captured: string | undefined = undefined;
+
+    if (required?.type === "submit_tool_outputs") {
+      const calls: ToolCall[] = toToolCalls(required.submitToolOutputs?.toolCalls);
+
+      for (const c of calls) {
+        if (isFunctionToolCall(c) && c.function?.name === EMIT_INSTPACK_FN) {
+          const instpack = extractInstpackFromArgs(c.function?.arguments);
+
+          if (instpack) {
+            captured = instpack;
+            logEmitMetaSnapshot(phase, { threadId, runId }, { instpack });
+          } else {
+            logEmitMetaSnapshot(phase, { threadId, runId }, { instpack: undefined });
+          }
+
+          outputs.push({ toolCallId: c.id, output: "ok" });
+        } else {
+          outputs.push({ toolCallId: c.id, output: "" });
+        }
+      }
+    }
+
+    return { outputs, captured };
+  };
+}
 
 // emit_instpack の引数から文字列を安全に抽出
 function extractInstpackFromArgs(raw: unknown): string | undefined {
@@ -60,133 +110,29 @@ export async function getInstpack(
     });
   }
 
-  const runInstpackOnce = async (): Promise<{ instpack?: string; runId: string }> => {
-    const threadId: string = ctx.threadId;
-    const phase: MetaLogPhase = "instpack";
-    const runResult = await createAndPollRun<string | undefined>({
-      threadId,
-      agentId,
-      operation: "instpack",
-      toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
-      requiresActionHandler: async ({ state, threadId: thId, runId }) => {
-        const required = state.requiredAction;
-        const outputs: { toolCallId: string; output: string }[] = [];
-        let captured: string | undefined;
+  const requiresActionHandler = buildInstpackRequiresActionHandler();
 
-        if (required?.type === "submit_tool_outputs") {
-          const calls: ToolCall[] = toToolCalls(required.submitToolOutputs?.toolCalls);
-
-          for (const c of calls) {
-            if (isFunctionToolCall(c) && c.function?.name === EMIT_INSTPACK_FN) {
-              const instpack: string | undefined = extractInstpackFromArgs(c.function?.arguments);
-              if (instpack) {
-                captured = instpack;
-                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { instpack });
-              } else {
-                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { instpack: undefined });
-              }
-
-              outputs.push({ toolCallId: c.id, output: "ok" });
-            } else {
-              outputs.push({ toolCallId: c.id, output: "" });
-            }
-          }
-        }
-        return { outputs, captured };
-      },
-    });
-
-    if (debugAi) {
-      const hasInstpack: boolean =
-        runResult.captured != null && runResult.captured.trim().length > 0;
-      console.info("[ai.instpack] run finished", {
-        threadId,
-        runId: runResult.runId,
-        status: runResult.finalState?.status ?? null,
-        timedOut: runResult.timedOut,
-        cancelled: runResult.cancelled,
-        hasInstpack,
-      });
-    }
-    
-    return { instpack: runResult.captured, runId: runResult.runId };
-  }
-  /*
-  // 実行ロジック
-  const runOnce = async (): Promise<{ instpack?: string; runId: string }> => {
-    const threadId: string = ctx.threadId;
-    const run = await withTimeout(
-      agentsClient.runs.create(threadId, agentId, {
-        parallelToolCalls: false,
-        toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
-      }),
-      MAIN_TIMERS.CREATE_TIMEOUT,
-      "inst:create"
-    );
-
-    const phase: MetaLogPhase = "instpack";
-    let captured: string | undefined;
-
-    // ポーリング
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const safeSleep = Math.max(1, MAIN_TIMERS.POLL_SLEEP);
-    const pollMaxTicks = Math.max(1, Math.ceil(MAIN_TIMERS.POLL_TIMEOUT / safeSleep)) + 10;
-    const startedAt = Date.now();
-    let ticks = 0;
-
-    while (true) {
-      if (Date.now() - startedAt > MAIN_TIMERS.POLL_TIMEOUT || ++ticks > pollMaxTicks) break;
-      const st = (await withTimeout(
-        agentsClient.runs.get(threadId, run.id),
-        MAIN_TIMERS.GET_TIMEOUT,
-        "inst:get"
-      )) as RunState;
-
-      if (st.status === "requires_action" && st.requiredAction?.type === "submit_tool_outputs") {
-        const calls = toToolCalls(st.requiredAction?.submitToolOutputs?.toolCalls);
-        const outs = calls.map((c): { toolCallId: string; output: string } => {
-          if (isFunctionToolCall(c) && c.function?.name === EMIT_INSTPACK_FN) {
-            const instpack = extractInstpackFromArgs(c.function?.arguments);
-            if (instpack) {
-              captured = instpack;
-              logEmitMetaSnapshot(phase, { threadId, runId: run.id }, { instpack });
-            } else {
-              logEmitMetaSnapshot(phase, { threadId, runId: run.id }, { instpack: undefined });
-            }
-            return { toolCallId: c.id, output: "ok" };
-          }
-          return { toolCallId: c.id, output: "" };
-        });
-        await agentsClient.runs.submitToolOutputs(threadId, run.id, outs);
-      } else if (["completed", "failed", "cancelled", "expired"].includes(st.status ?? "")) {
-        break;
-      } else {
-        await sleep(safeSleep);
-      }
-    }
-
-    return { instpack: captured, runId: run.id };
-  };
-
-  const result = await runOnce();
-*/
-  const result = await runInstpackOnce();
+  const result = await runWithToolCapture<string | undefined>({
+    threadId: ctx.threadId,
+    agentId,
+    operation: "instpack",
+    toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
+    requiresActionHandler,
+  });
   
   if (debugAi) {
-    console.info(
-      "[ai.instpack] done: runId=%s agentId=%s threadId=%s hasInstpack=%s",
-      result.runId,
+    console.info("[ai.instpack] done", {
+      threadId: ctx.threadId,
+      runId: result.runId,
       agentId,
-      ctx.threadId,
-      !!result.instpack
-    );
+      instpack: result.captured,
+    });
   }
 
-  const out: AiInstpackResult = {
-    instpack: result.instpack,
+  return {
+    instpack: result.captured,
     agentId,
     threadId: ctx.threadId,
     runId: result.runId,
   };
-  return out;
 }

@@ -1,5 +1,5 @@
 import type { AiContext, AiMetaOptions, AiMetaResult, Meta, EmitMetaArgs } from "@/types/gpts";
-import { createAndPollRun, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
+import { getOrCreateAgentIdWithTools, preflightAuth, runWithToolCapture } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 import { DEBUG } from "@/utils/env";
@@ -50,6 +50,64 @@ function applyImageHint(meta: Meta | undefined, hint: boolean | undefined): Meta
   return { ...meta, modality, slots };
 }
 
+// getMeta 専用の requiresActionHandler を組み立てる
+function buildMetaRequiresActionHandler() {
+  const phase: MetaLogPhase = "meta";
+
+  return async ({
+    state,
+    threadId,
+    runId,
+  }: {
+    state: {
+      requiredAction?: {
+        type?: string;
+        submitToolOutputs?: { toolCalls?: unknown };
+      };
+    };
+    threadId: string;
+    runId: string;
+  }): Promise<{
+    captured?: Meta;
+    outputs: { toolCallId: string; output: string }[];
+  }> => {
+    const required = state.requiredAction;
+    const outputs: { toolCallId: string; output: string }[] = [];
+    let captured: Meta | undefined;
+
+    if (required?.type === "submit_tool_outputs") {
+      const calls = toToolCalls(required.submitToolOutputs?.toolCalls);
+
+      for (const c of calls) {
+        // emit_meta の ToolCall
+        if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
+          const meta = extractMetaFromArgs(c.function?.arguments);
+
+          if (meta) {
+            captured = meta;
+            logEmitMetaSnapshot(phase, { threadId, runId }, { meta });
+          } else {
+            logEmitMetaSnapshot(phase, { threadId, runId }, { meta: undefined });
+          }
+
+          outputs.push({
+            toolCallId: c.id,
+            output: JSON.stringify({ meta }),
+          });
+        } else {
+          // emit_meta 以外の ToolCall
+          outputs.push({
+            toolCallId: c.id,
+            output: "",
+          });
+        }
+      }
+    }
+
+    return { captured, outputs };
+  };
+}
+
 // Meta取得
 export async function getMeta(
   ctx: AiContext, 
@@ -81,108 +139,63 @@ export async function getMeta(
     });
   }
 
-  // 生JSONを保持
-  let capturedRawMeta: Meta | undefined = undefined;
+  const requiresActionHandler = buildMetaRequiresActionHandler();
 
-  // 1回分の実行（requires_action → submit まで面倒を見る）
-  const runOnce = async (): Promise<{ meta?: Meta; runId: string; blocked: boolean }> => {
-    const threadId: string = ctx.threadId;
-    const phase: MetaLogPhase = "meta";
+  let finalMeta: Meta | undefined;
+  let finalRunId = "";
+  let blocked = false;
 
-    const runResult = await createAndPollRun<Meta | undefined>({
-      threadId,
+  const nonTerminal: readonly string[] = ["queued", "in_progress", "requires_action", "cancelling"];
+
+  for (let attempt = 0; attempt <= maxRetry; attempt++) {
+    const r = await runWithToolCapture<Meta | undefined>({
+      threadId: ctx.threadId,
       agentId,
       operation: "meta",
       toolChoice: { type: "function", function: { name: EMIT_META_FN } },
-        // requiresActionHandler: runがrequires_actionを返したときに呼ばれる
-      requiresActionHandler: async ({ state, threadId: thId, runId }) => {
-        const required = state.requiredAction;
-        const outputs: { toolCallId: string; output: string }[] = [];
-        let captured: Meta | undefined;
-
-        // submit_tool_outputsの場合に処理
-        if (required?.type === "submit_tool_outputs") {
-          const calls = toToolCalls(required.submitToolOutputs?.toolCalls);
-          for (const c of calls) {
-            if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
-              // emit_metaのtoolCollの場合、引数からmeta抽出
-              const meta = extractMetaFromArgs(c.function?.arguments);
-              if (meta) {
-                // meta抽出に成功した場合
-                captured = meta;
-                capturedRawMeta = meta;
-                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { meta });
-              } else {
-                // meta抽出に失敗した場合
-                logEmitMetaSnapshot(phase, { threadId: thId, runId }, { meta: undefined });
-              }
-              outputs.push({
-                toolCallId: c.id,
-                output: JSON.stringify({ meta: capturedRawMeta })
-              });
-            } else {
-              outputs.push({
-                toolCallId: c.id,
-                output: ""
-              });
-            }
-          }
-        }
-
-        return { outputs, captured };
-      },
+      requiresActionHandler
     });
 
-    let meta: Meta | undefined = runResult.captured;
-    let blocked: boolean = false;
-    const st: string | undefined = runResult.finalState?.status; 
-    const nonTerminalStatuses: readonly string[] = [
-      "queued",
-      "in_progress",
-      "requires_action",
-      "cancelling",
-    ];
-    if (runResult.timedOut && st && nonTerminalStatuses.includes(st)) {
-      // タイムアウトかつ terminal になっていない → この thread では instpack を投げない
-      blocked = true;
-      meta = undefined;
-      if (debugAi) {
-        console.warn(
-          "[ai.meta] blocked by non-terminal status after timeout",
-          { threadId, runId: runResult.runId, status: st }
-        );
-      }
-    }
-    
-    // ポーリング終了。必要な情報だけ返す
-    return { meta, runId: runResult.runId, blocked };
-  }
+    finalRunId = r.runId;
+    finalMeta = r.captured;
 
-  // 実行＆必要なら再試行
-  let result = await runOnce();
-  for (let i = 1; !result.meta && !result.blocked && i <= maxRetry; i++) {
-    if (debugAi) console.info("[ai.meta] retry %d (threadId=%s)", i, ctx.threadId);
-    result = await runOnce();
+    if (debugAi) {
+      console.info("[ai.meta] attempt=%s hasMeta=%s timedOut=%s status=%s",
+        attempt,
+        !!finalMeta,
+        r.timedOut,
+        r.finalState?.status ?? null
+      );
+    }
+
+    // timeout + 非terminal → blocked 扱い（instpackを後で止める目的）
+    const st = r.finalState?.status;
+    if (r.timedOut && st && nonTerminal.includes(st)) {
+      blocked = true;
+      finalMeta = undefined;
+      break;
+    }
+
+    if (finalMeta) break;
   }
 
   // 画像ヒント適用
-  const finalMeta: Meta | undefined = applyImageHint(result.meta, hasImageHint);
+  finalMeta = applyImageHint(finalMeta, hasImageHint);
 
   if (debugAi) {
     console.info("[ai.meta] done: runId=%s agentId=%s threadId=%s hasMeta=%s blocked=%s",
-      result.runId, 
-      agentId, 
-      ctx.threadId, 
+      finalRunId,
+      agentId,
+      ctx.threadId,
       !!finalMeta,
-      result.blocked
+      blocked
     );
   }
 
-  const out: AiMetaResult = {
+  return {
     meta: finalMeta,
     agentId,
     threadId: ctx.threadId,
-    runId: result.runId,
+    runId: finalRunId
   };
-  return out;
 }
