@@ -9,35 +9,57 @@ import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
 
+// 差分ユーティリティ
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+function diffMeta(prev: Meta | undefined, curr: Meta | undefined): Record<string, unknown> {
+  if (!prev) return { added: curr };
+  if (!curr) return { removed: prev };
+  const diff: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(curr)]);
+  for (const k of keys) {
+    const pv = (prev as Record<string, unknown>)[k];
+    const cv = (curr as Record<string, unknown>)[k];
+    if (JSON.stringify(pv) !== JSON.stringify(cv)) {
+      diff[k] = { before: pv, after: cv };
+    }
+  }
+  return diff;
+}
+
 // emit_meta の引数を安全に取り出す（string/obj両対応）
 function extractMetaFromArgs(raw: unknown): Meta | undefined {
   try {
     if (typeof raw === "string") {
-      const parsed = JSON.parse(raw) as Partial<EmitMetaArgs> | unknown;
-      if (parsed && typeof parsed === "object" && "meta" in (parsed as Record<string, unknown>)) {
-        const meta = (parsed as { meta?: Meta }).meta;
-        return meta;
+      console.info("[ai.meta] extract raw(string) =", raw);
+
+      const parsed: unknown = JSON.parse(raw);
+
+      if (isRecord(parsed) && "meta" in parsed) {
+        const metaCandidate = (parsed as Record<string, unknown>)["meta"];
+        if (isRecord(metaCandidate)) return metaCandidate as Meta;
       }
-      // 後方互換: 直接 meta オブジェクトが来た場合
-      if (parsed && typeof parsed === "object") {
-        const maybeMeta = parsed as Meta;
-        // intent/slots など最低限のプロパティがあれば採用
-        if ("slots" in maybeMeta || "intent" in maybeMeta) return maybeMeta;
+
+      // fallback: parsed が直接 Meta 形式
+      if (isRecord(parsed)) {
+        if ("slots" in parsed || "intent" in parsed) return parsed as Meta;
       }
       return undefined;
     }
-    if (raw && typeof raw === "object") {
-      // { meta: {...} } 形式
-      if ("meta" in (raw as Record<string, unknown>)) {
-        const meta = (raw as { meta?: Meta }).meta;
-        return meta;
+    if (isRecord(raw)) {
+      console.info("[ai.meta] extract raw(object) =", raw);
+
+      if ("meta" in raw) {
+        const metaCandidate = (raw as Record<string, unknown>)["meta"];
+        if (isRecord(metaCandidate)) return metaCandidate as Meta;
       }
-      // 直接 meta 形式
-      const maybeMeta = raw as Meta;
-      if ("slots" in maybeMeta || "intent" in maybeMeta) return maybeMeta;
+
+      if ("slots" in raw || "intent" in raw) return raw as Meta;
     }
-  } catch {
-    // noop
+  } catch (e) {
+    // パースエラー
+    console.info("[ai.meta] extract parse error =", e);
   }
   return undefined;
 }
@@ -53,6 +75,9 @@ function applyImageHint(meta: Meta | undefined, hint: boolean | undefined): Meta
 // getMeta 専用の requiresActionHandler を組み立てる
 function buildMetaRequiresActionHandler() {
   const phase: MetaLogPhase = "meta";
+
+  // 前回 meta 保存（diff用）
+  let lastCaptured: Meta | undefined = undefined;
 
   return async ({
     state,
@@ -71,6 +96,8 @@ function buildMetaRequiresActionHandler() {
     captured?: Meta;
     outputs: { toolCallId: string; output: string }[];
   }> => {
+    console.info("[ai.meta] requiresAction state =", JSON.stringify(state, null, 2));
+
     const required = state.requiredAction;
     const outputs: { toolCallId: string; output: string }[] = [];
     let captured: Meta | undefined;
@@ -79,32 +106,48 @@ function buildMetaRequiresActionHandler() {
       const calls = toToolCalls(required.submitToolOutputs?.toolCalls);
 
       if (debugAi) {
-        // モデルが送ってきた arguments（raw）
         console.info("[ai.meta] raw toolCalls =", required.submitToolOutputs?.toolCalls);
       }
 
       for (const c of calls) {
-        // emit_meta の ToolCall
         if (isFunctionToolCall(c) && c.function?.name === EMIT_META_FN) {
-          const meta = extractMetaFromArgs(c.function?.arguments);
 
-          if (debugAi) {
-            console.info("[ai.meta] extracted meta =", meta);
+          const rawArgs = c.function.arguments;
+
+          console.info("[ai.meta] RAW arguments string =", rawArgs);
+          try {
+            const parsed = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
+            console.info("[ai.meta] RAW parsed =", parsed);
+          } catch (e) {
+            console.info("[ai.meta] RAW parse error =", e);
           }
-          
+
+          console.info("[ai.meta] extract start raw =", rawArgs);
+          const meta = extractMetaFromArgs(rawArgs);
+          console.info("[ai.meta] extract result =", meta);
+
           if (meta) {
+            // diff
+            const d = diffMeta(lastCaptured, meta);
+            console.info("[ai.meta] meta diff =", d);
+
+            lastCaptured = meta;
             captured = meta;
             logEmitMetaSnapshot(phase, { threadId, runId }, { meta });
           } else {
             logEmitMetaSnapshot(phase, { threadId, runId }, { meta: undefined });
           }
 
+          // submit output ログ
+          const out = JSON.stringify(meta ?? {}, null, 2);
+          console.info("[ai.meta] submit output =", out);
+
           outputs.push({
             toolCallId: c.id,
-            output: JSON.stringify(meta ?? {}),
+            output: out,
           });
+
         } else {
-          // emit_meta 以外の ToolCall
           outputs.push({
             toolCallId: c.id,
             output: "",
@@ -157,6 +200,9 @@ export async function getMeta(
   const nonTerminal: readonly string[] = ["queued", "in_progress", "requires_action", "cancelling"];
 
   for (let attempt: number = 0; attempt <= maxRetry; attempt++) {
+    // run 呼び出しログ
+    console.info("[ai.meta] runWithToolCapture attempt =", attempt);
+
     const r = await runWithToolCapture<Meta | undefined>({
       threadId: ctx.threadId,
       agentId,
@@ -164,6 +210,8 @@ export async function getMeta(
       toolChoice: { type: "function", function: { name: EMIT_META_FN } },
       requiresActionHandler
     });
+    // run delta ログ
+    console.info("[ai.meta] run delta =", JSON.stringify(r, null, 2));
 
     finalRunId = r.runId;
     finalMeta = r.captured;
@@ -177,7 +225,6 @@ export async function getMeta(
       );
     }
 
-    // timeout + 非terminal → blocked 扱い（instpackを後で止める目的）
     const st = r.finalState?.status;
     if (r.timedOut && st && nonTerminal.includes(st)) {
       blocked = true;
