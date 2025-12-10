@@ -101,7 +101,7 @@ function buildMetaRequiresActionHandler() {
 
           outputs.push({
             toolCallId: c.id,
-            output: JSON.stringify({ meta: meta ?? {} }),
+            output: JSON.stringify(meta ?? {}),
           });
         } else {
           // emit_meta 以外の ToolCall
