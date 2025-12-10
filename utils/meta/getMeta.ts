@@ -208,7 +208,7 @@ export async function getMeta(
       threadId: ctx.threadId,
       agentId,
       operation: "meta",
-      toolChoice: { type: "function", function: { name: EMIT_META_FN } },
+      // toolChoice: { type: "function", function: { name: EMIT_META_FN } },
       requiresActionHandler
     });
     // run delta ログ
