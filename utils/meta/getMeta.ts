@@ -43,7 +43,7 @@ function extractMetaFromArgs(raw: unknown): Meta | undefined {
 
       // fallback: parsed が直接 Meta 形式
       if (isRecord(parsed)) {
-        if ("slots" in parsed || "intent" in parsed) return parsed as Meta;
+        if (isRecord(parsed) && typeof parsed.intent === "string") return parsed as Meta;
       }
       return undefined;
     }
@@ -103,7 +103,8 @@ function buildMetaRequiresActionHandler() {
     let captured: Meta | undefined;
 
     if (required?.type === "submit_tool_outputs") {
-      const calls = toToolCalls(required.submitToolOutputs?.toolCalls);
+      const toolCallsRaw = required.submitToolOutputs?.toolCalls ?? [];
+      const calls = toToolCalls(toolCallsRaw);
 
       if (debugAi) {
         console.info("[ai.meta] raw toolCalls =", required.submitToolOutputs?.toolCalls);
@@ -139,7 +140,7 @@ function buildMetaRequiresActionHandler() {
           }
 
           // submit output ログ
-          const out: string = "";
+          const out: string = "{}";
           console.info("[ai.meta] submit output =", out);
 
           outputs.push({
@@ -150,7 +151,7 @@ function buildMetaRequiresActionHandler() {
         } else {
           outputs.push({
             toolCallId: c.id,
-            output: "",
+            output: "{}"
           });
         }
       }
