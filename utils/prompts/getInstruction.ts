@@ -70,7 +70,8 @@ export async function getInstruction(
       break;
     }
     case 'meta':
-      instruction = `${BASE}\n\n${META}`.trim();
+//      instruction = `${BASE}\n\n${META}`.trim();
+      instruction = `${META}`.trim(); 
       break;
     case 'instpack':
       instruction = `${INST}`.trim();
