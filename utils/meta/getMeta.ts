@@ -139,7 +139,7 @@ function buildMetaRequiresActionHandler() {
           }
 
           // submit output ログ
-          const out = JSON.stringify(meta ?? {}, null, 2);
+          const out = JSON.stringify({ meta: meta ?? {} }, null, 2);
           console.info("[ai.meta] submit output =", out);
 
           outputs.push({
