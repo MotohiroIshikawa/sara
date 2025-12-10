@@ -7,7 +7,37 @@ import { toToolCalls, isFunctionToolCall, type ToolCall } from "@/utils/types";
 import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
 
 const debugAi: boolean =
-  (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
+  (DEBUG.AI ||
+    process.env["DEBUG.AI"] === "true" ||
+    process.env.DEBUG_AI === "true") === true;
+
+// Instpack の引数を安全に抽出（string/object 両対応）
+function extractInstpackFromArgs(raw: unknown): string | undefined {
+  try {
+    if (typeof raw === "string") {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "instpack" in (parsed as Record<string, unknown>)
+      ) {
+        const v = (parsed as { instpack?: unknown }).instpack;
+        return typeof v === "string" ? v : undefined;
+      }
+      // fallback: string そのままのケース
+      if (typeof parsed === "string") return parsed;
+      return undefined;
+    }
+
+    if (raw && typeof raw === "object") {
+      const obj = raw as { instpack?: unknown };
+      if (typeof obj.instpack === "string") return obj.instpack;
+    }
+  } catch {
+    /* no-op */
+  }
+  return undefined;
+}
 
 // Instpack 専用 requiresActionHandler
 function buildInstpackRequiresActionHandler() {
@@ -30,62 +60,83 @@ function buildInstpackRequiresActionHandler() {
     captured?: string;
     outputs: { toolCallId: string; output: string }[];
   }> => {
+    console.info(
+      "[ai.instpack] requiresAction state =",
+      JSON.stringify(state, null, 2)
+    );
+
     const required = state.requiredAction;
     const outputs: { toolCallId: string; output: string }[] = [];
-    let captured: string | undefined = undefined;
+    let captured: string | undefined;
 
     if (required?.type === "submit_tool_outputs") {
-      const calls: ToolCall[] = toToolCalls(required.submitToolOutputs?.toolCalls);
+      const calls: ToolCall[] = toToolCalls(
+        required.submitToolOutputs?.toolCalls
+      );
+
+      if (debugAi) {
+        console.info(
+          "[ai.instpack] raw toolCalls =",
+          required.submitToolOutputs?.toolCalls
+        );
+      }
 
       for (const c of calls) {
-        if (isFunctionToolCall(c) && c.function?.name === EMIT_INSTPACK_FN) {
-          const instpack = extractInstpackFromArgs(c.function?.arguments);
+        if (
+          isFunctionToolCall(c) &&
+          c.function?.name === EMIT_INSTPACK_FN
+        ) {
+          const rawArgs = c.function.arguments;
+
+          console.info("[ai.instpack] RAW arguments =", rawArgs);
+
+          let instpack: string | undefined = undefined;
+          try {
+            instpack =
+              extractInstpackFromArgs(rawArgs);
+          } catch (e) {
+            console.info("[ai.instpack] extract error =", e);
+          }
 
           if (instpack) {
-            captured = instpack;
             logEmitMetaSnapshot(phase, { threadId, runId }, { instpack });
+            captured = instpack;
           } else {
             logEmitMetaSnapshot(phase, { threadId, runId }, { instpack: undefined });
           }
 
-          outputs.push({ toolCallId: c.id, output: "ok" });
+          // submit output は {} に統一
+          const out: string = "{}";
+          console.info("[ai.instpack] submit output =", out);
+
+          outputs.push({
+            toolCallId: c.id,
+            output: out,
+          });
         } else {
-          outputs.push({ toolCallId: c.id, output: "" });
+          outputs.push({
+            toolCallId: c.id,
+            output: "{}",
+          });
         }
       }
     }
 
-    return { outputs, captured };
+    return { captured, outputs };
   };
 }
 
-// emit_instpack の引数から文字列を安全に抽出
-function extractInstpackFromArgs(raw: unknown): string | undefined {
-  try {
-    if (typeof raw === "string") {
-      const parsed = JSON.parse(raw) as unknown;
-      if (typeof parsed === "object" && parsed !== null && "instpack" in (parsed as Record<string, unknown>)) {
-        const val = (parsed as { instpack?: unknown }).instpack;
-        return typeof val === "string" ? val : undefined;
-      }
-      // 直接stringを返すケース（旧仕様互換）
-      if (typeof parsed === "string") return parsed;
-      return undefined;
-    }
-    if (raw && typeof raw === "object") {
-      const obj = raw as { instpack?: unknown };
-      if (typeof obj.instpack === "string") return obj.instpack;
-    }
-  } catch {
-    // noop
-  }
-  return undefined;
-}
-
-// instpack取得
+// Instpack 取得
 export async function getInstpack(
-  ctx: AiContext, 
+  ctx: AiContext
 ): Promise<AiInstpackResult> {
+  const maxRetry = 2;
+  const nonTerminal: readonly string[] = [
+    "queued",
+    "in_progress",
+    "requires_action",
+    "cancelling",
+  ];
 
   if (!ctx.threadId || ctx.threadId.trim().length === 0) {
     return { instpack: undefined, agentId: "", threadId: "", runId: "" };
@@ -95,11 +146,20 @@ export async function getInstpack(
   await preflightAuth();
 
   // 指示文（INST 固定）
-  const { instruction } = await getInstruction(ctx.sourceType, ctx.ownerId, "instpack");
+  const { instruction } = await getInstruction(
+    ctx.sourceType,
+    ctx.ownerId,
+    "instpack"
+  );
 
-  // Agent取得
   const tools: readonly unknown[] = [emitInstpackTool];
-  const agentId: string = await getOrCreateAgentIdWithTools(instruction, tools, "instpack");
+
+  // Agent 作成
+  const agentId: string = await getOrCreateAgentIdWithTools(
+    instruction,
+    tools,
+    "instpack"
+  );
 
   if (debugAi) {
     console.info("[ai.instpack] start", {
@@ -110,29 +170,63 @@ export async function getInstpack(
     });
   }
 
-  const requiresActionHandler = buildInstpackRequiresActionHandler();
+  const requiresActionHandler =
+    buildInstpackRequiresActionHandler();
 
-  const result = await runWithToolCapture<string | undefined>({
-    threadId: ctx.threadId,
-    agentId,
-    operation: "instpack",
-    toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
-    requiresActionHandler,
-  });
-  
+  let finalInstpack: string | undefined = undefined;
+  let finalRunId: string = "";
+  let blocked = false;
+
+  for (let attempt = 0; attempt <= maxRetry; attempt++) {
+    console.info("[ai.instpack] runWithToolCapture attempt =", attempt);
+
+    const r = await runWithToolCapture<string | undefined>({
+      threadId: ctx.threadId,
+      agentId,
+      operation: "instpack",
+      // toolChoice: { type: "function", function: { name: EMIT_INSTPACK_FN } },
+      requiresActionHandler,
+    });
+
+    console.info("[ai.instpack] run delta =", JSON.stringify(r, null, 2));
+
+    finalRunId = r.runId;
+    finalInstpack = r.captured;
+
+    if (debugAi) {
+      console.info(
+        "[ai.instpack] attempt=%s hasInstpack=%s timedOut=%s status=%s",
+        attempt,
+        !!finalInstpack,
+        r.timedOut,
+        r.finalState?.status ?? null
+      );
+    }
+
+    const st = r.finalState?.status;
+    if (r.timedOut && st && nonTerminal.includes(st)) {
+      blocked = true;
+      finalInstpack = undefined;
+      break;
+    }
+
+    if (finalInstpack) break;
+  }
+
   if (debugAi) {
     console.info("[ai.instpack] done", {
-      threadId: ctx.threadId,
-      runId: result.runId,
+      runId: finalRunId,
       agentId,
-      instpack: result.captured,
+      threadId: ctx.threadId,
+      hasInstpack: !!finalInstpack,
+      blocked,
     });
   }
 
   return {
-    instpack: result.captured,
+    instpack: finalInstpack,
     agentId,
     threadId: ctx.threadId,
-    runId: result.runId,
+    runId: finalRunId,
   };
 }
