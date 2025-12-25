@@ -16,21 +16,17 @@ const parameters = {
           type: "object",
           additionalProperties: true
         },
-        complete: { type: "boolean" },
-        followups: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              ask: { type: "string" },
-              text: { type: "string" }
-            },
-            required: ["ask", "text"],
-            additionalProperties: false
-          }
+        procedure: {
+          type: "object",
+          properties: {
+            kind: { type: "string" },
+            rule: { type: ["string", "null"] },
+            interaction: { type: ["string", "null"] }
+          },
+          additionalProperties: true
         }
       },
-      required: ["intent", "modality", "complete"],
+      required: ["intent", "modality"],
       additionalProperties: true
     }
   },

@@ -4,7 +4,7 @@ import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitInstpackTool, EMIT_INSTPACK_FN } from "@/services/tools/emitInstpack.tool";
 import { DEBUG } from "@/utils/env";
 import { toToolCalls, isFunctionToolCall, type ToolCall } from "@/utils/types";
-import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
+import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/computeMeta";
 
 const debugAi: boolean =
   (DEBUG.AI ||

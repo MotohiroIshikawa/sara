@@ -15,8 +15,8 @@ import {
 } from "@/utils/line/wakeState";
 import { getMeta } from "@/utils/meta/getMeta";
 import { getInstpack } from "@/utils/instpack/getInstpack";
-import { computeMeta, looksLikeFollowup } from "@/utils/meta/meta";
-import type { AiContext, Meta, MetaComputeResult } from "@/types/gpts";
+import { computeMeta } from "@/utils/meta/computeMeta";
+import type { AiContext, Meta, MetaComputeResult, MissingReason } from "@/types/gpts";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { getSpeakerUserId } from "@/utils/line/lineSource";
 import { runReply } from "@/utils/reply/selector";
@@ -27,43 +27,13 @@ const REPLY_MODE_TTL_SEC: number = WAKE.REPLY_MODE_TTL_SEC;
 const WAKE_ALIASES: readonly string[] = WAKE.ALIASES as readonly string[];
 const WAKE_SEP_RE: RegExp = DEFAULT_WAKE_SEP_RE;
 
-// 確認カード表示の条件（従来踏襲）
-function shouldShowConfirm(meta: unknown, instpack: string | undefined, threadId?: string): boolean {
-  if (!threadId) return false;
-  if (!instpack?.trim()) return false;
-  const m = meta as { complete?: boolean } | undefined;
-  if (!m || m.complete !== true) return false;
-  return true;
-}
-
-// 確認カード直前の最終ガード（従来踏襲）
-function finalCheckBeforeConfirm(
-  meta: { complete?: boolean } | undefined,
-  instpack: string | undefined
-): { ok: boolean; reason?: string } {
-  if (!meta) return { ok: false, reason: "meta:undefined" };
-  if (meta.complete !== true) return { ok: false, reason: "meta:incomplete" };
-  const s: string = instpack?.trim() ?? "";
-  if (!s) return { ok: false, reason: "instpack:empty" };
-  if (s.length < 80) return { ok: false, reason: "instpack:too_short" };
-  if (/```/.test(s)) return { ok: false, reason: "instpack:has_fence" };
-  if (/[?？]\s*$/.test(s)) return { ok: false, reason: "instpack:looks_question" };
-  return { ok: true };
-}
-
-// 末尾に followup を重複なく1行追加
-function appendFollowupIfNeeded(texts: string[], ask: string | undefined, meta: Meta): string[] {
-  if (typeof ask !== "string") return texts;
-  const t: string = ask.trim();
-  if (t.length === 0) return texts;
-
-  const last: string = texts[texts.length - 1] ?? "";
-  const eqLite = (a: string, b: string): boolean =>
-    a.replace(/\s+/g, "").trim() === b.replace(/\s+/g, "").trim();
-
-  const already: boolean = eqLite(last, t) || looksLikeFollowup(last, meta);
-  return already ? texts : [...texts, t];
-}
+// MissingReason → 追加質問テンプレ
+const MISSING_PROMPT_MAP: Record<MissingReason, string> = {
+  focus: "どんな用途のチャットルールにしますか？（例：ニュース、イベント、計算など）",
+  scope: "対象エリアを教えてください。（例：渋谷、新宿、大阪市など）",
+  format: "出力や処理の形式を指定してください。",
+  input: "必要な情報がまだ揃っていません。続けて入力してください。",
+};
 
 // messageイベント(text)
 export async function handleMessageText(
@@ -119,7 +89,6 @@ export async function handleMessageText(
       hasMeta: mergedMeta != null, 
       intent: mergedMeta?.intent ?? null, 
       modality: mergedMeta?.modality ?? null, 
-      complete: mergedMeta?.complete ?? null,
       runId: metaRes.runId,
     });
 
@@ -134,35 +103,10 @@ export async function handleMessageText(
         saveable: metaEval.saveable,
       });
     }
-
-    // ask:image の統一（必要なら先頭に追加／metaの個別文面は除去）
-    const needAskImage: boolean =
-      (mergedMeta?.followups?.[0]?.ask === "image") ||
-      ((mergedMeta?.modality === "image" || mergedMeta?.modality === "image+text") &&
-        mergedMeta?.slots?.has_image !== true);
-    if (needAskImage) {
-      console.info("[messageText] user: add ASK_IMAGE_GENERIC", {
-        sourceType, sourceId, messageId, threadId,
+    if (!mergedMeta) {
+      console.info("[messageText] user: meta missing, skip computeMeta", {
+      sourceType, sourceId, messageId, threadId,
       });
-      const unified: string = (getMsg("ASK_IMAGE_GENERIC") ?? "画像を送ってください。").trim();
-      const metaAskText: string | undefined = mergedMeta?.followups?.[0]?.text?.trim();
-      if (metaAskText && metaAskText.length > 0) {
-        texts = texts.filter((t) => t.trim() !== metaAskText);
-      }
-      if (!texts.some((t) => t.trim() === unified)) {
-        texts.unshift(unified);
-      }
-    }
-
-    // complete_norm=false のときに followup を1行だけ末尾に追記
-    if (metaEval && metaEval.complete_norm === false) {
-      const ask: string | undefined = metaEval.metaNorm.followups?.[0]?.text;
-      if (ask && ask.trim().length > 0) {
-        texts = appendFollowupIfNeeded(texts, ask, metaEval.metaNorm);
-        console.info("[messageText] user: followup appended", {
-          sourceType, sourceId, messageId, threadId,
-        });
-      }
     }
 
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
@@ -180,17 +124,24 @@ export async function handleMessageText(
 
     // 通常の送出
     const messages: messagingApi.Message[] = [...toTextMessages(texts)];
-    const show: boolean = shouldShowConfirm(mergedMeta, mergedInst, threadId);
-    const guard = show ? finalCheckBeforeConfirm(mergedMeta, mergedInst) : { ok: false as boolean, reason: "skip" };
-    if (!guard.ok) {
-      const reason: string = guard.ok ? "ok" : (guard.reason ?? "unknown");
-      console.info("[messageText] confirm skipped by finalCheck:", {
-        sourceType, sourceId, messageId, threadId, reason,
-      });
+
+    if (metaEval && metaEval.saveable === false) {
+      const reason: MissingReason | undefined = metaEval.missing[0];
+      const followText: string | undefined =
+        reason ? MISSING_PROMPT_MAP[reason] : undefined;
+
+      if (followText) {
+        messages.push(...toTextMessages([followText]));
+        console.info("[messageText] followup added", {
+          sourceType, sourceId, messageId, threadId, reason,
+        });
+      }
     }
 
+    // 保存 confirm
+    const showConfirm: boolean = metaEval?.saveable === true && !!mergedInst;
     let confirmMsg: messagingApi.Message | null = null;
-    if (show && guard.ok) {
+    if (showConfirm) {
       confirmMsg = buildSaveOrContinueConfirm({
         text: "この内容で保存しますか？",
         saveData: encodePostback("gpts", "save", { tid: threadId, label: "保存" }),
@@ -203,6 +154,10 @@ export async function handleMessageText(
       console.info("[messageText] confirm queued. index=%d, willBe=%s (if reply OK). tid=%s",
         idx, willBePushedIfReplyOK ? "PUSH" : "REPLY", threadId,
       );
+    } else {
+      console.info("[messageText] confirm skipped", {
+        sourceType, sourceId, messageId, threadId,
+      });
     }
 
     let replyFellBackToPush = false;
