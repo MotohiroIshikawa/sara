@@ -94,17 +94,16 @@ export async function handleMessageText(
 
     let metaEval: MetaComputeResult | undefined = undefined;
     if (mergedMeta) {
-      const replyTextJoined: string = texts.join("\n\n");
-      metaEval = computeMeta(mergedMeta, replyTextJoined);
+      metaEval = computeMeta(mergedMeta);
       mergedMeta = metaEval.metaNorm;
       console.info("[messageText] user: meta computed", {
         sourceType, sourceId, messageId, threadId,
-        completeNorm: metaEval.complete_norm,
         saveable: metaEval.saveable,
+        missing: metaEval.missing,
       });
     }
     if (!mergedMeta) {
-      console.info("[messageText] user: meta missing, skip computeMeta", {
+      console.info("[messageText] user: meta missing (no meta extracted)", {
       sourceType, sourceId, messageId, threadId,
       });
     }
@@ -132,7 +131,7 @@ export async function handleMessageText(
 
       if (followText) {
         messages.push(...toTextMessages([followText]));
-        console.info("[messageText] followup added", {
+        console.info("[messageText] followup added (not saveable)", {
           sourceType, sourceId, messageId, threadId, reason,
         });
       }
@@ -155,7 +154,7 @@ export async function handleMessageText(
         idx, willBePushedIfReplyOK ? "PUSH" : "REPLY", threadId,
       );
     } else {
-      console.info("[messageText] confirm skipped", {
+      console.info("[messageText] confirm skipped (not saveable)", {
         sourceType, sourceId, messageId, threadId,
       });
     }
