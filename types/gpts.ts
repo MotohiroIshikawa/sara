@@ -14,19 +14,17 @@ type Domain = "event" | "news" | "shopping" | "local" | "object" | null;
 
 type ImageTask = "identify" | "ocr" | "caption" | "summarize" | "detect_faces" | null;
 
-export type FollowupAsk =
-  | "topic"
-  | "image"
-  | "image_task"
-  | "date_range"
-  | "place"
-  | "tone"
-  | "output_style";
-
-export type MetaFollowup = {
-  ask: FollowupAsk;
-  text: string; // 80文字以内・疑問形または命令形（仕様上の制約）
+export type MetaProcedure = {
+  kind: string;                      // 説明的ラベル（enumにしない）
+  rule?: string | null;              // 処理ルール（自然文 or 簡易記述）
+  interaction?: "single" | "step_by_step" | null; // 対話形式（任意）
 };
+
+export type MissingReason =
+  | "focus"   // 何をするGPTSか未定
+  | "scope"   // 対象範囲が未定
+  | "format"  // 処理・出力形式が未定
+  | "input";  // 実行に必要な入力が不足（保存可否とは独立）
 
 type MetaSlots = {
   topic?: string;
@@ -45,8 +43,7 @@ export type Meta = {
   modality?: Modality;
   domain?: Domain;
   slots?: MetaSlots;
-  complete?: boolean;
-  followups?: MetaFollowup[];
+  procedure?: MetaProcedure;
 };
 
 // 汎用AI実行ユーティリティ向けコンテキスト
@@ -97,7 +94,7 @@ export type MetaComputeResult = {
   complete_norm: boolean;            // intent・slotsに基づく完全判定
   reply_ok: boolean;                 // 本文長さ80字以上
   saveable: boolean;                 // instpack生成・保存可能
-  reasons: readonly string[];        // false理由の説明
+  missing: readonly MissingReason[]; // 理由コード（enum）
 };
 
 // emit_* ツール返却は用途ごとに分離

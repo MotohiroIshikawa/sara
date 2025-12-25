@@ -1,10 +1,10 @@
-import type { AiContext, AiMetaOptions, AiMetaResult, Meta, EmitMetaArgs } from "@/types/gpts";
+import type { AiContext, AiMetaOptions, AiMetaResult, Meta } from "@/types/gpts";
 import { getOrCreateAgentIdWithTools, preflightAuth, runWithToolCapture } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { emitMetaTool, EMIT_META_FN } from "@/services/tools/emitMeta.tool";
 import { DEBUG } from "@/utils/env";
 import { toToolCalls, isFunctionToolCall } from "@/utils/types";
-import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/meta";
+import { logEmitMetaSnapshot, type MetaLogPhase } from "@/utils/meta/computeMeta";
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
@@ -43,7 +43,12 @@ function extractMetaFromArgs(raw: unknown): Meta | undefined {
 
       // fallback: parsed が直接 Meta 形式
       if (isRecord(parsed)) {
-        if (isRecord(parsed) && typeof parsed.intent === "string") return parsed as Meta;
+        if (
+          typeof parsed.intent === "string" && 
+          typeof parsed.modality === "string"
+        ) {
+          return parsed as Meta;
+        }
       }
       return undefined;
     }
@@ -55,7 +60,13 @@ function extractMetaFromArgs(raw: unknown): Meta | undefined {
         if (isRecord(metaCandidate)) return metaCandidate as Meta;
       }
 
-      if ("slots" in raw || "intent" in raw) return raw as Meta;
+      if (
+        typeof (raw as Record<string, unknown>).intent === "string" &&
+        typeof (raw as Record<string, unknown>).modality === "string"
+      ) {
+        return raw as Meta;
+      }
+
     }
   } catch (e) {
     // パースエラー
