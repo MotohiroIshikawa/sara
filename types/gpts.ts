@@ -91,8 +91,6 @@ export type AiMetaOptions = {
 
 export type MetaComputeResult = {
   metaNorm: Meta;                    // 補完済みmeta
-  complete_norm: boolean;            // intent・slotsに基づく完全判定
-  reply_ok: boolean;                 // 本文長さ80字以上
   saveable: boolean;                 // instpack生成・保存可能
   missing: readonly MissingReason[]; // 理由コード（enum）
 };
