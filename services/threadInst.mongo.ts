@@ -8,11 +8,21 @@ const TTL_DAYS: number = Math.max(1, Number.parseInt(process.env.THREAD_INST_TTL
 // 目的:
 //  - Azure Run から抽出した instpack/meta を「ユーザ×Thread」単位で一時保存
 //  - 保存ボタン押下時にここから読み出して user_gpts へ昇格
+//  - metaCarry（最小meta継承）を「ユーザ×Thread」単位で保存し、次ターンの computeMeta(rawMeta, prevMeta) に渡す
 
 let _indexesReady = false;
 
 // Cosmos 互換向けユーティリティ
 type MaybeMongoError = { code?: number; codeName?: string; message?: string };
+
+// metaCarry は extractMetaCarry(metaNorm) の戻りを保存する想定。
+// 厳密型が別にあるならそれを使いたいが、ここでは「Meta の部分集合」として Partial<Meta> で保持する。
+export type MetaCarry = Partial<Meta>;
+
+// 最小ユーティリティ（Mongo返却の型安全用）
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
 
 // エラーチェック（重複で unique index を作れないケース）
 function isCannotCreateUniqueIndexError(e: unknown): boolean {
@@ -45,8 +55,10 @@ async function ensureIndexes(): Promise<void> {
         await col.createIndex(targetKey, { unique: true, name: "uniq_user_thread" });
       } catch (e) {
         // Cosmos 側の制約や互換で unique 失敗 → 非ユニークにフォールバック
-        if (isCannotCreateUniqueIndexError(e) ||
-            String((e as Error)?.message ?? "").includes("The unique index cannot be modified")) {
+        if (
+          isCannotCreateUniqueIndexError(e) ||
+          String((e as Error)?.message ?? "").includes("The unique index cannot be modified")
+        ) {
           console.warn("[thread_inst] Unique index not available. Creating NON-unique index instead.");
           await col.createIndex(targetKey, { name: "idx_user_thread" }).catch(() => {});
         } else {
@@ -140,4 +152,59 @@ export async function purgeAllThreadInstByUser(
   const col = await getThreadInstCollection();
   const res = await col.deleteMany({ userId });
   return (res?.deletedCount ?? 0) > 0;
+}
+
+// ============================================================================
+// metaCarry（最小meta継承）の保存/取得
+// ============================================================================
+
+/**
+ * metaCarry 取得（無ければ undefined）
+ * - 保存は threadId 紐づけ（このコレクションは userId+threadId で一意/準一意）
+ * - TTL は updatedAt に乗る（setMetaCarry で updatedAt 更新）
+ */
+export async function getMetaCarry(
+  userId: string,
+  threadId: string
+): Promise<MetaCarry | undefined> {
+  await ensureIndexes();
+  const col = await getThreadInstCollection();
+
+  const doc: unknown = await col.findOne(
+    { userId, threadId },
+    { projection: { metaCarry: 1 } }
+  );
+
+  if (!isRecord(doc)) return undefined;
+  const carry = (doc as { metaCarry?: MetaCarry | null }).metaCarry;
+  return carry ?? undefined;
+}
+
+/**
+ * metaCarry 保存（存在すれば更新、無ければ作成）
+ * - metaCarry は extractMetaCarry(metaNorm) の戻りをそのまま入れる想定
+ * - updatedAt を更新して TTL を延命
+ * - instpack/meta 本体は触らない（別経路で更新する）
+ */
+export async function setMetaCarry(
+  userId: string,
+  threadId: string,
+  metaCarry: MetaCarry,
+  updatedAt?: Date
+): Promise<void> {
+  await ensureIndexes();
+  const col = await getThreadInstCollection();
+  const now = updatedAt ?? new Date();
+
+  await col.updateOne(
+    { userId, threadId },
+    {
+      $set: {
+        metaCarry,
+        updatedAt: now,
+      },
+      $setOnInsert: { createdAt: now },
+    },
+    { upsert: true }
+  );
 }
