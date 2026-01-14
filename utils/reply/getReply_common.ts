@@ -5,7 +5,10 @@ import { withTimeout } from "@/utils/async";
 import { MAIN_TIMERS, DEBUG } from "@/utils/env";
 
 // reply オプション（既定値埋め後）
-export type NormalizedReplyOptions = Required<AiReplyOptions>;
+export type NormalizedReplyOptions =
+  Omit<Required<AiReplyOptions>, "metaNorm"> & {
+    metaNorm: AiReplyOptions["metaNorm"];
+  };
 
 // runs.get の状態確認用
 type RunState = {
@@ -33,6 +36,8 @@ export function normalizeReplyOptions(opts?: AiReplyOptions): NormalizedReplyOpt
   return {
     question: opts?.question ?? "",
     imageUrls: opts?.imageUrls ?? [],
+    missingReasons: opts?.missingReasons ?? [],
+    metaNorm: opts?.metaNorm,
   };
 }
 
