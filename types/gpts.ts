@@ -81,6 +81,8 @@ export type AiInstpackResult = {
 export type AiReplyOptions = {
   question?: string;                 // テキスト質問（省略可）
   imageUrls?: readonly string[];     // 画像URL群（省略可）
+  missingReasons?: readonly MissingReason[]; // Node判定の不足理由（replyが自然文followupsを作る）
+  metaNorm?: Meta;                           // Nodeで確定した補完済みmeta（将来用/必要時のみ）
 };
 
 // getMeta用オプション

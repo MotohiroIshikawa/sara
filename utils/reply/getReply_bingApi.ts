@@ -1,5 +1,5 @@
 import { type MessageInputContentBlockUnion } from "@azure/ai-agents";
-import type { AiContext, AiReplyOptions, AiReplyResult } from "@/types/gpts";
+import type { AiContext, AiReplyOptions, AiReplyResult, MissingReason } from "@/types/gpts";
 import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { withTimeout } from "@/utils/async";
@@ -22,11 +22,15 @@ import {
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
 
+const MISSING_REASONS_PREFIX = "[missingReasons]";
+
 // 返信(REST Bing検索)
 export async function getReply_bingApi(
   ctx: AiContext,
   opts?: AiReplyOptions
 ): Promise<AiReplyResult> {
+  const missingReasons: readonly MissingReason[] = opts?.missingReasons ?? [];
+
   const options: NormalizedReplyOptions = normalizeReplyOptions(opts);
 
   const validationError: AiReplyResult | null = validateReplyInputs(ctx, options);
@@ -36,16 +40,21 @@ export async function getReply_bingApi(
   const hasQuestion: boolean = options.question.trim().length > 0;
   if (debugAi) {
     console.info("[ai.reply/api] start", {
-      sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId: ctx.threadId,
-      hasQuestion, hasImage,
+      sourceType: ctx.sourceType,
+      ownerId: ctx.ownerId,
+      threadId: ctx.threadId,
+      hasQuestion,
+      hasImage,
+      missingReasons: missingReasons.length > 0 ? missingReasons : null,
     });
   }
+
   // 認証チェック
   await preflightAuth();
 
   // 指示文（reply用）を取得 -> api
   const { instruction, origin } = await getInstruction(ctx.sourceType, ctx.ownerId, "reply", "api");
-  if (debugAi){
+  if (debugAi) {
     console.info("[ai.reply/api] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
   }
 
@@ -63,8 +72,10 @@ export async function getReply_bingApi(
         const decision: SearchDecision = await runSearchDecision(decisionIns, ctx, options.question);
         if (debugAi) {
           console.info("[ai.reply/api] decision", {
-            sourceType: ctx.sourceType, ownerId: ctx.ownerId,
-            needSearch: decision.needSearch, hasFollowup: !!decision.followup && decision.followup.trim().length > 0,
+            sourceType: ctx.sourceType,
+            ownerId: ctx.ownerId,
+            needSearch: decision.needSearch,
+            hasFollowup: !!decision.followup && decision.followup.trim().length > 0,
           });
         }
 
@@ -88,8 +99,11 @@ export async function getReply_bingApi(
 
             if (debugAi) {
               console.info("[ai.reply/api] search done", {
-                sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId,
-                query: q, items: items.length,
+                sourceType: ctx.sourceType,
+                ownerId: ctx.ownerId,
+                threadId,
+                query: q,
+                items: items.length,
               });
             }
           }
@@ -99,7 +113,15 @@ export async function getReply_bingApi(
       }
     }
 
-    // 検索コンテキスト → ユーザー投入直前に掲示（内部ブロックではなくモデル可視の補助情報として）
+    // missingReasons をモデルに渡す（prompt側の特別ルールを有効化する）
+    // 注意：ここは user メッセージとして投入されるため履歴に残る。
+    // prefix を固定しておくと、将来の除去/解析がしやすい。
+    if (missingReasons.length > 0) {
+      const payload: string = `${MISSING_REASONS_PREFIX} ${JSON.stringify(missingReasons)}`;
+      await agentsClient.messages.create(threadId, "user", payload);
+    }
+
+    // 検索コンテキスト → ユーザー投入直前に掲示
     if (searchContext) {
       await agentsClient.messages.create(threadId, "user", searchContext);
     }
@@ -128,7 +150,10 @@ export async function getReply_bingApi(
 
     if (debugAi) {
       console.info("[ai.reply/api] run created", {
-        sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId, runId: run.id,
+        sourceType: ctx.sourceType,
+        ownerId: ctx.ownerId,
+        threadId,
+        runId: run.id,
       });
     }
 
@@ -139,18 +164,27 @@ export async function getReply_bingApi(
       const runInfo: { status?: string; lastError?: unknown } =
         await agentsClient.runs.get(threadId, run.id);
       console.info("[ai.reply/api] run completed", {
-        sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId, runId: run.id,
-        status: runInfo.status ?? null, lastError: runInfo.lastError ?? null,
+        sourceType: ctx.sourceType,
+        ownerId: ctx.ownerId,
+        threadId,
+        runId: run.id,
+        status: runInfo.status ?? null,
+        lastError: runInfo.lastError ?? null,
       });
     }
 
     // 応答メッセージ取得
     const replyMsg = await getAssistantMessageForRun(threadId, run.id);
     if (!replyMsg) {
-      const runInfo: { status?: string; lastError?: unknown } = await agentsClient.runs.get( threadId, run.id );
+      const runInfo: { status?: string; lastError?: unknown } =
+        await agentsClient.runs.get(threadId, run.id);
       console.error("[ai.reply/api] reply message not found", {
-        sourceType: ctx.sourceType, ownerId: ctx.ownerId, threadId, runId: run.id,
-        status: runInfo.status, lastError: runInfo.lastError,
+        sourceType: ctx.sourceType,
+        ownerId: ctx.ownerId,
+        threadId,
+        runId: run.id,
+        status: runInfo.status,
+        lastError: runInfo.lastError,
       });
 
       return {

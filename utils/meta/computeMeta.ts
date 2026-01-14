@@ -11,17 +11,74 @@ type DecisionTrace = {
   procedureNeedsInput: boolean;  
 };
 
+// 次回用に保持する「最小の状態」抽出関数
+//    - Agent には渡さない（Node.js が保存して次回に使う）
+//    - 保存対象は topic/domain/place/date_range/intent のみ
+export function extractMetaCarry(metaNorm?: Meta): Meta {
+  const topic: string | undefined = metaNorm?.slots?.topic;
+  const place: string | null | undefined = metaNorm?.slots?.place ?? undefined;
+  const date_range: string | null | undefined = metaNorm?.slots?.date_range ?? undefined;
+
+  const slots: Meta["slots"] = {};
+
+  if (typeof topic === "string" && topic.trim().length > 0) {
+    slots.topic = topic.trim();
+  }
+  if (typeof place === "string" && place.trim().length > 0) {
+    slots.place = place.trim();
+  }
+  if (typeof date_range === "string" && date_range.trim().length > 0) {
+    slots.date_range = date_range.trim();
+  }
+
+  // intent/domain はそのまま（undefined可）
+  // ここでは modality/procedure/title/tone/output_style 等は「次回用に残さない」
+  const carry: Meta = {
+    intent: metaNorm?.intent ?? undefined,
+    domain: metaNorm?.domain ?? undefined,
+    slots,
+  };
+
+  return carry;
+}
+
+// 前回 metaNorm（carry）と今回 rawMeta を合成して、このターンの rawMeta として扱う。
+//    ※補完ルールの詳細はここで深追いしない（最小の上書き優先だけ）
+function mergeMeta(prev?: Meta, curr?: Meta): Meta | undefined {
+  if (!prev && !curr) return undefined;
+  if (!prev) return curr;
+  if (!curr) return prev;
+
+  const mergedSlots: Meta["slots"] = {
+    ...(prev.slots ?? {}),
+    ...(curr.slots ?? {}),
+  };
+
+  const merged: Meta = {
+    intent: curr.intent ?? prev.intent,
+    modality: curr.modality ?? prev.modality,
+    domain: curr.domain ?? prev.domain,
+    slots: mergedSlots,
+    procedure: curr.procedure ?? prev.procedure,
+  };
+
+  return merged;
+}
+
 export function computeMeta(
-  rawMeta?: Meta
+  rawMeta?: Meta,
+  prevMeta?: Meta // 前回の metaNorm（保存しておいた carry を想定）
 ): MetaComputeResult {
+  // 前回情報を合成してから正規化する（Agentには渡さない。Node.js内部だけで使う）
+  const mergedRaw: Meta | undefined = mergeMeta(prevMeta, rawMeta);
 
   // meta の正規化
   const m: Meta = {
-    intent: rawMeta?.intent ?? undefined,
-    modality: rawMeta?.modality ?? "text",  // 既定は "text"
-    domain: rawMeta?.domain ?? undefined,
-    slots: { ...(rawMeta?.slots ?? {}) },
-    procedure: rawMeta?.procedure ?? undefined,
+    intent: mergedRaw?.intent ?? undefined,
+    modality: mergedRaw?.modality ?? "text", // 既定は "text"
+    domain: mergedRaw?.domain ?? undefined,
+    slots: { ...(mergedRaw?.slots ?? {}) },
+    procedure: mergedRaw?.procedure ?? undefined,
   };
 
   const s = m.slots ?? {};
@@ -40,12 +97,9 @@ export function computeMeta(
     s.date_range = `last_${days}d`;
   }
 
-  const hasTopic: boolean =
-    typeof s.topic === "string" && s.topic.trim().length > 0;
-  const hasPlace: boolean =
-    typeof s.place === "string" && s.place.trim().length > 0;
-  const hasProcedure: boolean =
-    typeof m.procedure === "object" && m.procedure !== null;
+  const hasTopic: boolean = typeof s.topic === "string" && s.topic.trim().length > 0;
+  const hasPlace: boolean = typeof s.place === "string" && s.place.trim().length > 0;
+  const hasProcedure: boolean = typeof m.procedure === "object" && m.procedure !== null;
 
   const procedureNeedsInput: boolean = hasProcedure && !(
     hasTopic ||
@@ -99,6 +153,7 @@ export function computeMeta(
     saveable,
     missing,
     trace,
+    hasPrevMeta: typeof prevMeta === "object" && prevMeta !== null, // prevMeta が来ているかの確認ログ（デバッグ用）
   });
 
   return {

@@ -1,5 +1,5 @@
 import { ToolUtility, type MessageInputContentBlockUnion } from "@azure/ai-agents";
-import type { AiContext, AiReplyOptions, AiReplyResult } from "@/types/gpts";
+import type { AiContext, AiReplyOptions, AiReplyResult, MissingReason } from "@/types/gpts";
 import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
 import { withTimeout } from "@/utils/async";
@@ -7,10 +7,19 @@ import { LINE, DEBUG, AZURE, MAIN_TIMERS } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/reply/fence";
 import { toLineTextsFromMessage } from "@/utils/line/lineMessage";
 import { withLock } from "@/utils/redis";
-import { createOwnerLockKey, getAssistantMessageForRun, normalizeReplyOptions, validateReplyInputs, waitForRunCompletion, type NormalizedReplyOptions } from "./getReply_common";
+import {
+  createOwnerLockKey,
+  getAssistantMessageForRun,
+  normalizeReplyOptions,
+  validateReplyInputs,
+  waitForRunCompletion,
+  type NormalizedReplyOptions,
+} from "./getReply_common";
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
+
+const MISSING_REASONS_PREFIX = "[missingReasons]";
 
 // Grounding/Search ツールを生成（Bing 設定があれば利用）
 function createSearchTool(): readonly unknown[] {
@@ -32,6 +41,8 @@ export async function getReply_bingGrounding(
   ctx: AiContext,
   opts?: AiReplyOptions
 ): Promise<AiReplyResult> {
+  const missingReasons: readonly MissingReason[] = opts?.missingReasons ?? [];
+
   const options: NormalizedReplyOptions = normalizeReplyOptions(opts);
   const validationError: AiReplyResult | null = validateReplyInputs(ctx, options);
   if (validationError) return validationError;
@@ -44,13 +55,30 @@ export async function getReply_bingGrounding(
 
   // 指示文（reply用）を取得 -> tool
   const { instruction, origin } = await getInstruction(ctx.sourceType, ctx.ownerId, "reply", "tool");
-  if (debugAi) console.info("[ai.reply] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
+  if (debugAi) {
+    console.info("[ai.reply] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
+    console.info("[ai.reply] start", {
+      sourceType: ctx.sourceType,
+      ownerId: ctx.ownerId,
+      threadId: ctx.threadId,
+      hasQuestion,
+      hasImage,
+      missingReasons: missingReasons.length > 0 ? missingReasons : null,
+    });
+  }
 
   // ロックキーは type + ownerId を採用
   const lockKey: string = createOwnerLockKey(ctx.sourceType, ctx.ownerId);
 
   return await withLock(lockKey, 90_000, async () => {
     const threadId: string = ctx.threadId;
+
+    // missingReasons をモデルに渡す（reply_api.md の特別ルールを有効化）
+    // 注意：user メッセージとして履歴に残るため、prefix を固定しておく。
+    if (missingReasons.length > 0) {
+      const payload: string = `${MISSING_REASONS_PREFIX} ${JSON.stringify(missingReasons)}`;
+      await agentsClient.messages.create(threadId, "user", payload);
+    }
 
     // 入力（テキスト/画像）を投入
     if (hasQuestion) {
@@ -66,7 +94,7 @@ export async function getReply_bingGrounding(
 
     // reply 実行
     const tools: readonly unknown[] = createSearchTool();
-    const replyAgentId = await getOrCreateAgentIdWithTools(instruction, tools, "reply");
+    const replyAgentId: string = await getOrCreateAgentIdWithTools(instruction, tools, "reply");
 
     const run = await withTimeout(
       agentsClient.runs.create(threadId, replyAgentId, {
@@ -92,7 +120,7 @@ export async function getReply_bingGrounding(
 
     // 内部ブロック除去 → LINE用配列へ
     const { cleaned } = stripInternalBlocksFromContent(replyMsg.content);
-    let texts = toLineTextsFromMessage(cleaned, { maxUrls: LINE.MAX_URLS_PER_BLOCK, showTitles: false });
+    let texts: string[] = toLineTextsFromMessage(cleaned, { maxUrls: LINE.MAX_URLS_PER_BLOCK, showTitles: false });
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
     if (debugAi) {

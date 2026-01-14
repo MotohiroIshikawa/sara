@@ -3,7 +3,7 @@ import { LINE, WAKE } from "@/utils/env";
 import { toTextMessages, sendMessagesReplyThenPush, buildSaveOrContinueConfirm } from "@/utils/line/lineSend";
 import { encodePostback } from "@/utils/line/postback";
 import { getMsg } from "@/utils/line/msgCatalog";
-import { upsertThreadInst } from "@/services/threadInst.mongo";
+import { upsertThreadInst, getMetaCarry, setMetaCarry, type MetaCarry } from "@/services/threadInst.mongo";
 import {
   activateReplyMode,
   consumeReplyModeIfActive,
@@ -15,8 +15,8 @@ import {
 } from "@/utils/line/wakeState";
 import { getMeta } from "@/utils/meta/getMeta";
 import { getInstpack } from "@/utils/instpack/getInstpack";
-import { computeMeta } from "@/utils/meta/computeMeta";
-import type { AiContext, Meta, MetaComputeResult, MissingReason } from "@/types/gpts";
+import { computeMeta, extractMetaCarry } from "@/utils/meta/computeMeta";
+import type { AiContext, AiReplyOptions, Meta, MetaComputeResult } from "@/types/gpts";
 import { getOrCreateThreadId } from "@/services/threadState";
 import { getSpeakerUserId } from "@/utils/line/lineSource";
 import { runReply } from "@/utils/reply/selector";
@@ -27,15 +27,6 @@ const REPLY_MODE_TTL_SEC: number = WAKE.REPLY_MODE_TTL_SEC;
 const WAKE_ALIASES: readonly string[] = WAKE.ALIASES as readonly string[];
 const WAKE_SEP_RE: RegExp = DEFAULT_WAKE_SEP_RE;
 
-// MissingReason → 追加質問テンプレ
-const MISSING_PROMPT_MAP: Record<MissingReason, string> = {
-  focus: "どんな用途のチャットルールにしますか？（例：ニュース、イベント、計算など）",
-  scope: "対象エリアを教えてください。（例：渋谷、新宿、大阪市など）",
-  format: "出力や処理の形式を指定してください。",
-  input: "必要な情報がまだ揃っていません。続けて入力してください。",
-};
-
-// messageイベント(text)
 export async function handleMessageText(
   event: MessageEvent,
   sourceType: "user" | "group" | "room",
@@ -48,7 +39,7 @@ export async function handleMessageText(
   const questionTrimmed: string = questionRaw.trim();
   const messageId = event.message.id;
   console.info("[messageText] recv", {
-    sourceType, sourceId, messageId, textLen: questionTrimmed.length 
+    sourceType, sourceId, messageId, textLen: questionTrimmed.length
   });
 
   // 1対1（常時応答）
@@ -74,43 +65,65 @@ export async function handleMessageText(
       sourceType, sourceId, messageId, threadId,
     });
 
-    // 1. reply 実行（Bingあり／なしは aiConnectReply 側で処理）
-    const replyRes = await runReply(ctx, { question });
-    let texts: string[] = [...replyRes.texts];
-    console.info("[messageText] user: reply done", {
-      sourceType, sourceId, messageId, threadId, textCount: texts.length,
-    });
-
-    // 2. meta → computeMeta（userのみ）
+    // 1. meta取得（先）
     const metaRes = await getMeta(ctx, { hasImageHint: false });
-    let mergedMeta: Meta | undefined = metaRes.meta;
+    const rawMeta: Meta | undefined = metaRes.meta ?? undefined;
     console.info("[messageText] user: meta fetched", {
       sourceType, sourceId, messageId, threadId,
-      hasMeta: mergedMeta != null, 
-      intent: mergedMeta?.intent ?? null, 
-      modality: mergedMeta?.modality ?? null, 
+      hasMeta: rawMeta != null,
+      intent: rawMeta?.intent ?? null,
+      modality: rawMeta?.modality ?? null,
       runId: metaRes.runId,
     });
 
+    // 2. prev metaCarry 読み出し（Agentに渡さないでNodeで補完）
+    const prevCarry: MetaCarry | undefined = await getMetaCarry(sourceId, threadId);
+    console.info("[messageText] user: metaCarry loaded", {
+      sourceType, sourceId, messageId, threadId,
+      hasPrevCarry: prevCarry != null,
+    });
+
+    // 3. computeMeta(rawMeta, prevCarry) で Node 判定
     let metaEval: MetaComputeResult | undefined = undefined;
-    if (mergedMeta) {
-      metaEval = computeMeta(mergedMeta);
+    let mergedMeta: Meta | undefined = undefined;
+
+    if (rawMeta) {
+      metaEval = computeMeta(rawMeta, prevCarry); // prevCarry を渡す
       mergedMeta = metaEval.metaNorm;
+
       console.info("[messageText] user: meta computed", {
         sourceType, sourceId, messageId, threadId,
         saveable: metaEval.saveable,
         missing: metaEval.missing,
       });
-    }
-    if (!mergedMeta) {
+
+      // 4. 次回用 metaCarry を保存更新
+      const nextCarry: MetaCarry = extractMetaCarry(mergedMeta);
+      await setMetaCarry(sourceId, threadId, nextCarry);
+      console.info("[messageText] user: metaCarry saved", {
+        sourceType, sourceId, messageId, threadId,
+      });
+    } else {
       console.info("[messageText] user: meta missing (no meta extracted)", {
-      sourceType, sourceId, messageId, threadId,
+        sourceType, sourceId, messageId, threadId,
       });
     }
 
+    // 5. reply 実行（missingReasons/metaNorm を渡す）
+    const replyOpts: AiReplyOptions = {
+      question,
+      missingReasons: metaEval?.missing ?? [],
+      // metaNorm: mergedMeta, // 将来用だが今は履歴汚染になるだけなので渡さない
+    };
+    const replyRes = await runReply(ctx, replyOpts);
+    let texts: string[] = [...replyRes.texts];
+    console.info("[messageText] user: reply done", {
+      sourceType, sourceId, messageId, threadId, textCount: texts.length,
+    });
+
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
-    // 3. saveable のときだけ instpack 取得
+    // 6. saveable のときだけ instpack 取得（判定結果に従属）
     let mergedInst: string | undefined = undefined;
     if (metaEval?.saveable === true) {
       const instRes = await getInstpack(ctx);
@@ -123,19 +136,6 @@ export async function handleMessageText(
 
     // 通常の送出
     const messages: messagingApi.Message[] = [...toTextMessages(texts)];
-
-    if (metaEval && metaEval.saveable === false) {
-      const reason: MissingReason | undefined = metaEval.missing[0];
-      const followText: string | undefined =
-        reason ? MISSING_PROMPT_MAP[reason] : undefined;
-
-      if (followText) {
-        messages.push(...toTextMessages([followText]));
-        console.info("[messageText] followup added (not saveable)", {
-          sourceType, sourceId, messageId, threadId, reason,
-        });
-      }
-    }
 
     // 保存 confirm
     const showConfirm: boolean = metaEval?.saveable === true && !!mergedInst;
