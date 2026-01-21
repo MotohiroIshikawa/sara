@@ -24,6 +24,11 @@ const debugAi: boolean =
 
 const MISSING_REASONS_PREFIX = "[missingReasons]";
 
+function logRawBlock(label: string, text: string): void {
+  console.info("%s len=%d", label, text.length);
+  console.info("%s\n%s", label, text);
+}
+
 // 返信(REST Bing検索)
 export async function getReply_bingApi(
   ctx: AiContext,
@@ -56,6 +61,7 @@ export async function getReply_bingApi(
   const { instruction, origin } = await getInstruction(ctx.sourceType, ctx.ownerId, "reply", "api");
   if (debugAi) {
     console.info("[ai.reply/api] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
+    logRawBlock("[ai.reply/api] instruction(raw)", instruction);
   }
 
   // ロックキーは type + ownerId を採用
@@ -77,6 +83,7 @@ export async function getReply_bingApi(
             needSearch: decision.needSearch,
             hasFollowup: !!decision.followup && decision.followup.trim().length > 0,
           });
+          logRawBlock("[ai.reply/api] decisionInstruction(raw)", decisionIns);
         }
 
         // フォローアップのみで十分な場合：検索・返信runは行わず即返
@@ -105,6 +112,7 @@ export async function getReply_bingApi(
                 query: q,
                 items: items.length,
               });
+              if (searchContext) logRawBlock("[ai.reply/api] searchContext(raw)", searchContext);
             }
           }
         }
@@ -118,23 +126,42 @@ export async function getReply_bingApi(
     // prefix を固定しておくと、将来の除去/解析がしやすい。
     if (missingReasons.length > 0) {
       const payload: string = `${MISSING_REASONS_PREFIX} ${JSON.stringify(missingReasons)}`;
+      if (debugAi) {
+        logRawBlock("[ai.reply/api] injectedUserMessage(missingReasons)", payload);
+      }
       await agentsClient.messages.create(threadId, "user", payload);
     }
 
     // 検索コンテキスト → ユーザー投入直前に掲示
     if (searchContext) {
+      if (debugAi) {
+        logRawBlock("[ai.reply/api] injectedUserMessage(searchContext)", searchContext);
+      }
       await agentsClient.messages.create(threadId, "user", searchContext);
     }
 
     // 入力（テキスト/画像）を投入
     if (hasQuestion) {
-      await agentsClient.messages.create(threadId, "user", options.question.trim());
+      const qText: string = options.question.trim();
+      if (debugAi) {
+        logRawBlock("[ai.reply/api] injectedUserMessage(question)", qText);
+      }
+      await agentsClient.messages.create(threadId, "user", qText);
     }
     if (hasImage) {
       const imageBlocks: MessageInputContentBlockUnion[] = options.imageUrls.map((u) => ({
         type: "image_url",
         imageUrl: { url: u, detail: "high" },
       }));
+
+      if (debugAi) {
+        const urlsJson: string = JSON.stringify(options.imageUrls);
+        logRawBlock("[ai.reply/api] injectedUserMessage(imageUrls)", urlsJson);
+
+        const blocksJson: string = JSON.stringify(imageBlocks);
+        logRawBlock("[ai.reply/api] injectedUserMessage(imageBlocks)", blocksJson);
+      }
+
       await agentsClient.messages.create(threadId, "user", imageBlocks);
     }
 
@@ -154,6 +181,15 @@ export async function getReply_bingApi(
         ownerId: ctx.ownerId,
         threadId,
         runId: run.id,
+      });
+      console.info("[ai.reply/api] run prompt snapshot", {
+        runId: run.id,
+        origin,
+        instructionLen: instruction.length,
+        hasQuestion,
+        hasImage,
+        missingReasons: missingReasons.length > 0 ? missingReasons : null,
+        hasSearchContext: searchContext.length > 0,
       });
     }
 
