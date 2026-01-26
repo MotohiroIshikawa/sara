@@ -70,28 +70,25 @@ export async function getReply_bingApi(
   return await withLock(lockKey, 90_000, async () => {
     const threadId: string = ctx.threadId;
 
-    // 事前判定（decision.md）→ 必要時のみ Web 検索
+    // 事前判定（decision.md）→ Web検索要否と検索クエリの決定
     let searchContext: string = "";
     if (hasQuestion) {
       try {
         const { instruction: decisionIns } = await getInstruction(ctx.sourceType, ctx.ownerId, "decision");
         const decision: SearchDecision = await runSearchDecision(decisionIns, ctx, options.question);
+
         if (debugAi) {
           console.info("[ai.reply/api] decision", {
             sourceType: ctx.sourceType,
             ownerId: ctx.ownerId,
             needSearch: decision.needSearch,
-            hasFollowup: !!decision.followup && decision.followup.trim().length > 0,
+            rewrittenQuery: decision.rewrittenQuery ?? null,
+            reason: decision.reason ?? null,
           });
           logRawBlock("[ai.reply/api] decisionInstruction(raw)", decisionIns);
         }
 
-        // フォローアップのみで十分な場合：検索・返信runは行わず即返
-        if (!decision.needSearch && decision.followup && decision.followup.trim().length > 0) {
-          return { texts: [decision.followup.trim()], agentId: "", threadId, runId: "" };
-        }
-
-        // 検索が必要と判断された場合のみ Web 検索を実施
+        // 検索が必要なら必ず Web 検索を実行
         if (decision.needSearch) {
           const q: string = (decision.rewrittenQuery ?? options.question).trim();
           if (q.length > 0) {
@@ -118,12 +115,12 @@ export async function getReply_bingApi(
         }
       } catch (e) {
         if (debugAi) console.warn("[ai.reply/api] decision/search failed:", e);
+        // 例外が出ても decision.ts 側が needSearch=true に倒しているので
+        // ここでは特別な処理をせず、そのまま searchContext なしで進む
       }
     }
 
     // missingReasons をモデルに渡す（prompt側の特別ルールを有効化する）
-    // 注意：ここは user メッセージとして投入されるため履歴に残る。
-    // prefix を固定しておくと、将来の除去/解析がしやすい。
     if (missingReasons.length > 0) {
       const payload: string = `${MISSING_REASONS_PREFIX} ${JSON.stringify(missingReasons)}`;
       if (debugAi) {
