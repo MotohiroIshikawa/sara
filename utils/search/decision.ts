@@ -4,7 +4,7 @@ import { withTimeout } from "@/utils/async";
 import { MAIN_TIMERS, DEBUG } from "@/utils/env";
 import type { AiContext } from "@/types/gpts";
 
-// 判定結果（最小共通インターフェース）
+// 判定結果（検索要否とクエリだけを主目的とする）
 export type SearchDecision = {
   needSearch: boolean;
   rewrittenQuery?: string;
@@ -39,10 +39,11 @@ export function parseSearchDecision(jsonText: string): SearchDecision {
   try {
     raw = JSON.parse(jsonText) as RawDecision;
   } catch {
-    return { needSearch: false, reason: "non-json-output" };
+    // JSON が壊れていたら「検索する側」に倒す
+    return { needSearch: true, reason: "non-json-output" };
   }
 
-  const needSearch: boolean = typeof raw.needSearch === "boolean" ? raw.needSearch : false;
+  const needSearch: boolean = typeof raw.needSearch === "boolean" ? raw.needSearch : true; // ★ デフォルト true
   const rewrittenQuery: string | undefined =
     typeof raw.rewrittenQuery === "string" && raw.rewrittenQuery.trim().length > 0
       ? raw.rewrittenQuery.trim()
@@ -56,15 +57,8 @@ export function parseSearchDecision(jsonText: string): SearchDecision {
   const reason: string | undefined =
     typeof raw.reason === "string" && raw.reason.trim().length > 0 ? raw.reason.trim() : undefined;
 
-  if (needSearch && !rewrittenQuery) {
-    // needSearch=true だが rewrittenQuery が無いときは検索しない
-    return {
-      needSearch: false,
-      reason: "needSearch-true-but-missing-rewrittenQuery",
-      followup,
-      missing,
-    };
-  }
+  // needSearch=true なのに rewrittenQuery が無くても検索を止めない
+  // その場合は上位で question をそのまま使って検索すればよい
   return { needSearch, rewrittenQuery, missing, followup, reason };
 }
 
@@ -87,17 +81,21 @@ async function getAssistantMessageForRun(
 }
 
 // 検索要否の判定を行う run。
-// - instruction: utils/prompts/decision.md の中身（次ステップで getInstruction("decision") を用意して渡す）
-// - ctx.threadId に対して、question を user メッセージとして投入し、ツール無し・軽量モデル(meta)で実行
-// - 最終的に SearchDecision を返す（失敗時は安全側: needSearch=false）
+// JSON が壊れても検索を止めない（needSearch=true に倒す）
 export async function runSearchDecision(
   instruction: string,
   ctx: AiContext,
   question: string
 ): Promise<SearchDecision> {
   const q: string = (question ?? "").trim();
-  if (!q) return { needSearch: false, reason: "empty-question" };
-  if (!ctx.threadId || !ctx.threadId.trim()) return { needSearch: false, reason: "empty-threadId" };
+  if (!q) {
+    // ユーザ入力が空なら検索は不要（検索不能）
+    return { needSearch: false, reason: "empty-question" };
+  }
+  if (!ctx.threadId || !ctx.threadId.trim()) {
+    // threadId 不正でも検索側に倒す
+    return { needSearch: true, reason: "empty-threadId" };
+  }
 
   await preflightAuth();
 
@@ -137,9 +135,12 @@ export async function runSearchDecision(
 
   // アシスタント出力（JSON想定）を取得
   const msg = await getAssistantMessageForRun(ctx.threadId, run.id);
-  if (!msg) return { needSearch: false, reason: "no-assistant-message" };
+  if (!msg) {
+    // 取得できなくても検索側へ
+    return { needSearch: true, reason: "no-assistant-message" };
+  }
 
-  // content から text を抽出して連結（モデルには“JSONのみ”を指示している想定）
+  // content から text を抽出
   const texts: string[] = (msg.content as MessageContentUnion[])
     .filter((b) => b.type === "output_text")
     .map((b) => {
@@ -152,12 +153,11 @@ export async function runSearchDecision(
 
   const decision: SearchDecision = parseSearchDecision(body);
   if (debugAi) {
-    console.info("[decision] runId=%s needSearch=%s rewritten=%s missing=%s followup=%s reason=%s",
+    console.info(
+      "[decision] runId=%s needSearch=%s rewritten=%s reason=%s",
       run.id,
       String(decision.needSearch),
       decision.rewrittenQuery ?? "",
-      (decision.missing ?? []).join(","),
-      decision.followup ?? "",
       decision.reason ?? ""
     );
   }
