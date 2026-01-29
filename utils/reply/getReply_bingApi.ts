@@ -7,6 +7,7 @@ import { LINE, DEBUG, MAIN_TIMERS } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/reply/fence";
 import { toLineTextsFromMessage } from "@/utils/line/lineMessage";
 import { withLock } from "@/utils/redis";
+import { buildSearchQuery } from "@/utils/search/buildSearchQuery";
 import { bingWebSearch, type BingWebPage } from "@/utils/search/providers/bing";
 import { formatSearchContext, type SearchItem } from "@/utils/search/format";
 import { runSearchDecision, type SearchDecision } from "@/utils/search/decision";
@@ -90,8 +91,17 @@ export async function getReply_bingApi(
 
         // 検索が必要なら必ず Web 検索を実行
         if (decision.needSearch) {
-          const q: string = (decision.rewrittenQuery ?? options.question).trim();
-          if (q.length > 0) {
+          // rewrittenQuery が取れた場合はそれを最優先
+          // 取れなかった場合は buildSearchQuery にフォールバックさせる
+          const q: string | null =
+            decision.rewrittenQuery && decision.rewrittenQuery.trim().length > 0
+              ? decision.rewrittenQuery.trim()
+              : await buildSearchQuery({
+                  rewrittenQuery: decision.rewrittenQuery,
+                  question: options.question,
+                  threadId: ctx.threadId,
+                });
+          if (q && q.length > 0) {
             const pages: readonly BingWebPage[] = await bingWebSearch(q);
             const items: SearchItem[] = pages.map((p) => ({
               title: p.name,
@@ -106,7 +116,7 @@ export async function getReply_bingApi(
                 sourceType: ctx.sourceType,
                 ownerId: ctx.ownerId,
                 threadId,
-                query: q,
+                query: q, // 実際に使われた最終検索クエリ
                 items: items.length,
               });
               if (searchContext) logRawBlock("[ai.reply/api] searchContext(raw)", searchContext);
