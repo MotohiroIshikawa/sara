@@ -151,7 +151,15 @@ export async function runSearchDecision(
 
   const body: string = texts.join("\n").trim();
 
-  const decision: SearchDecision = parseSearchDecision(body);
+  let  decision: SearchDecision = parseSearchDecision(body);
+
+  if (decision.needSearch && !decision.rewrittenQuery) {
+    decision = {
+      ...decision,
+      reason: decision.reason ?? "missing-rewrittenQuery",
+    };
+  }
+
   if (debugAi) {
     console.info(
       "[decision] runId=%s needSearch=%s rewritten=%s reason=%s",
