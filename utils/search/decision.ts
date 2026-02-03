@@ -151,6 +151,12 @@ export async function runSearchDecision(
 
   const body: string = texts.join("\n").trim();
 
+  if (debugAi) {
+    console.info("[decision] raw assistant output >>>");
+    console.info(body);
+    console.info("[decision] <<< end raw output");
+  }
+
   let  decision: SearchDecision = parseSearchDecision(body);
 
   if (decision.needSearch && !decision.rewrittenQuery) {
