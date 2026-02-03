@@ -36,7 +36,6 @@ export async function getReply_bingApi(
   opts?: AiReplyOptions
 ): Promise<AiReplyResult> {
   const missingReasons: readonly MissingReason[] = opts?.missingReasons ?? [];
-
   const options: NormalizedReplyOptions = normalizeReplyOptions(opts);
 
   const validationError: AiReplyResult | null = validateReplyInputs(ctx, options);
@@ -44,6 +43,7 @@ export async function getReply_bingApi(
 
   const hasImage: boolean = options.imageUrls.length > 0;
   const hasQuestion: boolean = options.question.trim().length > 0;
+
   if (debugAi) {
     console.info("[ai.reply/api] start", {
       sourceType: ctx.sourceType,
@@ -58,25 +58,63 @@ export async function getReply_bingApi(
   // 認証チェック
   await preflightAuth();
 
-  // 指示文（reply用）を取得 -> api
+  // reply 用 instruction
   const { instruction, origin } = await getInstruction(ctx.sourceType, ctx.ownerId, "reply", "api");
   if (debugAi) {
     console.info("[ai.reply/api] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
     logRawBlock("[ai.reply/api] instruction(raw)", instruction);
   }
 
-  // ロックキーは type + ownerId を採用
   const lockKey: string = createOwnerLockKey(ctx.sourceType, ctx.ownerId);
 
   return await withLock(lockKey, 90_000, async () => {
     const threadId: string = ctx.threadId;
 
-    // 事前判定（decision.md）→ Web検索要否と検索クエリの決定
+    // decision（検索要否判定）は専用 thread で実行する
     let searchContext: string = "";
+
     if (hasQuestion) {
+      let decisionThreadId: string | null = null;
       try {
-        const { instruction: decisionIns } = await getInstruction(ctx.sourceType, ctx.ownerId, "decision");
-        const decision: SearchDecision = await runSearchDecision(decisionIns, ctx, options.question);
+        const { instruction: decisionIns } =
+          await getInstruction(ctx.sourceType, ctx.ownerId, "decision");
+
+        // decision 用 thread を新規作成
+        const decisionThread = await agentsClient.threads.create();
+        decisionThreadId = decisionThread.id;
+
+        // decision に渡す入力は Node.js 側で再構築した 1 本の文字列
+        const decisionInput: string | null = await buildSearchQuery({
+          rewrittenQuery: null,
+          question: options.question,
+          threadId: ctx.threadId, // メイン thread から user 発言を拾う
+        });
+
+        const finalDecisionInput: string =
+          decisionInput && decisionInput.length > 0
+            ? decisionInput
+            : options.question.trim();
+
+        if (debugAi) {
+          logRawBlock("[decision.input]", finalDecisionInput);
+          logRawBlock("[decision.instruction]", decisionIns);
+        }
+
+        // decision thread に user メッセージを 1 回だけ投入
+        await agentsClient.messages.create(
+          decisionThreadId,
+          "user",
+          finalDecisionInput
+        );
+
+        // ctx を直接使わず、decision 用 threadId で判定
+        const decisionCtx: AiContext = {
+          ...ctx,
+          threadId: decisionThreadId,
+        };
+
+        const decision: SearchDecision =
+          await runSearchDecision(decisionIns, decisionCtx, finalDecisionInput);
 
         if (debugAi) {
           console.info("[ai.reply/api] decision", {
@@ -86,21 +124,15 @@ export async function getReply_bingApi(
             rewrittenQuery: decision.rewrittenQuery ?? null,
             reason: decision.reason ?? null,
           });
-          logRawBlock("[ai.reply/api] decisionInstruction(raw)", decisionIns);
         }
 
-        // 検索が必要なら必ず Web 検索を実行
+        // 検索が必要なら Web 検索
         if (decision.needSearch) {
-          // rewrittenQuery が取れた場合はそれを最優先
-          // 取れなかった場合は buildSearchQuery にフォールバックさせる
           const q: string | null =
             decision.rewrittenQuery && decision.rewrittenQuery.trim().length > 0
               ? decision.rewrittenQuery.trim()
-              : await buildSearchQuery({
-                  rewrittenQuery: decision.rewrittenQuery,
-                  question: options.question,
-                  threadId: ctx.threadId,
-                });
+              : finalDecisionInput;
+
           if (q && q.length > 0) {
             const pages: readonly BingWebPage[] = await bingWebSearch(q);
             const items: SearchItem[] = pages.map((p) => ({
@@ -109,6 +141,7 @@ export async function getReply_bingApi(
               snippet: p.snippet,
               crawledAt: p.dateLastCrawled ?? null,
             }));
+
             searchContext = formatSearchContext(items, 5, 240);
 
             if (debugAi) {
@@ -116,21 +149,32 @@ export async function getReply_bingApi(
                 sourceType: ctx.sourceType,
                 ownerId: ctx.ownerId,
                 threadId,
-                query: q, // 実際に使われた最終検索クエリ
+                query: q,
                 items: items.length,
               });
-              if (searchContext) logRawBlock("[ai.reply/api] searchContext(raw)", searchContext);
+              if (searchContext) {
+                logRawBlock("[ai.reply/api] searchContext(raw)", searchContext);
+              }
             }
           }
         }
       } catch (e) {
-        if (debugAi) console.warn("[ai.reply/api] decision/search failed:", e);
-        // 例外が出ても decision.ts 側が needSearch=true に倒しているので
-        // ここでは特別な処理をせず、そのまま searchContext なしで進む
+        if (debugAi) {
+          console.warn("[ai.reply/api] decision/search failed:", e);
+        }
+      } finally {
+        // decision thread は必ず破棄
+        if (decisionThreadId) {
+          try {
+            await agentsClient.threads.delete(decisionThreadId);
+          } catch {
+            // no-op
+          }
+        }
       }
     }
 
-    // missingReasons をモデルに渡す（prompt側の特別ルールを有効化する）
+    // reply 本体
     if (missingReasons.length > 0) {
       const payload: string = `${MISSING_REASONS_PREFIX} ${JSON.stringify(missingReasons)}`;
       if (debugAi) {
@@ -139,7 +183,6 @@ export async function getReply_bingApi(
       await agentsClient.messages.create(threadId, "user", payload);
     }
 
-    // 検索コンテキスト → ユーザー投入直前に掲示
     if (searchContext) {
       if (debugAi) {
         logRawBlock("[ai.reply/api] injectedUserMessage(searchContext)", searchContext);
@@ -147,7 +190,6 @@ export async function getReply_bingApi(
       await agentsClient.messages.create(threadId, "user", searchContext);
     }
 
-    // 入力（テキスト/画像）を投入
     if (hasQuestion) {
       const qText: string = options.question.trim();
       if (debugAi) {
@@ -155,28 +197,34 @@ export async function getReply_bingApi(
       }
       await agentsClient.messages.create(threadId, "user", qText);
     }
+
     if (hasImage) {
-      const imageBlocks: MessageInputContentBlockUnion[] = options.imageUrls.map((u) => ({
-        type: "image_url",
-        imageUrl: { url: u, detail: "high" },
-      }));
+      const imageBlocks: MessageInputContentBlockUnion[] =
+        options.imageUrls.map((u) => ({
+          type: "image_url",
+          imageUrl: { url: u, detail: "high" },
+        }));
 
       if (debugAi) {
-        const urlsJson: string = JSON.stringify(options.imageUrls);
-        logRawBlock("[ai.reply/api] injectedUserMessage(imageUrls)", urlsJson);
-
-        const blocksJson: string = JSON.stringify(imageBlocks);
-        logRawBlock("[ai.reply/api] injectedUserMessage(imageBlocks)", blocksJson);
+        logRawBlock(
+          "[ai.reply/api] injectedUserMessage(imageUrls)",
+          JSON.stringify(options.imageUrls)
+        );
+        logRawBlock(
+          "[ai.reply/api] injectedUserMessage(imageBlocks)",
+          JSON.stringify(imageBlocks)
+        );
       }
 
       await agentsClient.messages.create(threadId, "user", imageBlocks);
     }
 
-    const replyAgentId: string = await getOrCreateAgentIdWithTools(instruction, [], "reply");
+    const replyAgentId: string =
+      await getOrCreateAgentIdWithTools(instruction, [], "reply");
 
     const run = await withTimeout(
       agentsClient.runs.create(threadId, replyAgentId, {
-        parallelToolCalls: false, // ツール無し
+        parallelToolCalls: false,
       }),
       MAIN_TIMERS.CREATE_TIMEOUT,
       "reply:create"
@@ -200,36 +248,10 @@ export async function getReply_bingApi(
       });
     }
 
-    // 完了待ち（ポーリング）
     await waitForRunCompletion(threadId, run.id, "reply");
 
-    if (debugAi) {
-      const runInfo: { status?: string; lastError?: unknown } =
-        await agentsClient.runs.get(threadId, run.id);
-      console.info("[ai.reply/api] run completed", {
-        sourceType: ctx.sourceType,
-        ownerId: ctx.ownerId,
-        threadId,
-        runId: run.id,
-        status: runInfo.status ?? null,
-        lastError: runInfo.lastError ?? null,
-      });
-    }
-
-    // 応答メッセージ取得
     const replyMsg = await getAssistantMessageForRun(threadId, run.id);
     if (!replyMsg) {
-      const runInfo: { status?: string; lastError?: unknown } =
-        await agentsClient.runs.get(threadId, run.id);
-      console.error("[ai.reply/api] reply message not found", {
-        sourceType: ctx.sourceType,
-        ownerId: ctx.ownerId,
-        threadId,
-        runId: run.id,
-        status: runInfo.status,
-        lastError: runInfo.lastError,
-      });
-
       return {
         texts: ["⚠️エラーが発生しました（返信メッセージが見つかりません）"],
         agentId: replyAgentId,
@@ -238,9 +260,11 @@ export async function getReply_bingApi(
       };
     }
 
-    // 内部ブロック除去 → LINE用配列へ
     const { cleaned } = stripInternalBlocksFromContent(replyMsg.content);
-    let texts: string[] = toLineTextsFromMessage(cleaned, { maxUrls: LINE.MAX_URLS_PER_BLOCK, showTitles: false });
+    let texts: string[] = toLineTextsFromMessage(cleaned, {
+      maxUrls: LINE.MAX_URLS_PER_BLOCK,
+      showTitles: false,
+    });
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
     if (debugAi) {
@@ -253,12 +277,11 @@ export async function getReply_bingApi(
       );
     }
 
-    const result: AiReplyResult = {
+    return {
       texts,
       agentId: replyAgentId,
       threadId,
       runId: run.id,
     };
-    return result;
   });
 }
