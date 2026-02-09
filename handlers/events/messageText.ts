@@ -20,6 +20,7 @@ import type { AiContext, AiReplyOptions, Meta, MetaComputeResult } from "@/types
 import { getOrCreateThreadId } from "@/services/threadState";
 import { getSpeakerUserId } from "@/utils/line/lineSource";
 import { runReply } from "@/utils/reply/selector";
+import { agentsClient } from "@/utils/agents";
 
 const replyMax: number = LINE.REPLY_MAX;
 const REPLY_MODE: ReplyMode = "session";
@@ -62,6 +63,16 @@ export async function handleMessageText(
     const threadId: string = await getOrCreateThreadId(sourceType, sourceId);
     const ctx: AiContext = { ownerId: sourceId, sourceType: sourceType, threadId };
     console.info("[messageText] user: ctx ready", {
+      sourceType, sourceId, messageId, threadId,
+    });
+
+    // thread に user message を追加（meta 前に1回）
+    await agentsClient.messages.create(
+      threadId,
+      "user",
+      [{ type: "text", text: question }]
+    );
+    console.info("[messageText] user: thread message appended", {
       sourceType, sourceId, messageId, threadId,
     });
 
