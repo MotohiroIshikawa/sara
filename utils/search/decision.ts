@@ -102,8 +102,8 @@ export async function runSearchDecision(
   // tools: なし、purpose: "meta"（軽量モデル想定）
   const agentId: string = await getOrCreateAgentIdWithTools(instruction, [], "meta");
 
-  // user 質問を投入->metaで投入しているので投入しない
-  // await agentsClient.messages.create(ctx.threadId, "user", q);
+  // user 質問を投入
+  await agentsClient.messages.create(ctx.threadId, "user", q);
 
   const run = await withTimeout(
     agentsClient.runs.create(ctx.threadId, agentId, {
