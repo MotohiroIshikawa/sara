@@ -149,6 +149,7 @@ export async function bingWebSearch(
         console.info("[bing.raw] keys=", Object.keys(res.data ?? {}));
         console.info("[bing.raw] webPages.count=", res.data?.webPages?.value.length ?? 0);
         console.info("[bing.raw] news.count=", res.data?.news?.value.length ?? 0);
+        console.info("[bing.raw] data=", JSON.stringify(res.data, null, 2));
       }
 
       const pages: BingWebPage[] = list.map((p) => {
