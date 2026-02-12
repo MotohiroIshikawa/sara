@@ -1,4 +1,3 @@
-// utils/bingSearch.ts
 import axios, { AxiosError } from "axios";
 
 export type BingFreshness = "Day" | "Week" | "Month";
@@ -12,55 +11,75 @@ export type BingWebPage = {
   dateLastCrawled?: string;
 };
 
+type BingWebSearchApiWebPageItem = {
+  name: string;
+  url: string;
+  displayUrl?: string;
+  snippet: string;
+  dateLastCrawled?: string;
+};
+
+type BingWebSearchApiNewsItem = {
+  name: string;
+  url: string;
+  description?: string;
+  datePublished?: string;
+};
+
 type BingWebSearchApiWebPages = {
-  value: ReadonlyArray<{
-    name: string;
-    url: string;
-    displayUrl?: string;
-    snippet: string;
-    dateLastCrawled?: string;
-  }>;
+  value: ReadonlyArray<BingWebSearchApiWebPageItem>;
+};
+
+type BingWebSearchApiNews = {
+  value: ReadonlyArray<BingWebSearchApiNewsItem>;
 };
 
 type BingWebSearchApiResponse = {
   webPages?: BingWebSearchApiWebPages;
+  news?: BingWebSearchApiNews;
   queryContext?: unknown;
   _type?: string;
 };
 
-// オプション型（キーは省略可。未指定なら環境変数・既定値を利用）
+// 型ガード（webPages / news 判別用）
+function isWebPage(
+  p: BingWebSearchApiWebPageItem | BingWebSearchApiNewsItem
+): p is BingWebSearchApiWebPageItem {
+  return "snippet" in p;
+}
+
+// オプション型
 export type BingWebSearchOptions = {
-  subscriptionKey?: string;       // 未指定なら env を使用
-  endpointBaseUrl?: string;       // 例: https://api.bing.microsoft.com （未指定なら既定）
-  mkt?: string;                   // 例: "ja-JP"
-  count?: number;                 // 取得件数（Bing 既定は 10）
-  freshness?: BingFreshness;      // "Day" | "Week" | "Month"
-  safeSearch?: BingSafeSearch;    // "Off" | "Moderate" | "Strict"
-  timeoutMs?: number;             // 個別タイムアウト
-  maxRetries?: number;            // リトライ回数（429/5xx/ネットワーク系で）
-  baseDelayMs?: number;           // バックオフ基点
+  subscriptionKey?: string;
+  endpointBaseUrl?: string;
+  mkt?: string;
+  count?: number;
+  freshness?: BingFreshness;
+  safeSearch?: BingSafeSearch;
+  timeoutMs?: number;
+  maxRetries?: number;
+  baseDelayMs?: number;
 };
 
 // 既定値
-const DEFAULT_ENDPOINT_BASE = "https://api.bing.microsoft.com"; // REST のベース
+const DEFAULT_ENDPOINT_BASE = "https://api.bing.microsoft.com";
 const DEFAULT_PATH = "/v7.0/search";
 const DEFAULT_MKT = "ja-JP";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_BASE_DELAY_MS = 300;
 
-// 環境変数からキー/エンドポイントを取得（env.ts へは“次のステップ”で寄せてもOK）
 function resolveSubscriptionKey(explicit?: string): string {
   const k: string | undefined = explicit ?? process.env.BING_V7_SUBSCRIPTION_KEY;
   if (!k || !k.trim()) {
-    throw new Error("BING_V7_SUBSCRIPTION_KEY is not set (and subscriptionKey option not provided).");
+    throw new Error("BING_V7_SUBSCRIPTION_KEY is not set.");
   }
   return k.trim();
 }
 
 function resolveEndpointBase(explicit?: string): string {
   const b: string = (explicit ?? process.env.BING_V7_ENDPOINT ?? DEFAULT_ENDPOINT_BASE).trim();
-  return b.replace(/\/+$/, ""); // 末尾スラッシュ除去
+  return b.replace(/\/+$/, "");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -72,14 +91,10 @@ function shouldRetry(e: unknown): boolean {
   const status: number | undefined = err.response?.status;
   if (status === 429) return true;
   if (status && status >= 500) return true;
-  if (!status) {
-    // ネットワーク系（ECONNRESET, ETIMEDOUT など）
-    return true;
-  }
+  if (!status) return true; // network error
   return false;
 }
 
-// エラーメッセージ整形
 function formatAxiosError(e: unknown): string {
   const err = e as AxiosError;
   const status = err.response?.status;
@@ -88,7 +103,7 @@ function formatAxiosError(e: unknown): string {
   return `status=${status ?? "n/a"} code=${code ?? "n/a"} message=${err.message} data=${JSON.stringify(data ?? {})}`;
 }
 
-// main：Web 検索（スニペットだけでなく主要フィールドを返す）
+// main
 export async function bingWebSearch(
   query: string,
   options: BingWebSearchOptions = {}
@@ -100,7 +115,6 @@ export async function bingWebSearch(
   const maxRetries: number = Math.max(0, options.maxRetries ?? DEFAULT_MAX_RETRIES);
   const baseDelayMs: number = Math.max(0, options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS);
 
-  // パラメータ整備
   const params: Record<string, string | number> = {
     q: query,
     mkt: options.mkt ?? DEFAULT_MKT,
@@ -110,7 +124,7 @@ export async function bingWebSearch(
   if (options.safeSearch) params.safeSearch = options.safeSearch;
 
   let attempt = 0;
-  // リトライ付き実行ループ（429/5xx/ネットワーク系でバックオフ）
+
   while (true) {
     try {
       const url = `${baseUrl}${DEFAULT_PATH}`;
@@ -118,7 +132,6 @@ export async function bingWebSearch(
         params,
         headers: { "Ocp-Apim-Subscription-Key": subscriptionKey },
         timeout: timeoutMs,
-        // 2xx / 4xx（除く429）を許可、429/5xx は例外で拾う
         validateStatus: (s: number) => (s >= 200 && s < 400) || s === 404,
       });
 
@@ -126,20 +139,39 @@ export async function bingWebSearch(
         throw new Error(`HTTP ${res.status}`);
       }
 
-      const list = res.data?.webPages?.value ?? [];
-      const pages: BingWebPage[] = list.map((p) => ({
-        name: p.name,
-        url: p.url,
-        displayUrl: p.displayUrl,
-        snippet: p.snippet,
-        dateLastCrawled: p.dateLastCrawled,
-      }));
+      // webPages → news フォールバック
+      const list: ReadonlyArray<BingWebSearchApiWebPageItem | BingWebSearchApiNewsItem> =
+        res.data?.webPages?.value ??
+        res.data?.news?.value ??
+        [];
+
+      if (process.env.DEBUG_BING === "true") {
+        console.info("[bing.raw] keys=", Object.keys(res.data ?? {}));
+        console.info("[bing.raw] webPages.count=", res.data?.webPages?.value.length ?? 0);
+        console.info("[bing.raw] news.count=", res.data?.news?.value.length ?? 0);
+      }
+
+      const pages: BingWebPage[] = list.map((p) => {
+        if (isWebPage(p)) {
+          return {
+            name: p.name,
+            url: p.url,
+            displayUrl: p.displayUrl,
+            snippet: p.snippet,
+            dateLastCrawled: p.dateLastCrawled,
+          };
+        }
+        return {
+          name: p.name,
+          url: p.url,
+          snippet: p.description ?? "",
+        };
+      });
 
       return pages;
     } catch (e) {
       attempt += 1;
       if (!shouldRetry(e) || attempt > maxRetries) {
-        // 打ち切り
         const msg = formatAxiosError(e);
         throw new Error(`[bingWebSearch] failed after ${attempt} attempt(s): ${msg}`);
       }
