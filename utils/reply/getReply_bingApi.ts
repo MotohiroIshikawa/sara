@@ -1,9 +1,8 @@
-import { type MessageInputContentBlockUnion } from "@azure/ai-agents";
+import { type MessageInputContentBlockUnion, type ThreadMessage } from "@azure/ai-agents";
 import type { AiContext, AiReplyOptions, AiReplyResult, MissingReason } from "@/types/gpts";
-import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
+import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth, runWithToolCapture } from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
-import { withTimeout } from "@/utils/async";
-import { LINE, DEBUG, MAIN_TIMERS } from "@/utils/env";
+import { LINE, DEBUG } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/reply/fence";
 import { toLineTextsFromMessage } from "@/utils/line/lineMessage";
 import { withLock } from "@/utils/redis";
@@ -15,9 +14,8 @@ import {
   normalizeReplyOptions,
   type NormalizedReplyOptions,
   createOwnerLockKey,
-  getAssistantMessageForRun,
-  waitForRunCompletion,
   validateReplyInputs,
+  buildReplyRequiresActionHandler,
 } from "@/utils/reply/getReply_common";
 
 const debugAi: boolean =
@@ -222,41 +220,39 @@ export async function getReply_bingApi(
     const replyAgentId: string =
       await getOrCreateAgentIdWithTools(instruction, [], "reply");
 
-    const run = await withTimeout(
-      agentsClient.runs.create(threadId, replyAgentId, {
-        parallelToolCalls: false,
-      }),
-      MAIN_TIMERS.CREATE_TIMEOUT,
-      "reply:create"
-    );
+    const r = await runWithToolCapture<void>({
+      threadId,
+      agentId: replyAgentId,
+      operation: "reply",
+      requiresActionHandler: buildReplyRequiresActionHandler(),
+    });
 
     if (debugAi) {
-      console.info("[ai.reply/api] run created", {
+      console.info("[ai.reply/api] run done", {
         sourceType: ctx.sourceType,
         ownerId: ctx.ownerId,
         threadId,
-        runId: run.id,
-      });
-      console.info("[ai.reply/api] run prompt snapshot", {
-        runId: run.id,
-        origin,
-        instructionLen: instruction.length,
-        hasQuestion,
-        hasImage,
-        missingReasons: missingReasons.length > 0 ? missingReasons : null,
-        hasSearchContext: searchContext.length > 0,
+        runId: r.runId,
+        status: r.finalState?.status ?? null,
+        timedOut: r.timedOut,
       });
     }
 
-    await waitForRunCompletion(threadId, run.id, "reply");
+    let replyMsg: ThreadMessage | undefined;
 
-    const replyMsg = await getAssistantMessageForRun(threadId, run.id);
+    for await (const m of agentsClient.messages.list(threadId, { order: "desc" })) {
+      if (m.role === "assistant" && m.runId === r.runId) {
+        replyMsg = m;
+        break;
+      }
+    }
+
     if (!replyMsg) {
       return {
         texts: ["⚠️エラーが発生しました（返信メッセージが見つかりません）"],
         agentId: replyAgentId,
         threadId,
-        runId: run.id,
+        runId: r.runId,
       };
     }
 
@@ -270,7 +266,7 @@ export async function getReply_bingApi(
     if (debugAi) {
       console.info(
         "[ai.reply/api] done: runId=%s agentId=%s threadId=%s texts=%d",
-        run.id,
+        r.runId,
         replyAgentId,
         threadId,
         texts.length
@@ -281,7 +277,7 @@ export async function getReply_bingApi(
       texts,
       agentId: replyAgentId,
       threadId,
-      runId: run.id,
+      runId: r.runId,
     };
   });
 }

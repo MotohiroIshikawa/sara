@@ -1,40 +1,35 @@
-import { ToolUtility, type MessageInputContentBlockUnion } from "@azure/ai-agents";
+import { ToolUtility, type MessageInputContentBlockUnion, type ThreadMessage } from "@azure/ai-agents";
 import type { AiContext, AiReplyOptions, AiReplyResult, MissingReason } from "@/types/gpts";
-import { agentsClient, getOrCreateAgentIdWithTools, preflightAuth } from "@/utils/agents";
+import {
+  agentsClient,
+  getOrCreateAgentIdWithTools,
+  preflightAuth,
+  runWithToolCapture,
+} from "@/utils/agents";
 import { getInstruction } from "@/utils/prompts/getInstruction";
-import { withTimeout } from "@/utils/async";
-import { LINE, DEBUG, AZURE, MAIN_TIMERS } from "@/utils/env";
+import { LINE, DEBUG, AZURE } from "@/utils/env";
 import { stripInternalBlocksFromContent } from "@/utils/reply/fence";
 import { toLineTextsFromMessage } from "@/utils/line/lineMessage";
 import { withLock } from "@/utils/redis";
 import {
   createOwnerLockKey,
-  getAssistantMessageForRun,
   normalizeReplyOptions,
   validateReplyInputs,
-  waitForRunCompletion,
-  type NormalizedReplyOptions,
+  buildReplyRequiresActionHandler,
 } from "./getReply_common";
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
 
-// Grounding 専用デバッグフラグ
 const debugGrounding: boolean =
   process.env.DEBUG_GROUNDING === "true";
 
-const MISSING_REASONS_PREFIX = "[missingReasons]";
-
-// Grounding/Search ツールを生成（Bing 設定があれば利用）
+// Grounding/Search ツールを生成
 function createSearchTool(): readonly unknown[] {
   if (!AZURE.BING_CONNECTION_ID) {
-    // Grounding 無効状態を明示
-    if (debugGrounding) {
-      console.warn("[ai.reply.grounding] Bing grounding disabled: no AZURE.BING_CONNECTION_ID");
-    }
+    console.warn("[ai.reply.grounding] ⚠️ BING_CONNECTION_ID missing → grounding disabled"); // ★
     return [];
   }
-
   const bingTool = ToolUtility.createBingGroundingTool([
     {
       connectionId: AZURE.BING_CONNECTION_ID,
@@ -44,40 +39,31 @@ function createSearchTool(): readonly unknown[] {
       freshness: "week",
     },
   ]);
-
-  // Grounding 有効ログ
-  if (debugGrounding) {
-    console.info("[ai.reply.grounding] Bing grounding enabled", {
-      connectionId: AZURE.BING_CONNECTION_ID,
-      market: "ja-JP",
-      count: 5,
-      freshness: "week",
-    });
-  }
-
   return [bingTool];
 }
 
-// 返信取得
 export async function getReply_bingGrounding(
   ctx: AiContext,
   opts?: AiReplyOptions
 ): Promise<AiReplyResult> {
-  const missingReasons: readonly MissingReason[] = opts?.missingReasons ?? [];
-
-  const options: NormalizedReplyOptions = normalizeReplyOptions(opts);
-  const validationError: AiReplyResult | null = validateReplyInputs(ctx, options);
+  const options = normalizeReplyOptions(opts);
+  const validationError = validateReplyInputs(ctx, options);
   if (validationError) return validationError;
 
+  const missingReasons: readonly MissingReason[] = options.missingReasons;
   const hasImage: boolean = options.imageUrls.length > 0;
   const hasQuestion: boolean = options.question.trim().length > 0;
 
-  // 認証チェック
   await preflightAuth();
 
-  // 指示文（reply用）を取得 -> tool
-  const { instruction, origin } = await getInstruction(ctx.sourceType, ctx.ownerId, "reply", "tool");
-  if (debugAi || debugGrounding) {
+  const { instruction, origin } = await getInstruction(
+    ctx.sourceType,
+    ctx.ownerId,
+    "reply",
+    "tool"
+  );
+
+  if (debugAi) {
     console.info("[ai.reply] origin=%s src=%s owner=%s", origin, ctx.sourceType, ctx.ownerId);
     console.info("[ai.reply] start", {
       sourceType: ctx.sourceType,
@@ -85,34 +71,32 @@ export async function getReply_bingGrounding(
       threadId: ctx.threadId,
       hasQuestion,
       hasImage,
-      missingReasons: missingReasons.length > 0 ? missingReasons : null,
+      missingReasons: missingReasons.length ? missingReasons : null,
     });
   }
 
-  // ロックキーは type + ownerId を採用
   const lockKey: string = createOwnerLockKey(ctx.sourceType, ctx.ownerId);
 
   return await withLock(lockKey, 90_000, async () => {
-    const threadId: string = ctx.threadId;
+    const threadId = ctx.threadId;
 
-    // missingReasons をモデルに渡す
+    // missingReasons 注入（履歴に残す）
     if (missingReasons.length > 0) {
-      const payload: string = `${MISSING_REASONS_PREFIX} ${JSON.stringify(missingReasons)}`;
-      await agentsClient.messages.create(threadId, "user", payload);
-
-      // missingReasons 投入ログ
+      const payload = `[missingReasons] ${JSON.stringify(missingReasons)}`;
       if (debugGrounding) {
         console.info("[ai.reply.grounding] missingReasons injected", {
           threadId,
           count: missingReasons.length,
         });
       }
+      await agentsClient.messages.create(threadId, "user", payload);
     }
 
-    // 入力（テキスト/画像）を投入
+    // user input
     if (hasQuestion) {
       await agentsClient.messages.create(threadId, "user", options.question.trim());
     }
+
     if (hasImage) {
       const imageBlocks: MessageInputContentBlockUnion[] = options.imageUrls.map((u) => ({
         type: "image_url",
@@ -121,84 +105,77 @@ export async function getReply_bingGrounding(
       await agentsClient.messages.create(threadId, "user", imageBlocks);
     }
 
-    // reply 実行
-    const tools: readonly unknown[] = createSearchTool();
+    const tools = createSearchTool();
 
-    // tool 有無ログ
     if (debugGrounding) {
-      console.info("[ai.reply.grounding] creating reply agent", {
-        threadId,
-        toolCount: tools.length,
+      console.info("[ai.reply.grounding] tools", {
         hasGroundingTool: tools.length > 0,
+        toolCount: tools.length,
       });
     }
 
-    const replyAgentId: string = await getOrCreateAgentIdWithTools(instruction, tools, "reply");
-
-    const run = await withTimeout(
-      agentsClient.runs.create(threadId, replyAgentId, {
-        parallelToolCalls: true,
-      }),
-      MAIN_TIMERS.CREATE_TIMEOUT,
-      "reply:create"
+    const agentId = await getOrCreateAgentIdWithTools(
+      instruction,
+      tools,
+      "reply"
     );
 
-    // run 作成ログ
-    if (debugGrounding) {
-      console.info("[ai.reply.grounding] run created", {
-        runId: run.id,
-        agentId: replyAgentId,
-        threadId,
+    const r = await runWithToolCapture<void>({
+      threadId,
+      agentId,
+      operation: "reply",
+      requiresActionHandler: buildReplyRequiresActionHandler(),
+    });
+
+    if (debugAi) {
+      console.info("[ai.reply] run done", {
+        runId: r.runId,
+        status: r.finalState?.status ?? null,
+        timedOut: r.timedOut,
       });
     }
 
-    // 完了待ち（ポーリング）
-    await waitForRunCompletion(threadId, run.id, "reply");
-
-    // 応答メッセージ取得
-    const replyMsg = await getAssistantMessageForRun(threadId, run.id);
-    if (!replyMsg) {
-      // assistant message 取得失敗ログ
-      console.error("[ai.reply.grounding] assistant message not found", {
-        runId: run.id,
-        threadId,
+    if (debugGrounding) {
+      console.info("[ai.reply.grounding] run summary", {
+        runId: r.runId,
+        status: r.finalState?.status ?? null,
+        timedOut: r.timedOut,
+        usedGrounding: tools.length > 0,
       });
+    }
+
+    // assistant メッセージ取得（最後の assistant）
+    let msg: ThreadMessage | undefined;
+
+    for await (const m of agentsClient.messages.list(threadId, { order: "desc" })) {
+      if (m.role === "assistant" && m.runId === r.runId) {
+        msg = m;
+        break;
+      }
+    }
+
+    if (!msg) {
       return {
         texts: ["⚠️エラーが発生しました（返信メッセージが見つかりません）"],
-        agentId: replyAgentId,
+        agentId,
         threadId,
-        runId: run.id,
+        runId: r.runId,
       };
     }
 
-    // 内部ブロック除去 → LINE用配列へ
-    const { cleaned } = stripInternalBlocksFromContent(replyMsg.content);
-    let texts: string[] = toLineTextsFromMessage(cleaned, {
+    const { cleaned } = stripInternalBlocksFromContent(msg.content);
+    let texts = toLineTextsFromMessage(cleaned, {
       maxUrls: LINE.MAX_URLS_PER_BLOCK,
       showTitles: false,
     });
+
     if (!texts.length) texts = ["（結果が見つかりませんでした）"];
 
-    // 正常終了ログ
-    if (debugAi || debugGrounding) {
-      console.info(
-        "[ai.reply.grounding] done",
-        {
-          runId: run.id,
-          agentId: replyAgentId,
-          threadId,
-          textCount: texts.length,
-          usedGrounding: tools.length > 0,
-        }
-      );
-    }
-
-    const result: AiReplyResult = {
+    return {
       texts,
-      agentId: replyAgentId,
+      agentId,
       threadId,
-      runId: run.id,
+      runId: r.runId,
     };
-    return result;
   });
 }

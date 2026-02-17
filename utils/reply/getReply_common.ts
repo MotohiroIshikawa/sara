@@ -1,26 +1,14 @@
 import { type MessageContentUnion } from "@azure/ai-agents";
 import type { AiContext, AiReplyOptions, AiReplyResult, SourceType } from "@/types/gpts";
 import { agentsClient } from "@/utils/agents";
-import { withTimeout } from "@/utils/async";
-import { MAIN_TIMERS, DEBUG } from "@/utils/env";
+import { DEBUG } from "@/utils/env";
+import { toToolCalls, isFunctionToolCall } from "@/utils/types";
 
 // reply オプション（既定値埋め後）
 export type NormalizedReplyOptions =
   Omit<Required<AiReplyOptions>, "metaNorm"> & {
     metaNorm: AiReplyOptions["metaNorm"];
   };
-
-// runs.get の状態確認用
-type RunState = {
-  status?:
-    | "queued"
-    | "in_progress"
-    | "requires_action"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "expired";
-};
 
 const debugAi: boolean =
   (DEBUG.AI || process.env["DEBUG.AI"] === "true" || process.env.DEBUG_AI === "true") === true;
@@ -68,73 +56,61 @@ export async function getAssistantMessageForRun(
   return fallback;
 }
 
-// run が完了ステータスになるまでポーリングする
-export async function waitForRunCompletion(
-  threadId: string,
-  runId: string,
-  label: string
-): Promise<void> {
-  const sleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
-  const safeSleep: number = Math.max(1, MAIN_TIMERS.POLL_SLEEP);
-  const pollMaxTicks: number = Math.max(1, Math.ceil(MAIN_TIMERS.POLL_TIMEOUT / safeSleep)) + 10;
-  const startedAt: number = Date.now();
-  let ticks = 0;
-  let lastStatus: string | null = null;
-  let timedOut: boolean = false;
+// reply 用 requiresActionHandler（meta と同型・詳細ログ）
+export function buildReplyRequiresActionHandler() {
+  const phase = "reply";
 
-  if (debugAi) {
-    console.info("[ai.reply/wait] start", {
-      label,
-      threadId,
-      runId,
-      pollSleep: safeSleep,
-      pollTimeout: MAIN_TIMERS.POLL_TIMEOUT,
-      pollMaxTicks,
-    });
-  }
-  
-  while (true) {
-    const elapsed: number = Date.now() - startedAt;
-    ticks += 1;
-    if (elapsed > MAIN_TIMERS.POLL_TIMEOUT || ticks > pollMaxTicks) {
-      timedOut = true;
-      break;
+  return async ({
+    state
+  }: {
+    state: {
+      requiredAction?: {
+        type?: string;
+        submitToolOutputs?: { toolCalls?: unknown };
+      };
+    };
+  }): Promise<{
+    outputs: { toolCallId: string; output: string }[];
+  }> => {
+    // requires_action の state をそのまま可視化
+    console.info(`[ai.${phase}] requiresAction state =`, JSON.stringify(state, null, 2));
+
+    const outputs: { toolCallId: string; output: string }[] = [];
+    const required = state.requiredAction;
+
+    if (required?.type === "submit_tool_outputs") {
+      const toolCallsRaw = required.submitToolOutputs?.toolCalls ?? [];
+      const calls = toToolCalls(toolCallsRaw);
+
+      if (debugAi) {
+        console.info(`[ai.${phase}] raw toolCalls =`, toolCallsRaw);
+      }
+
+      for (const c of calls) {
+        // reply は tool の出力内容を Node 側で解釈しない。
+        // meta と同様に、必ず {} を submit して run を前進させる。
+        if (isFunctionToolCall(c)) {
+          if (debugAi) {
+            console.info(`[ai.${phase}] submit tool output`, {
+              toolCallId: c.id,
+              name: c.function?.name ?? null,
+            });
+          }
+          outputs.push({
+            toolCallId: c.id,
+            output: "{}",
+          });
+        } else {
+          outputs.push({
+            toolCallId: c.id,
+            output: "{}",
+          });
+        }
+      }
     }
 
-    const st: RunState = (await withTimeout(
-      agentsClient.runs.get(threadId, runId),
-      MAIN_TIMERS.GET_TIMEOUT,
-      `${label}:get`
-    )) as RunState;
-
-    lastStatus = st.status ?? null;
-
-    if (debugAi) {
-      console.info("[ai.reply/wait] tick", {
-        label,
-        threadId,
-        runId,
-        tick: ticks,
-        elapsed,
-        status: lastStatus,
-      });
-    }
-
-    if (["completed", "failed", "cancelled", "expired"].includes(st.status ?? "")) break;
-    await sleep(safeSleep);
-  }
-
-  if (debugAi) {
-    console.info("[ai.reply/wait] done", {
-      label,
-      threadId,
-      runId,
-      ticks,
-      timedOut,
-      lastStatus,
-    });
-  }
-  
+    return { outputs };
+  };
 }
 
 // 入力チェック共通（メッセージ・threadId の存在を確認）
