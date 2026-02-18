@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fs from 'node:fs';
 import https from 'node:https';
 import next from 'next';
