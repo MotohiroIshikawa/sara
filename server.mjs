@@ -7,7 +7,10 @@ console.log("[boot] server.mjs loaded", {
   NODE_ENV: process.env.NODE_ENV,
   APP_ENV: process.env.APP_ENV,
   PORT: process.env.PORT,
-  HOST: process.env.HOST
+  HOST: process.env.HOST,
+  DEBUG_AI: process.env.DEBUG_AI,
+  DEBUG_BING: process.env.DEBUG_BING,
+  DEBUG_GROUNDING: process.env.DEBUG_GROUNDING,
 });
 
 process.on('uncaughtException', (e) => console.error('[uncaught]', e));
