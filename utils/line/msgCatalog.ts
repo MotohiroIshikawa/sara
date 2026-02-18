@@ -85,7 +85,7 @@ const DEFAULT_MSGS: Readonly<Record<MsgKey, string>> = {
   TAP_LATER: "少し待ってからお試しください。",
   SAVE_TARGET_NOT_FOUND: "保存対象が見つかりませんでした。もう一度お試しください。",
   CONTINUE_OK: "了解しました。続けましょう！",
-  NEW_INTRO_1: "新しいチャットルールを作りましょう。\n▼LIFF\nhttps://liff.line.me/2007816927-biAwgRbA\n▼直接\nhttps://lineai-dev.mi10490jp.com:3000/gpts/list",
+  NEW_INTRO_1: "新しいチャットルールを作りましょう。",
   NEW_INTRO_2: "ルールの内容、用途や対象をひと言で教えてください。",
   ACTIVATE_FAIL: "⚠️有効化できませんでした。対象が見つからないか内容が空です。",
   ACTIVATE_OK: "選択したチャットルールを有効化しました。",
